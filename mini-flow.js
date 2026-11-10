@@ -324,6 +324,14 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
         if (focus === node) group.focus();
       }
     }
+    let lastClick;
+    function selectLabel(item) {
+      const now = performance.now();
+      const doubleClick = lastClick?.item === item && now - lastClick.time < 400;
+      lastClick = doubleClick ? undefined : { item, time: now };
+      render(item);
+      if (doubleClick) editLabel(item);
+    }
     function itemGroup(item, label) {
       const group = element('g', { role: 'button', tabindex: 0, 'aria-label': label });
       const activate = () => {
@@ -338,18 +346,18 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
             connect.setAttribute('aria-pressed', 'false');
             origin = undefined;
             changed();
-            status('Arrow added. Type a label or click away.');
+            status('Arrow added. Double-click to edit its label.');
           }
         }
         select(item);
-        render(item);
-        if (!item.type && !origin) editLabel(item);
+        if (origin) render(item);
+        else selectLabel(item);
       };
       group.addEventListener('click', activate);
       group.addEventListener('keydown', event => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          if (item.type && connect.getAttribute('aria-pressed') === 'false') editLabel(item);
+          if (connect.getAttribute('aria-pressed') === 'false') editLabel(item);
           else activate();
         }
       });
@@ -391,8 +399,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
         changed();
         render(completed.node);
       } else {
-        render(completed.node);
-        editLabel(completed.node);
+        selectLabel(completed.node);
       }
     });
     const shapeButtons = [...shadow.querySelectorAll('[data-shape]')];
@@ -637,7 +644,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
     }
     host.append(root);
     area.value = stringify(graph);
-    status('Scroll to zoom · Drag empty space to pan · Click a shape or arrow to edit its label');
+    status('Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
     render();
     fit();
     return { getMermaid: () => stringify(graph), setMermaid, exportSvg, exportPng, exportMarkdown, destroy: () => { observer.disconnect(); root.remove(); } };
