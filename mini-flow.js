@@ -363,6 +363,43 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       });
       return group;
     }
+    const touches = new Map();
+    const pinched = new Set();
+    let pinch;
+    function touchGeometry() {
+      const [a, b] = touches.values();
+      return { clientX: (a.clientX + b.clientX) / 2, clientY: (a.clientY + b.clientY) / 2,
+        distance: Math.max(1, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)) };
+    }
+    svg.addEventListener('pointerdown', event => {
+      if (event.pointerType !== 'touch') return;
+      pinched.delete(event.pointerId);
+      touches.set(event.pointerId, event);
+      if (touches.size < 2) return;
+      event.stopPropagation();
+      if (drag?.moved) changed();
+      drag = pan = undefined;
+      for (const id of touches.keys()) {
+        pinched.add(id);
+        svg.setPointerCapture(id);
+      }
+      const geometry = touchGeometry();
+      pinch = { ...geometry, anchor: world(geometry), zoom };
+      render();
+    }, true);
+    function endTouch(event) {
+      if (!touches.delete(event.pointerId)) return;
+      pinch = undefined;
+      if (touches.size >= 2) {
+        const geometry = touchGeometry();
+        pinch = { ...geometry, anchor: world(geometry), zoom };
+      }
+    }
+    svg.addEventListener('pointerup', endTouch);
+    svg.addEventListener('pointercancel', endTouch);
+    svg.addEventListener('click', event => {
+      if (pinched.has(event.pointerId)) event.stopImmediatePropagation();
+    }, true);
     svg.addEventListener('wheel', event => {
       event.preventDefault();
       if (drag || pan) return;
@@ -375,6 +412,16 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       updateCamera();
     }, { passive: false });
     svg.addEventListener('pointermove', event => {
+      if (touches.has(event.pointerId)) touches.set(event.pointerId, event);
+      if (pinch && touches.has(event.pointerId)) {
+        const geometry = touchGeometry();
+        const bounds = svg.getBoundingClientRect();
+        zoom = Math.min(5, Math.max(.05, pinch.zoom * geometry.distance / pinch.distance));
+        cameraX = pinch.anchor[0] - (geometry.clientX - bounds.left) / zoom;
+        cameraY = pinch.anchor[1] - (geometry.clientY - bounds.top) / zoom;
+        updateCamera();
+        return;
+      }
       const gesture = drag || pan;
       if (!gesture || gesture.pointerId !== event.pointerId) return;
       const dx = (event.clientX - gesture.clientX) / zoom;
@@ -391,7 +438,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
         updateCamera();
       }
     });
-    svg.addEventListener('lostpointercapture', () => {
+    svg.addEventListener('lostpointercapture', event => {
+      if (pinched.has(event.pointerId)) return;
       const completed = drag;
       drag = pan = undefined;
       if (!completed) { render(); return; }
