@@ -195,19 +195,11 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       field.addEventListener('keydown', event => {
         if (event.isComposing) return;
         if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
-          event.preventDefault();
-          const selection = shadow.getSelection?.() || window.getSelection();
-          if (!selection.rangeCount) return;
-          const range = selection.getRangeAt(0);
-          if (!field.contains(range.commonAncestorContainer)) return;
-          range.deleteContents();
-          const newline = document.createTextNode('\n');
-          range.insertNode(newline);
-          range.setStartAfter(newline);
-          range.collapse(true);
-          selection.removeAllRanges();
-          selection.addRange(range);
-          updateLabel();
+          // Let the browser maintain its trailing line placeholder and caret.
+          if (document.execCommand('insertLineBreak')) {
+            event.preventDefault();
+            updateLabel();
+          }
           return;
         }
         if (event.key === 'Escape' || (event.key === 'Enter' && (event.metaKey || event.ctrlKey))) {
