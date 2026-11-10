@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mini Flow</title>
+<style>
+body{margin:0;background:#f0f4f8;color:#203044;font:16px system-ui}
+main{max-width:900px;margin:auto;padding:32px 18px}
+h1{margin:0;font-size:36px;letter-spacing:-.04em}
+p{margin:8px 0 24px;color:#465972}
+</style>
+<main>
+  <h1>Mini Flow</h1>
+  <p>Sketch a flowchart. Take the Mermaid source with you.</p>
+  <p><button id="blank">Start blank</button> · Pick a shape, then click the canvas to place it.</p>
+  <div id="editor"></div>
+</main>
+<script src="./mini-flow.js"></script>
+<script>
+const example = `flowchart TD
+    A([Prompt In])
+    B{Is English?}
+    C{Laya can process?}
+    D[LLM tool call/answer]
+    E([Result Out])
+    F[Translate to English]
+    G[simplify prompt]
+    H{Success?}
+    I[Add Analysis]
+
+    A --> B
+    B --> |yes| C
+    B --> |no| F
+    F --> C
+    C --> |yes| D
+    C --> |no| G
+    G --> C
+    D --> H
+    H --> |yes| E
+    H --> |no| I
+    I --> C`;
+const editor = MiniFlow.mount(document.querySelector('#editor'), example, {
+  A: [330, 55], B: [330, 145], C: [330, 275], D: [330, 390],
+  E: [330, 585], F: [570, 150], G: [120, 280], H: [330, 485], I: [570, 495]
+});
+document.querySelector('#blank').onclick = () => editor.setMermaid('flowchart TD');
+</script>
+</html>
