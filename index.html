@@ -66,7 +66,10 @@ function restore() {
     } catch {}
     message.textContent = 'Could not open the shared edit.';
   }
-  try { return readEdit(localStorage.getItem(key)); } catch { return null; }
+  try {
+    const local = readEdit(localStorage.getItem(key));
+    return local && MiniFlow.parse(local.source).nodes.length ? local : null;
+  } catch { return null; }
 }
 function save(source, positions) {
   const raw = JSON.stringify({ source, positions });
