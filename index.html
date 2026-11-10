@@ -4,15 +4,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Mini Flow</title>
 <style>
-body{margin:0;background:#f0f4f8;color:#203044;font:16px system-ui}
-main{max-width:900px;margin:auto;padding:32px 18px}
-h1{margin:0;font-size:36px;letter-spacing:-.04em}
-p{margin:8px 0 24px;color:#465972}
+body{margin:0;background:#f7faff;color:#203044;font:15px system-ui}
+main{height:100dvh;display:flex;flex-direction:column}
+header{display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px;padding:9px 14px;background:white;border-bottom:1px solid #d9e2ec}
+h1{margin:0;font-size:20px;letter-spacing:-.04em}
+header button{font:inherit;border:1px solid #bdcbd9;background:white;color:inherit;border-radius:8px;padding:5px 8px;cursor:pointer}
+#editor{flex:1;min-height:0;--mini-flow-height:100%}
+#editor > div{height:100%}
 </style>
 <main>
-  <h1>Mini Flow</h1>
-  <p>Sketch a flowchart. Take the Mermaid source with you.</p>
-  <p><button id="blank">Start blank</button> · Pick a shape, then click the canvas to place it.</p>
+  <header><h1>Mini Flow</h1><button id="blank">Start blank</button><button id="share">Copy link</button><span id="save-status" role="status"></span></header>
   <div id="editor"></div>
 </main>
 <script src="./mini-flow.js"></script>
@@ -39,10 +40,55 @@ const example = `flowchart TD
     H --> |yes| E
     H --> |no| I
     I --> C`;
-const editor = MiniFlow.mount(document.querySelector('#editor'), example, {
+const examplePositions = {
   A: [330, 55], B: [330, 145], C: [330, 275], D: [330, 390],
   E: [330, 585], F: [570, 150], G: [120, 280], H: [330, 485], I: [570, 495]
-});
+};
+const key = 'mini-flow-edit-v1';
+const prefix = '#flow=';
+const message = document.querySelector('#save-status');
+function readEdit(raw) {
+  try {
+    const edit = JSON.parse(raw);
+    const graph = MiniFlow.parse(edit.source);
+    const positions = Object.fromEntries(graph.nodes.flatMap(({ id }) => {
+      const pair = edit.positions?.[id];
+      return Array.isArray(pair) && pair.length === 2 && pair.every(Number.isFinite) ? [[id, pair]] : [];
+    }));
+    return { source: edit.source, positions };
+  } catch { return null; }
+}
+function restore() {
+  if (location.hash.startsWith(prefix)) {
+    try {
+      const shared = readEdit(decodeURIComponent(location.hash.slice(prefix.length)));
+      if (shared) return shared;
+    } catch {}
+    message.textContent = 'Could not open the shared edit.';
+  }
+  try { return readEdit(localStorage.getItem(key)); } catch { return null; }
+}
+function save(source, positions) {
+  const raw = JSON.stringify({ source, positions });
+  try { localStorage.setItem(key, raw); } catch {}
+  const hash = prefix + encodeURIComponent(raw);
+  if (location.hash !== hash) {
+    try { history.replaceState(null, '', hash); }
+    catch { message.textContent = 'Could not update the share link.'; }
+  }
+}
+const saved = restore();
+const editor = MiniFlow.mount(document.querySelector('#editor'), saved?.source ?? example,
+  saved?.positions ?? examplePositions, { onChange: save });
 document.querySelector('#blank').onclick = () => editor.setMermaid('flowchart TD');
+document.querySelector('#share').onclick = async () => {
+  if (!location.hash.startsWith(prefix)) save(saved?.source ?? example, saved?.positions ?? examplePositions);
+  try {
+    await navigator.clipboard.writeText(location.href);
+    message.textContent = 'Link copied.';
+  } catch {
+    message.textContent = 'Copy the link from your address bar.';
+  }
+};
 </script>
 </html>

@@ -3,6 +3,10 @@
 Open index.html in a browser. The demo and library work offline.
 To serve locally, run `python3 -m http.server 8765 --bind 127.0.0.1` in this directory and open http://127.0.0.1:8765/.
 
+- Scroll to zoom and drag empty canvas to pan. Use Fit to bring the diagram back into view.
+- Click a shape or arrow to edit its label in place. Enter adds a line break. Click away to save.
+- Use Code & export to open or hide the side panel.
+- The demo saves each edit in browser storage and in the URL fragment. Copy link shares the current diagram and shape positions.
 - Pick a terminal, step, or decision, then click the canvas to place it. Drag shapes to arrange them.
 - Enable Snap to grid to align placed and dragged shapes to the 16 px grid.
 - Click Connect, then choose the source and destination.
@@ -11,7 +15,7 @@ To serve locally, run `python3 -m http.server 8765 --bind 127.0.0.1` in this dir
 - In Mermaid source, use Refresh source to export and Apply source to import.
   Paste the exported text into https://mermaid.live/ for Mermaid's own layout.
 
-Use the download buttons in Export to save PNG or SVG with the current
+Use the download buttons in the side panel’s Export section to save PNG or SVG with the current
 canvas layout, or Markdown with a fenced Mermaid block. The embedded editor
 also exposes exportSvg() and async exportPng() as Blob exporters, and
 exportMarkdown() as a string exporter.

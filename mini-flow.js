@@ -5,8 +5,8 @@
     step: ['[', ']'],
     decision: ['{', '}']
   };
-  const encode = value => value.replace(/["#&<>|\\\r\n]/g, char => '#' + char.charCodeAt(0) + ';');
-  const decode = value => value.replace(/#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+  const encode = value => value.replace(/["#&<>|\\\r\n]/g, char => char === '\n' ? '<br/>' : '#' + char.charCodeAt(0) + ';');
+  const decode = value => value.replace(/<br\s*\/?>/gi, '\n').replace(/#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
 
   function parse(source) {
     const lines = source.split(/\r?\n/).map(s => s.trim()).filter(s => s && !s.startsWith('%%'));
@@ -47,12 +47,13 @@
     )].join('\n');
   }
 
-  function mount(host, source = 'flowchart TD', positions = {}) {
+  function mount(host, source = 'flowchart TD', positions = {}, { onChange } = {}) {
     let graph = parse(source), selected, origin, drag, pendingShape;
     for (const node of graph.nodes) {
       if (Object.hasOwn(positions, node.id)) [node.x, node.y] = positions[node.id];
     }
     let serial = 1;
+    let pan, editing, zoom = 1, cameraX = 0, cameraY = 0;
     const gridSize = 16;
     const root = document.createElement('div');
     const shadow = root.attachShadow({ mode: 'open' });
@@ -60,19 +61,24 @@
       <style>
         :host {display:block;color:#203044;font:15px system-ui}
         * {box-sizing:border-box}
-        .toolbar {display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#fff;border-bottom:1px solid #d9e2ec}
+        .frame {position:relative;height:var(--mini-flow-height, 72vh);min-height:360px;isolation:isolate}
+        @media (max-width: 550px) { .toolbar button {font-size:13px;padding:5px} .toolbar kbd {font-size:10px} .status {font-size:12px} }
+        .toolbar {position:absolute;inset:12px 12px auto;z-index:2;width:fit-content;max-width:calc(100% - 24px);margin:auto;border:1px solid #d9e2ec;border-radius:14px;box-shadow:0 4px 20px #20304418;
+display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#fff;border-bottom:1px solid #d9e2ec}
         button,input,textarea {font:inherit;color:inherit}
         button,input {background:white;border:1px solid #bdcbd9;border-radius:8px;padding:8px}
         button {cursor:pointer} button[aria-pressed=true]{background:#e0eaff;border-color:#3965be}
         kbd {margin-inline-start:5px;padding:1px 4px;border:1px solid #bdcbd9;border-radius:4px;font:12px ui-monospace,monospace}
         button:disabled {opacity:.45;cursor:default}
         .frame {border:1px solid #bdcbd9;border-radius:12px;overflow:hidden}
-        .scroll {overflow:auto;max-height:620px;background:#f7faff radial-gradient(#c5d4e4 1px,transparent 1px) 0 0/16px 16px}
-        svg {display:block;touch-action:none;user-select:none}
+        .scroll {position:absolute;inset:0;overflow:hidden;background:#f7faff radial-gradient(#c5d4e4 1px,transparent 1px) 0 0/16px 16px}
+        svg {display:block;width:100%;height:100%;cursor:grab;touch-action:none;user-select:none}
         g[role=button] {cursor:pointer}
         g:focus-visible {outline:2px solid #3965be}
         text {fill:#203044;pointer-events:none}
-        .status {margin:0;padding:8px 12px;background:#fff;border-top:1px solid #d9e2ec;min-height:38px}
+        .panel {position:absolute;inset:auto 12px 50px auto;width:min(350px,calc(100% - 24px));max-height:65%;overflow:auto;background:white;border:1px solid #d9e2ec;border-radius:14px;box-shadow:0 4px 24px #20304424;z-index:1}
+        .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);width:min(240px,90%);min-height:0;margin:0;text-align:center;resize:vertical}
+        .status {position:absolute;inset:auto 12px 8px;pointer-events:none;border-radius:10px;margin:0;padding:8px 12px;background:#fff;border-top:1px solid #d9e2ec;min-height:38px}
         details {padding:12px;background:#fff;border-top:1px solid #d9e2ec}
         summary {cursor:pointer}
         textarea {background:#fff;color:#203044;color-scheme:light;border:1px solid #bdcbd9;border-radius:8px;padding:10px;display:block;width:100%;min-height:155px;margin:10px 0;font:14px ui-monospace,monospace}
@@ -85,11 +91,11 @@
           <button aria-keyshortcuts="4" title="Shortcut: 4" data-link aria-pressed="false">Connect <kbd aria-hidden="true">4</kbd></button>
           <label><input type="checkbox" data-snap> Snap to grid</label>
           <button aria-keyshortcuts="Backspace" title="Shortcut: Backspace" data-delete disabled>Delete <kbd aria-hidden="true">⌫</kbd></button>
-          <input aria-label="Selection label" placeholder="Selection label" disabled>
+          <button data-panel aria-expanded="false">Code &amp; export</button><button data-fit>Fit</button>
         </div>
         <div class="scroll"><svg aria-label="Flowchart canvas"></svg></div>
         <p class="status" role="status"></p>
-        <details><summary>Mermaid source</summary>
+        <aside class="panel" hidden><details open><summary>Mermaid source</summary>
           <textarea aria-label="Mermaid source" spellcheck="false"></textarea>
           <button data-import>Apply source</button>
           <button data-export>Refresh source</button>
@@ -102,15 +108,79 @@
           <button data-copy="png">Copy PNG</button>
           <button data-copy="svg">Copy SVG markup</button>
           <button data-copy="md">Copy Markdown</button>
-        </details>
+        </details></aside>
       </section>`;
     const get = selector => shadow.querySelector(selector);
-    const svg = get('svg'), input = get('input[aria-label="Selection label"]'), area = get('textarea');
+    const svg = get('svg'), area = get('.panel textarea'), viewport = get('.scroll');
+    const panel = get('.panel');
+    get('[data-panel]').onclick = event => {
+      panel.hidden = !panel.hidden;
+      event.currentTarget.setAttribute('aria-expanded', String(!panel.hidden));
+    };
+    get('[data-fit]').onclick = fit;
+    const observer = new ResizeObserver(updateCamera);
+    observer.observe(viewport);
+    function updateCamera() {
+      const width = viewport.clientWidth || 1, height = viewport.clientHeight || 1;
+      svg.setAttribute('viewBox', [cameraX, cameraY, width / zoom, height / zoom].join(' '));
+      viewport.style.backgroundSize = (16 * zoom) + 'px ' + (16 * zoom) + 'px';
+      viewport.style.backgroundPosition = (-cameraX * zoom) + 'px ' + (-cameraY * zoom) + 'px';
+      positionEditor();
+    }
+    function fit() {
+      const box = svg.getBBox();
+      const width = viewport.clientWidth || 1, height = viewport.clientHeight || 1;
+      zoom = Math.max(.05, Math.min(1, width / (box.width + 48), height / (box.height + 110)));
+      cameraX = box.x + (box.width - width / zoom) / 2;
+      cameraY = box.y + (box.height - height / zoom) / 2 - 22 / zoom;
+      updateCamera();
+    }
+    function world(event) {
+      const box = svg.getBoundingClientRect();
+      return [cameraX + (event.clientX - box.left) / zoom, cameraY + (event.clientY - box.top) / zoom];
+    }
+    function changed() {
+      area.value = stringify(graph);
+      onChange?.(area.value, Object.fromEntries(graph.nodes.map(n => [n.id, [n.x, n.y]])));
+    }
+    function positionEditor() {
+      if (!editing) return;
+      const { field, item } = editing;
+      field.style.left = ((item.x ?? item.labelX) - cameraX) * zoom + 'px';
+      field.style.top = ((item.y ?? item.labelY) - cameraY) * zoom + 'px';
+    }
+    function editLabel(item) {
+      if (editing) editing.field.blur();
+      const field = document.createElement('textarea');
+      field.className = 'inline';
+      field.setAttribute('aria-label', 'Edit diagram label');
+      field.rows = Math.max(2, item.label.split('\n').length);
+      field.value = item.label;
+      editing = { field, item };
+      viewport.append(field);
+      positionEditor();
+      field.addEventListener('blur', () => {
+        item.label = field.value.replace(/\r/g, '');
+        editing = undefined;
+        field.remove();
+        changed();
+        // Keep the current pointer target alive until its click has completed.
+        requestAnimationFrame(() => { if (!drag && !pan) render(); });
+      }, { once: true });
+      field.addEventListener('keydown', event => {
+        if (event.key === 'Escape' || (event.key === 'Enter' && (event.metaKey || event.ctrlKey))) {
+          event.stopPropagation();
+          if (event.key === 'Escape') field.value = item.label;
+          field.blur();
+          root.focus({ preventScroll: true });
+        }
+      });
+      field.focus({ preventScroll: true });
+      field.select();
+    }
     const connect = get('[data-link]'), remove = get('[data-delete]');
     const snap = get('[data-snap]');
-    const coordinate = (value, minimum) => snap.checked
-      ? Math.max(Math.ceil(minimum / gridSize), Math.round(value / gridSize)) * gridSize
-      : Math.max(minimum, value);
+    const coordinate = value => snap.checked ? Math.round(value / gridSize) * gridSize : value;
     const status = value => { get('.status').textContent = value; };
     const element = (tag, attrs, content) => {
       const child = document.createElementNS('http://www.w3.org/2000/svg', tag);
@@ -118,8 +188,16 @@
       if (content !== undefined) child.textContent = content;
       return child;
     };
-    const radius = node => Math.max(66, node.label.length * 4.5 + 20);
-    const height = node => node.type === 'decision' ? 39 : 25;
+    const radius = node => Math.max(66, ...node.label.split('\n').map(line => line.length * 5 + 25));
+    const height = node => (node.type === 'decision' ? 39 : 25) + (node.label.split('\n').length - 1) * 11;
+    function labelText(attrs, value) {
+      const label = element('text', { 'dominant-baseline': 'central', ...attrs });
+      const lines = value.split('\n');
+      lines.forEach((line, index) => label.append(element('tspan', {
+        x: attrs.x ?? 0, dy: index ? 18 : -(lines.length - 1) * 9
+      }, line)));
+      return label;
+    }
     const point = (node, dx, dy) => {
       const w = radius(node), h = height(node);
       const scale = node.type === 'decision'
@@ -129,13 +207,10 @@
     };
     function select(item) {
       selected = item;
-      input.disabled = remove.disabled = !item;
-      input.value = item?.label || '';
+      remove.disabled = !item;
     }
     function render(focus) {
       svg.replaceChildren();
-      svg.setAttribute('width', Math.max(630, ...graph.nodes.map(n => n.x + radius(n) + 100)));
-      svg.setAttribute('height', Math.max(490, ...graph.nodes.map(n => n.y + 95)));
       const defs = element('defs', {});
       for (const [id, color] of [['arrow', '#536982'], ['active', '#3965be']]) {
         const marker = element('marker', { id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto' });
@@ -171,12 +246,14 @@
           x = mx + (offset ? ox * .7 : 17);
           y = my + oy * .7;
         }
+        edge.labelX = x;
+        edge.labelY = y;
         const active = selected === edge;
         const group = itemGroup(edge, 'Arrow from ' + a.label + ' to ' + b.label);
         group.append(element('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': 22 }),
           element('path', { d, fill: 'none', stroke: active ? '#3965be' : '#536982', 'stroke-width': 2,
             'marker-end': active ? 'url(#active)' : 'url(#arrow)' }),
-          element('text', { x, y, 'text-anchor': 'middle', 'font-size': 13, stroke: '#f7faff', 'stroke-width': 5, 'paint-order': 'stroke' }, edge.label));
+          labelText({ x, y, 'text-anchor': 'middle', 'font-size': 13, stroke: '#f7faff', 'stroke-width': 5, 'paint-order': 'stroke' }, edge.label));
         svg.append(group);
         if (focus === edge) group.focus();
       }
@@ -192,15 +269,15 @@
         group.append(node.type === 'decision'
           ? element('polygon', { points: '0,' + -h + ' ' + w + ',0 0,' + h + ' ' + -w + ',0', ...paint })
           : element('rect', { x: -w, y: -h, width: 2*w, height: 2*h, rx: node.type === 'terminal' ? h : 4, ...paint }),
-          element('text', { 'text-anchor': 'middle', 'dominant-baseline': 'central' }, node.label));
+          labelText({ 'text-anchor': 'middle' }, node.label));
         if (connect.getAttribute('aria-pressed') === 'false') {
           group.addEventListener('pointerdown', event => {
             if (event.button !== 0 || pendingShape) return;
             event.preventDefault();
             select(node);
-            drag = { node, x: node.x, y: node.y, clientX: event.clientX, clientY: event.clientY };
+            drag = { pointerId: event.pointerId, node, x: node.x, y: node.y, clientX: event.clientX, clientY: event.clientY };
             svg.setPointerCapture(event.pointerId);
-            render(node);
+            group.focus({ preventScroll: true });
           });
         }
         svg.append(group);
@@ -220,28 +297,64 @@
             graph.edges.push(item);
             connect.setAttribute('aria-pressed', 'false');
             origin = undefined;
-            status('Arrow added. Use Selection label to name it.');
+            changed();
+            status('Arrow added. Type a label or click away.');
           }
         }
         select(item);
         render(item);
+        if (!item.type && !origin) editLabel(item);
       };
       group.addEventListener('click', activate);
       group.addEventListener('keydown', event => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          activate();
+          if (item.type && connect.getAttribute('aria-pressed') === 'false') editLabel(item);
+          else activate();
         }
       });
       return group;
     }
+    svg.addEventListener('wheel', event => {
+      event.preventDefault();
+      if (drag || pan) return;
+      const [x, y] = world(event);
+      const oldZoom = zoom;
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 100 : 1);
+      zoom = Math.min(5, Math.max(.05, zoom * Math.exp(-delta * .002)));
+      cameraX = x - (x - cameraX) * oldZoom / zoom;
+      cameraY = y - (y - cameraY) * oldZoom / zoom;
+      updateCamera();
+    }, { passive: false });
     svg.addEventListener('pointermove', event => {
-      if (!drag) return;
-      drag.node.x = coordinate(drag.x + event.clientX - drag.clientX, radius(drag.node) + 8);
-      drag.node.y = coordinate(drag.y + event.clientY - drag.clientY, height(drag.node) + 8);
-      render();
+      const gesture = drag || pan;
+      if (!gesture || gesture.pointerId !== event.pointerId) return;
+      const dx = (event.clientX - gesture.clientX) / zoom;
+      const dy = (event.clientY - gesture.clientY) / zoom;
+      if (!gesture.moved && Math.hypot(dx, dy) * zoom < 4) return;
+      gesture.moved = true;
+      if (drag) {
+        drag.node.x = coordinate(drag.x + dx);
+        drag.node.y = coordinate(drag.y + dy);
+        render();
+      } else {
+        cameraX = pan.x - dx;
+        cameraY = pan.y - dy;
+        updateCamera();
+      }
     });
-    svg.addEventListener('lostpointercapture', () => { drag = undefined; });
+    svg.addEventListener('lostpointercapture', () => {
+      const completed = drag;
+      drag = pan = undefined;
+      if (!completed) return;
+      if (completed.moved) {
+        changed();
+        render(completed.node);
+      } else {
+        render(completed.node);
+        editLabel(completed.node);
+      }
+    });
     const shapeButtons = [...shadow.querySelectorAll('[data-shape]')];
     function chooseShape(button) {
       pendingShape = button;
@@ -255,14 +368,14 @@
       let id;
       do { id = 'N' + serial++; } while (graph.nodes.some(node => node.id === id));
       const node = { id, type, label: type === 'terminal' ? 'Start' : type === 'step' ? 'Step' : 'Decision', x, y };
-      node.x = coordinate(node.x, radius(node) + 8);
-      node.y = coordinate(node.y, height(node) + 8);
+      node.x = coordinate(node.x);
+      node.y = coordinate(node.y);
       graph.nodes.push(node);
       chooseShape(undefined);
       select(node);
       render(node);
-      input.focus();
-      input.select();
+      changed();
+      editLabel(node);
       status('Shape added. Type its label or choose another tool.');
     }
     chooseShape(undefined);
@@ -282,12 +395,15 @@
     }
     svg.addEventListener('click', event => {
       if (!pendingShape || event.target !== svg) return;
-      const bounds = svg.getBoundingClientRect();
-      addShape(pendingShape, event.clientX - bounds.left, event.clientY - bounds.top);
+      addShape(pendingShape, ...world(event));
     });
     root.tabIndex = 0;
     svg.addEventListener('pointerdown', event => {
-      if (event.target === svg) root.focus({ preventScroll: true });
+      if (event.target !== svg || event.button !== 0) return;
+      root.focus({ preventScroll: true });
+      if (pendingShape || drag || pan) return;
+      pan = { pointerId: event.pointerId, x: cameraX, y: cameraY, clientX: event.clientX, clientY: event.clientY };
+      svg.setPointerCapture(event.pointerId);
     });
     root.addEventListener('keydown', event => {
       if (event.defaultPrevented || event.isComposing || event.repeat ||
@@ -323,11 +439,8 @@
       if (origin === selected) origin = undefined;
       select(undefined);
       render();
+      changed();
       status('Selection deleted.');
-    };
-    input.oninput = () => {
-      selected.label = input.value;
-      render();
     };
     function setMermaid(value) {
       const next = parse(value);
@@ -343,13 +456,15 @@
           nextY += 115;
         }
       }
+      const wasEmpty = !graph.nodes.length;
       graph = next;
       chooseShape(undefined);
       origin = undefined;
       connect.setAttribute('aria-pressed', 'false');
       select(undefined);
-      area.value = stringify(graph);
+      changed();
       render();
+      if (wasEmpty && graph.nodes.length) fit();
     }
     get('[data-import]').onclick = () => {
       try { setMermaid(area.value); status('Mermaid source applied.'); }
@@ -363,6 +478,11 @@
     };
     function exportSvg() {
       const copy = svg.cloneNode(true);
+      const box = svg.getBBox();
+      const width = Math.ceil(box.width + 48), height = Math.ceil(box.height + 48);
+      copy.setAttribute('width', width);
+      copy.setAttribute('height', height);
+      copy.setAttribute('viewBox', [box.x - 24, box.y - 24, width, height].join(' '));
       copy.setAttribute('font-family', 'system-ui, sans-serif');
       copy.setAttribute('font-size', '15');
       copy.setAttribute('fill', '#203044');
@@ -455,9 +575,10 @@
     }
     host.append(root);
     area.value = stringify(graph);
-    status('Drag shapes to arrange them. Select any shape or arrow to edit its label.');
+    status('Scroll to zoom · Drag empty space to pan · Click a shape or arrow to edit its label');
     render();
-    return { getMermaid: () => stringify(graph), setMermaid, exportSvg, exportPng, exportMarkdown, destroy: () => root.remove() };
+    fit();
+    return { getMermaid: () => stringify(graph), setMermaid, exportSvg, exportPng, exportMarkdown, destroy: () => { observer.disconnect(); root.remove(); } };
   }
 
   globalThis.MiniFlow = { mount, parse, stringify };
