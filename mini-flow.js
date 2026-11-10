@@ -77,7 +77,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
         g:focus-visible {outline:2px solid #3965be}
         text {fill:#203044;pointer-events:none}
         .panel {position:absolute;inset:auto 12px 50px auto;width:min(350px,calc(100% - 24px));max-height:65%;overflow:auto;background:white;border:1px solid #d9e2ec;border-radius:14px;box-shadow:0 4px 24px #20304424;z-index:1}
-        .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);width:min(240px,90%);min-height:0;margin:0;text-align:center;resize:vertical}
+        .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);min-width:48px;min-height:1.2em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.2;color:#203044;outline:1px solid #3965be;border-radius:4px;background:#f7faff}
         .status {position:absolute;inset:auto 12px 8px;pointer-events:none;border-radius:10px;margin:0;padding:8px 12px;background:#fff;border-top:1px solid #d9e2ec;min-height:38px}
         details {padding:12px;background:#fff;border-top:1px solid #d9e2ec}
         summary {cursor:pointer}
@@ -146,21 +146,26 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
     function positionEditor() {
       if (!editing) return;
       const { field, item } = editing;
+      field.style.fontSize = (item.type ? 15 : 13) * zoom + 'px';
+      field.style.width = item.type ? (radius(item) * 1.55 * zoom) + 'px' : 'max-content';
+      field.style.maxWidth = viewport.clientWidth + 'px';
       field.style.left = ((item.x ?? item.labelX) - cameraX) * zoom + 'px';
       field.style.top = ((item.y ?? item.labelY) - cameraY) * zoom + 'px';
     }
     function editLabel(item) {
       if (editing) editing.field.blur();
-      const field = document.createElement('textarea');
+      const field = document.createElement('div');
+      field.contentEditable = 'plaintext-only';
+      field.setAttribute('role', 'textbox');
+      field.setAttribute('aria-multiline', 'true');
       field.className = 'inline';
       field.setAttribute('aria-label', 'Edit diagram label');
-      field.rows = Math.max(2, item.label.split('\n').length);
-      field.value = item.label;
+      field.textContent = item.label;
       editing = { field, item };
       viewport.append(field);
       positionEditor();
       field.addEventListener('blur', () => {
-        item.label = field.value.replace(/\r/g, '');
+        item.label = field.innerText.replace(/\r/g, '');
         editing = undefined;
         field.remove();
         changed();
@@ -170,13 +175,17 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       field.addEventListener('keydown', event => {
         if (event.key === 'Escape' || (event.key === 'Enter' && (event.metaKey || event.ctrlKey))) {
           event.stopPropagation();
-          if (event.key === 'Escape') field.value = item.label;
+          if (event.key === 'Escape') field.textContent = item.label;
           field.blur();
           root.focus({ preventScroll: true });
         }
       });
       field.focus({ preventScroll: true });
-      field.select();
+      const range = document.createRange();
+      range.selectNodeContents(field);
+      const selection = shadow.getSelection?.() || window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
     }
     const connect = get('[data-link]'), remove = get('[data-delete]');
     const snap = get('[data-snap]');
@@ -238,13 +247,14 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
           end = point(b, a.x - b.x, a.y - b.y);
           const dx = b.x - a.x, dy = b.y - a.y;
           const length = Math.hypot(dx, dy);
-          const offset = graph.edges.some(other => other.from === edge.to && other.to === edge.from) ? 40 : 0;
+          const offset = graph.edges.some(other => other.from === edge.to && other.to === edge.from) ? 55 : 0;
           const mx = (start[0] + end[0]) / 2;
           const my = (start[1] + end[1]) / 2;
           const ox = -dy / length * offset, oy = dx / length * offset;
           d = 'M' + start + ' Q' + [mx + ox, my + oy, ...end].join(' ');
           x = mx + (offset ? ox * .7 : 17);
           y = my + oy * .7;
+          if (!offset && Math.abs(dy) < 12) { x = mx; y -= 9; }
         }
         edge.labelX = x;
         edge.labelY = y;
