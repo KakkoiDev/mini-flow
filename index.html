@@ -81,12 +81,18 @@ const saved = restore();
 const editor = MiniFlow.mount(document.querySelector('#editor'), saved?.source ?? example,
   saved?.positions ?? examplePositions, { onChange: save });
 document.querySelector('#blank').onclick = () => editor.setMermaid('flowchart TD');
+let copyTimer;
 document.querySelector('#share').onclick = async () => {
   if (!location.hash.startsWith(prefix)) save(saved?.source ?? example, saved?.positions ?? examplePositions);
   try {
     await navigator.clipboard.writeText(location.href);
+    clearTimeout(copyTimer);
     message.textContent = 'Link copied.';
+    copyTimer = setTimeout(() => {
+      if (message.textContent === 'Link copied.') message.textContent = '';
+    }, 3000);
   } catch {
+    clearTimeout(copyTimer);
     message.textContent = 'Copy the link from your address bar.';
   }
 };

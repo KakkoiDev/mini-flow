@@ -83,7 +83,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
         .panel {position:absolute;inset:auto 12px 50px auto;width:min(350px,calc(100% - 24px));max-height:65%;overflow:auto;background:white;border:1px solid #d9e2ec;border-radius:14px;box-shadow:0 4px 24px #20304424;z-index:1}
         .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);min-width:48px;min-height:1.2em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.2;color:#203044;outline:1px solid #3965be;border-radius:4px;background:#f7faff}
         .status {position:absolute;inset:auto 12px 8px;pointer-events:none;border-radius:10px;margin:0;padding:8px 12px;background:#fff;border-top:1px solid #d9e2ec;min-height:38px}
-        details {padding:12px;background:#fff;border-top:1px solid #d9e2ec}
+        .panel details {padding:14px;background:#fff}
+        .panel details + details {border-top:1px solid #d9e2ec}
+        .panel-actions {display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+        .panel textarea {margin:10px 0 0}
         summary {cursor:pointer}
         textarea {background:#fff;color:#203044;color-scheme:light;border:1px solid #bdcbd9;border-radius:8px;padding:10px;display:block;width:100%;min-height:155px;margin:10px 0;font:14px ui-monospace,monospace}
       </style>
@@ -101,17 +104,17 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
         <p class="status" role="status"></p>
         <aside class="panel" hidden><details open><summary>Mermaid source</summary>
           <textarea aria-label="Mermaid source" spellcheck="false"></textarea>
-          <button data-import>Apply source</button>
+          <div class="panel-actions"><button data-import>Apply source</button>
           <button data-export>Refresh source</button>
-          <button data-copy="mermaid">Copy Mermaid</button>
+          <button data-copy="mermaid">Copy Mermaid</button></div>
         </details>
         <details><summary>Export</summary>
-          <button data-download="png">Download PNG</button>
+          <div class="panel-actions"><button data-download="png">Download PNG</button>
           <button data-download="svg">Download SVG</button>
-          <button data-download="md">Download Markdown</button>
-          <button data-copy="png">Copy PNG</button>
+          <button data-download="md">Download Markdown</button></div>
+          <div class="panel-actions"><button data-copy="png">Copy PNG</button>
           <button data-copy="svg">Copy SVG markup</button>
-          <button data-copy="md">Copy Markdown</button>
+          <button data-copy="md">Copy Markdown</button></div>
         </details></aside>
       </section>`;
     const get = selector => shadow.querySelector(selector);
