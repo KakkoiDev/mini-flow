@@ -52,3 +52,6 @@ Export. PNG clipboard support depends on the browser.
 
 With focus in the editor, use 1 for Start / End, 2 for Step, 3 for Decision,
 4 for Connect, and Backspace to delete the selection.
+
+Use Ctrl+Z to undo and Ctrl+Y to redo diagram edits. Cmd+Z and Cmd+Shift+Z
+also work on Mac. Text fields keep their native undo behavior.

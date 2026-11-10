@@ -52,6 +52,10 @@
     for (const node of graph.nodes) {
       if (Object.hasOwn(positions, node.id)) [node.x, node.y] = positions[node.id];
     }
+    const undoStack = [], redoStack = [];
+    const snapshot = () => JSON.stringify(graph, (key, value) =>
+      key === 'labelX' || key === 'labelY' ? undefined : value);
+    let current = snapshot();
     let serial = 1;
     let pan, editing, zoom = 1, cameraX = 0, cameraY = 0;
     const gridSize = 16;
@@ -139,7 +143,13 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       const box = svg.getBoundingClientRect();
       return [cameraX + (event.clientX - box.left) / zoom, cameraY + (event.clientY - box.top) / zoom];
     }
-    function changed() {
+    function changed(record = true) {
+      const next = snapshot();
+      if (record && next !== current) {
+        undoStack.push(current);
+        redoStack.length = 0;
+      }
+      current = next;
       area.value = stringify(graph);
       onChange?.(area.value, Object.fromEntries(graph.nodes.map(n => [n.id, [n.x, n.y]])));
     }
@@ -415,10 +425,31 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       pan = { pointerId: event.pointerId, x: cameraX, y: cameraY, clientX: event.clientX, clientY: event.clientY };
       svg.setPointerCapture(event.pointerId);
     });
+    function replay(from, to, message) {
+      if (!from.length || drag || pan) return;
+      to.push(current);
+      graph = JSON.parse(from.pop());
+      chooseShape(undefined);
+      origin = undefined;
+      connect.setAttribute('aria-pressed', 'false');
+      select(undefined);
+      changed(false);
+      render();
+      root.focus({ preventScroll: true });
+      status(message);
+    }
     root.addEventListener('keydown', event => {
-      if (event.defaultPrevented || event.isComposing || event.repeat ||
-          event.ctrlKey || event.metaKey || event.altKey || event.shiftKey ||
+      if (event.defaultPrevented || event.isComposing || event.repeat || event.altKey ||
           event.composedPath().some(target => target.matches?.('input, textarea, select, [contenteditable]'))) return;
+      if (event.ctrlKey || event.metaKey) {
+        const key = event.key.toLowerCase();
+        if (key !== 'z' && key !== 'y') return;
+        event.preventDefault();
+        if (key === 'y' || event.shiftKey) replay(redoStack, undoStack, 'Edit redone.');
+        else replay(undoStack, redoStack, 'Edit undone.');
+        return;
+      }
+      if (event.shiftKey) return;
       const commands = { '1': shapeButtons[0], '2': shapeButtons[1],
         '3': shapeButtons[2], '4': connect, Backspace: remove };
       const command = commands[event.key];
@@ -475,6 +506,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       changed();
       render();
       if (wasEmpty && graph.nodes.length) fit();
+      root.focus({ preventScroll: true });
     }
     get('[data-import]').onclick = () => {
       try { setMermaid(area.value); status('Mermaid source applied.'); }
