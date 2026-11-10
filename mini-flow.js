@@ -172,7 +172,9 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       field.setAttribute('role', 'textbox');
       field.setAttribute('aria-multiline', 'true');
       field.className = 'inline';
-      field.setAttribute('aria-label', 'Edit diagram label');
+      field.setAttribute('aria-label', item.type === 'step'
+        ? 'Edit step label. Enter to save, Shift+Enter for a new line.'
+        : 'Edit diagram label');
       const originalLabel = item.label;
       field.textContent = originalLabel;
       editing = { field, item };
@@ -194,7 +196,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       }, { once: true });
       field.addEventListener('keydown', event => {
         if (event.isComposing) return;
-        if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
+        const saveStep = item.type === 'step' && event.key === 'Enter' && !event.shiftKey;
+        if (event.key === 'Enter' && !saveStep && !event.metaKey && !event.ctrlKey) {
           // Let the browser maintain its trailing line placeholder and caret.
           if (document.execCommand('insertLineBreak')) {
             event.preventDefault();
@@ -202,7 +205,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
           }
           return;
         }
-        if (event.key === 'Escape' || (event.key === 'Enter' && (event.metaKey || event.ctrlKey))) {
+        if (saveStep || event.key === 'Escape' || (event.key === 'Enter' && (event.metaKey || event.ctrlKey))) {
+          event.preventDefault();
           event.stopPropagation();
           if (event.key === 'Escape') item.label = originalLabel;
           field.blur();
