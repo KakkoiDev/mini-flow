@@ -81,7 +81,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
         g:focus-visible {outline:2px solid #3965be}
         text {fill:#203044;pointer-events:none}
         .panel {position:absolute;inset:auto 12px 50px auto;width:min(350px,calc(100% - 24px));max-height:65%;overflow:auto;background:white;border:1px solid #d9e2ec;border-radius:14px;box-shadow:0 4px 24px #20304424;z-index:1}
-        .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);min-width:48px;min-height:1.2em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.2;color:#203044;outline:1px solid #3965be;border-radius:4px;background:#f7faff}
+        .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);min-width:48px;min-height:1.2em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.2;color:#203044;outline:none;background:transparent}
         .status {position:absolute;inset:auto 12px 8px;pointer-events:none;border-radius:10px;margin:0;padding:8px 12px;background:#fff;border-top:1px solid #d9e2ec;min-height:38px}
         .panel details {padding:14px;background:#fff}
         .panel details + details {border-top:1px solid #d9e2ec}
@@ -173,12 +173,19 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       field.setAttribute('aria-multiline', 'true');
       field.className = 'inline';
       field.setAttribute('aria-label', 'Edit diagram label');
-      field.textContent = item.label;
+      const originalLabel = item.label;
+      field.textContent = originalLabel;
       editing = { field, item };
       viewport.append(field);
       positionEditor();
-      field.addEventListener('blur', () => {
+      function updateLabel() {
         item.label = (field.childElementCount ? field.innerText : field.textContent).replace(/\r/g, '');
+        area.value = stringify(graph);
+        render();
+        positionEditor();
+      }
+      field.addEventListener('input', updateLabel);
+      field.addEventListener('blur', () => {
         editing = undefined;
         field.remove();
         changed();
@@ -200,15 +207,17 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
           range.collapse(true);
           selection.removeAllRanges();
           selection.addRange(range);
+          updateLabel();
           return;
         }
         if (event.key === 'Escape' || (event.key === 'Enter' && (event.metaKey || event.ctrlKey))) {
           event.stopPropagation();
-          if (event.key === 'Escape') field.textContent = item.label;
+          if (event.key === 'Escape') item.label = originalLabel;
           field.blur();
           root.focus({ preventScroll: true });
         }
       });
+      render();
       field.focus({ preventScroll: true });
       const range = document.createRange();
       range.selectNodeContents(field);
@@ -292,7 +301,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
         group.append(element('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': 22 }),
           element('path', { d, fill: 'none', stroke: active ? '#3965be' : '#536982', 'stroke-width': 2,
             'marker-end': active ? 'url(#active)' : 'url(#arrow)' }),
-          labelText({ x, y, 'text-anchor': 'middle', 'font-size': 13, stroke: '#f7faff', 'stroke-width': 5, 'paint-order': 'stroke' }, edge.label));
+          labelText({ x, y, 'text-anchor': 'middle', 'font-size': 13, visibility: editing?.item === edge ? 'hidden' : 'visible', stroke: '#f7faff', 'stroke-width': 5, 'paint-order': 'stroke' }, edge.label));
         svg.append(group);
         if (focus === edge) group.focus();
       }
@@ -308,7 +317,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
         group.append(node.type === 'decision'
           ? element('polygon', { points: '0,' + -h + ' ' + w + ',0 0,' + h + ' ' + -w + ',0', ...paint })
           : element('rect', { x: -w, y: -h, width: 2*w, height: 2*h, rx: node.type === 'terminal' ? h : 4, ...paint }),
-          labelText({ 'text-anchor': 'middle' }, node.label));
+          labelText({ 'text-anchor': 'middle', visibility: editing?.item === node ? 'hidden' : 'visible' }, node.label));
         if (connect.getAttribute('aria-pressed') === 'false') {
           group.addEventListener('pointerdown', event => {
             if (event.button !== 0 || pendingShape) return;
@@ -385,7 +394,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
     svg.addEventListener('lostpointercapture', () => {
       const completed = drag;
       drag = pan = undefined;
-      if (!completed) return;
+      if (!completed) { render(); return; }
       if (completed.moved) {
         changed();
         render(completed.node);
