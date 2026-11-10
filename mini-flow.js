@@ -178,7 +178,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       viewport.append(field);
       positionEditor();
       field.addEventListener('blur', () => {
-        item.label = field.innerText.replace(/\r/g, '');
+        item.label = (field.childElementCount ? field.innerText : field.textContent).replace(/\r/g, '');
         editing = undefined;
         field.remove();
         changed();
@@ -186,6 +186,22 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
         requestAnimationFrame(() => { if (!drag && !pan) render(); });
       }, { once: true });
       field.addEventListener('keydown', event => {
+        if (event.isComposing) return;
+        if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
+          event.preventDefault();
+          const selection = shadow.getSelection?.() || window.getSelection();
+          if (!selection.rangeCount) return;
+          const range = selection.getRangeAt(0);
+          if (!field.contains(range.commonAncestorContainer)) return;
+          range.deleteContents();
+          const newline = document.createTextNode('\n');
+          range.insertNode(newline);
+          range.setStartAfter(newline);
+          range.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          return;
+        }
         if (event.key === 'Escape' || (event.key === 'Enter' && (event.metaKey || event.ctrlKey))) {
           event.stopPropagation();
           if (event.key === 'Escape') field.textContent = item.label;
@@ -216,7 +232,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       const label = element('text', { 'dominant-baseline': 'central', ...attrs });
       const lines = value.split('\n');
       lines.forEach((line, index) => label.append(element('tspan', {
-        x: attrs.x ?? 0, dy: index ? 18 : -(lines.length - 1) * 9
+        x: attrs.x ?? 0, y: (attrs.y ?? 0) + (index - (lines.length - 1) / 2) * 18
       }, line)));
       return label;
     }
