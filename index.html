@@ -166,7 +166,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=floating-dock"></script>
+<script src="./mini-flow.js?v=ask-ai"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -302,6 +302,8 @@ const initialProposal = readProposal();
 const saved = joiningLive ? { source: 'flowchart TD', positions: {} } : initialProposal?.base ?? restore();
 const editorHost = document.querySelector('#editor');
 const liveNotice = document.createElement('span');
+let selectedNoteId;
+let refreshAskAI;
 const editor = MiniFlow.mount(editorHost, saved?.source ?? example,
   saved?.positions ?? examplePositions, { onChange(source, positions) {
       if (!joiningLive) {
@@ -311,6 +313,10 @@ const editor = MiniFlow.mount(editorHost, saved?.source ?? example,
       }
       liveBoard?.changed();
     }, onPresence: presence => liveBoard?.updatePresence(presence),
+    onSelection(item) {
+      selectedNoteId = item?.type === 'note' ? item.id : undefined;
+      refreshAskAI?.();
+    },
     features: { history: !joiningLive }, header: document.querySelector('header'), layout: 'dock', dagre: window.dagre, settingsKey: 'mini-flow-preferences',
     colors: { canvas: '#faf8f5', grid: '#ded9d2', text: '#242b29', surface: '#fffdfb',
       stroke: '#464d49', accent: '#087f71', terminal: '#d4f2e5', step: '#e0edf8', decision: '#fff0cd' } });
@@ -489,8 +495,8 @@ document.querySelector('#share').onclick = async () => {
 };
 </script>
 <script type="module">
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=agent-presence';
-import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=6';
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=ask-ai';
+import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=7';
 import { setupSavedProjects } from './mini-flow-projects.js?v=5';
 
 const projectsButton = document.createElement('button');
@@ -507,7 +513,29 @@ guestCounter.hidden = true;
 guestCounter.setAttribute('role', 'status');
 guestCounter.title = 'Connected guests, excluding the host';
 editorRoot.querySelector('.scroll').append(guestCounter);
+const askButton = document.createElement('button');
+askButton.type = 'button';
+askButton.textContent = 'Ask AI';
+askButton.title = 'Send the selected note to the AI guests in this live share';
+editorRoot.querySelector('[data-delete]').before(askButton);
+let connectedAI = 0;
+refreshAskAI = () => { askButton.hidden = !selectedNoteId || connectedAI === 0; };
+refreshAskAI();
+askButton.onclick = async () => {
+  if (!liveBoard || !selectedNoteId || askButton.disabled) return;
+  askButton.disabled = true;
+  try {
+    const result = await liveBoard.askAI(selectedNoteId);
+    liveNotice.textContent = result.ok ? 'An AI guest received the note.' : result.message;
+  } catch {
+    liveNotice.textContent = 'Could not send the note to an AI guest.';
+  } finally {
+    askButton.disabled = false;
+  }
+};
 function showGuestCounts(counts) {
+  connectedAI = counts?.ai ?? 0;
+  refreshAskAI();
   guestCounter.hidden = !counts;
   if (!counts) return;
   const label = counts.human + ' human · ' + counts.ai + ' AI';
@@ -607,7 +635,16 @@ async function startLive(invite, host) {
     liveBoard = await connectLiveBoard(invite, host, {
       getProject: editor.getProject, setProject: editor.setProject, normalize: normalizeProject,
       canAccept: () => !editor.isInteracting(), onStatus: showStatus, onEnd: ended,
-      onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts
+      onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts,
+      readNote(project, id) {
+        const graph = MiniFlow.parse(project.source);
+        const note = graph.nodes.find(node => node.type === 'note' && node.id === id);
+        if (!note) return null;
+        const edge = Number.isInteger(note.target) ? graph.edges[note.target] : null;
+        return { id, text: note.label.slice(0, 4000), target: edge
+          ? { type: 'arrow', from: edge.from, to: edge.to }
+          : typeof note.target === 'string' ? { type: 'node', id: note.target } : null };
+      }
     });
     liveToggle.dataset.active = '';
     liveToggle.setAttribute('aria-label', 'Live session, active');
@@ -657,6 +694,8 @@ if (joiningLive) {
 
 registerMiniFlowTools(editor, undefined, undefined, {
   registerAgent: joiningLive ? () => liveBoard?.registerAgent() ?? { ok: false, reason: 'live_not_ready' } : undefined,
+  waitForAIRequest: joiningLive ? (after, timeoutMs) => liveBoard?.waitForAIRequest(after, timeoutMs) ??
+    { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' } : undefined,
   isReady: () => !joiningLive || Boolean(liveBoard?.ready()),
   commitProject(project, message) {
     if (joiningLive) return liveBoard?.submit(project, message) ??

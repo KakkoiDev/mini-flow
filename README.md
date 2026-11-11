@@ -216,6 +216,11 @@ The host owns Undo and Redo, and accepted edits
 and Undo or Redo sync to everyone. If edits conflict, the guest sees the current
 board and can retry.
 
+When an AI guest is connected, select a sticky note and click **Ask AI** in
+the toolbar. This sends the note and its attachment to the AI guests. Agents
+can receive requests during an active `wait_for_ai_request` call. The live
+share does not start a new chat turn on its own.
+
 When the host ends the session or a guest leaves, the guest can continue
 editing their own copy. Mini Flow switches the guest's URL to a snapshot and
 enables local Undo and Redo. During a connection interruption, guests can use

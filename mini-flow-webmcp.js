@@ -120,5 +120,20 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
       execute: () => options.registerAgent()
     });
   }
+  if (typeof context?.registerTool === 'function' && options.waitForAIRequest) {
+    await context.registerTool({
+      name: 'wait_for_ai_request',
+      description: 'Wait for a collaborator to click Ask AI on a note in this live session. Pass the last received request sequence as after. Use get_board to verify the current note and target before editing. A null request means the wait timed out.',
+      inputSchema: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          after: { type: 'integer', minimum: 0, default: 0 },
+          timeoutMs: { type: 'integer', minimum: 0, maximum: 15000, default: 12000 }
+        }
+      },
+      annotations: { readOnlyHint: true },
+      execute: ({ after, timeoutMs } = {}) => options.waitForAIRequest(after, timeoutMs)
+    });
+  }
 }
 

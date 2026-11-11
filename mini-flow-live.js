@@ -1,4 +1,4 @@
-const kinds = ['read', 'state', 'edit', 'end', 'presence', 'agent'];
+const kinds = ['read', 'state', 'edit', 'end', 'presence', 'agent', 'ask'];
 const maxGuests = 8;
 const invitePattern = /^#live=([a-f0-9]{32})\.([a-f0-9]{32})$/;
 const id = () => crypto.randomUUID().replaceAll('-', '');
@@ -9,7 +9,7 @@ export function readLiveInvite(hash) {
 }
 
 export function createLiveSession({ room, host, getProject, setProject, normalize, canAccept, onStatus, onEnd,
-  onAvailability = () => {}, onPresence = () => {}, onGuestCounts = () => {} }) {
+  onAvailability = () => {}, onPresence = () => {}, onGuestCounts = () => {}, readNote = () => null }) {
   let hostPeer;
   const guests = new Map();
   let closed = false;
@@ -24,6 +24,81 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   let presence = { point: null, focus: null };
   let agentRegistration;
   let agentRegistered = false;
+  const requests = [];
+  const requestWaiters = new Set();
+  const pendingAsks = new Map();
+  const pendingDeliveries = new Map();
+  let requestSequence = 0;
+
+  function waitForAIRequest(after = 0, timeoutMs = 12000) {
+    if (host || closed || !hostPeer || !agentRegistered) {
+      return Promise.resolve(failure('ai_not_connected', 'Register as a live AI guest first.'));
+    }
+    if (!Number.isSafeInteger(after) || after < 0 || !Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 15000) {
+      return Promise.resolve(failure('invalid_wait', 'Use a nonnegative cursor and a timeout of up to 15000 ms.'));
+    }
+    const request = requests.find(item => item.sequence > after);
+    if (request || !timeoutMs) return Promise.resolve({ ok: true, request: request ?? null });
+    if (requestWaiters.size >= 8) return Promise.resolve(failure('too_many_waiters', 'Finish a pending request check first.'));
+    return new Promise(resolve => {
+      const waiter = { after, finish(result) {
+        clearTimeout(timer);
+        requestWaiters.delete(waiter);
+        resolve(result);
+      } };
+      const timer = setTimeout(() => waiter.finish({ ok: true, request: null }), timeoutMs);
+      requestWaiters.add(waiter);
+    });
+  }
+
+  function clearAIRequests() {
+    const result = failure('live_disconnected', 'The live connection ended.');
+    for (const waiter of requestWaiters) waiter.finish(result);
+    for (const finish of pendingAsks.values()) finish(result);
+    for (const delivery of pendingDeliveries.values()) delivery.finish(result);
+    requests.length = 0;
+  }
+
+  function forwardAIRequest(noteId, from) {
+    const note = readNote(getProject(), noteId);
+    if (!note) return failure('note_missing', 'The note is no longer on the board.');
+    const agents = [...guests].filter(([peer, guest]) => guest.agent && peer !== from).map(([peer]) => peer);
+    if (!agents.length) return failure('no_ai_guest', 'No other AI guest is connected.');
+    if (pendingDeliveries.size >= 32) return failure('too_many_requests', 'Wait for a pending request to finish.');
+    const requestId = id();
+    return new Promise(resolve => {
+      const failed = failure('ask_failed', 'No AI guest confirmed receipt of the note.');
+      const finish = result => {
+        clearTimeout(timer);
+        pendingDeliveries.delete(requestId);
+        resolve(result);
+      };
+      const timer = setTimeout(() => finish(failed), 3000);
+      pendingDeliveries.set(requestId, { agents: new Set(agents), finish });
+      send('ask', { type: 'delivery', requestId, note, requester: guests.get(from)?.label ?? 'Host' }, agents)
+        .catch(() => finish(failed));
+    });
+  }
+
+  function askAI(noteId) {
+    if (closed || !state || (!host && !hostPeer)) {
+      return Promise.resolve(failure('live_not_ready', 'The live board is disconnected.'));
+    }
+    if (host) return Promise.resolve(forwardAIRequest(noteId, room.selfId));
+    if (pendingAsks.size >= 8) return Promise.resolve(failure('too_many_requests', 'Wait for a pending request to finish.'));
+    return new Promise(resolve => {
+      const requestId = id();
+      const finish = result => {
+        clearTimeout(timer);
+        pendingAsks.delete(requestId);
+        resolve(result);
+      };
+      const timer = setTimeout(() => finish(failure('ask_timeout', 'The host did not confirm the request.')), 5000);
+      pendingAsks.set(requestId, finish);
+      send('ask', { type: 'request', requestId, noteId }).catch(() =>
+        finish(failure('ask_failed', 'Could not send the request to the host.')));
+    });
+  }
 
   function finishAgentRegistration(ok) {
     if (!agentRegistration) return;
@@ -195,6 +270,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     available();
     onPresence([]);
     onGuestCounts(null);
+    clearAIRequests();
     onStatus('Host disconnected. You can wait or choose Leave session to keep editing a copy.');
   });
   room.onRefused?.((_, reason) => {
@@ -286,6 +362,31 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       finishAgentRegistration(true);
     }
   });
+  room.onMessage('ask', async (data, from) => {
+    if (closed) return;
+    if (host) {
+      if (data?.type === 'received') {
+        const delivery = pendingDeliveries.get(data.requestId);
+        if (delivery?.agents.has(from)) delivery.finish({ ok: true });
+        return;
+      }
+      if (!guests.has(from) || data?.type !== 'request' ||
+          typeof data.noteId !== 'string' || data.noteId.length > 128 ||
+          typeof data.requestId !== 'string' || data.requestId.length !== 32) return;
+      const result = await forwardAIRequest(data.noteId, from);
+      await send('ask', { type: 'result', requestId: data.requestId, result }, from).catch(() => {});
+    } else if (from === hostPeer && data?.type === 'result') {
+      pendingAsks.get(data.requestId)?.(data.result);
+    } else if (from === hostPeer && agentRegistered && data?.type === 'delivery' && data.note) {
+      const request = { sequence: ++requestSequence, note: data.note, requester: data.requester };
+      requests.push(request);
+      if (requests.length > 32) requests.shift();
+      for (const waiter of requestWaiters) {
+        if (request.sequence > waiter.after) waiter.finish({ ok: true, request });
+      }
+      send('ask', { type: 'received', requestId: data.requestId }).catch(() => {});
+    }
+  });
   room.onMessage('end', (_, from) => {
     if (!host && from === hostPeer && !closed) stop(false);
   });
@@ -305,6 +406,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     available();
     onPresence([]);
     onGuestCounts(null);
+    clearAIRequests();
     onEnd();
   }
 
@@ -329,6 +431,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       schedulePresence();
     },
     submit,
+    askAI,
+    waitForAIRequest,
     registerAgent,
     stop
   };
