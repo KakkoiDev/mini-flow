@@ -4,8 +4,9 @@ Open index.html in a browser. The demo and library work offline.
 To serve locally, run `python3 -m http.server 8765 --bind 127.0.0.1` in this directory and open http://127.0.0.1:8765/.
 
 - Scroll to zoom and drag empty canvas to pan. Use Fit to bring the diagram back into view.
-- Click a shape or arrow to edit its label in place. Enter adds a line break. Click away to save.
-- Use Code & export to open or hide the side panel.
+- Select a shape or arrow, then use Edit or double-click it. Enter saves and Shift+Enter adds a line break.
+- Use Code & export to download or open a project JSON with editable labels and positions.
+- Scroll or pinch to zoom. Undo and Redo are available in the toolbar.
 - The demo saves each edit in browser storage and in the URL fragment. Copy link shares the current diagram and shape positions.
 - Pick a terminal, step, or decision, then click the canvas to place it. Drag shapes to arrange them.
 - Enable Snap to grid to align placed and dragged shapes to the 16 px grid.
@@ -39,8 +40,7 @@ are also available without mounting a canvas. The editor uses SVG and Shadow DOM
 
 Import supports TD and TB headers, standalone terminal/step/decision declarations,
 and one arrow per line with an optional pipe label. Declare every referenced
-node. Mermaid export stores labels and connections. Canvas positions are session
-state. Applying source preserves positions for matching node IDs and places
+node. Mermaid export stores labels and connections. Use project JSON or a share link to preserve canvas positions. Applying source preserves positions for matching node IDs and places
 new nodes below the existing diagram.
 
 Mermaid syntax and the text-editor workflow come from the Mermaid project and
@@ -55,3 +55,48 @@ With focus in the editor, use 1 for Start / End, 2 for Step, 3 for Decision,
 
 Use Ctrl+Z to undo and Ctrl+Y to redo diagram edits. Cmd+Z and Cmd+Shift+Z
 also work on Mac. Text fields keep their native undo behavior.
+
+
+## Configure an embed
+
+```js
+const editor = MiniFlow.mount(host, 'flowchart TD', {}, {
+  features: { exports: false, shortcuts: false },
+  tools: ['step', 'storage'],
+  colors: { canvas: '#fbfaf6', step: '#e8efe5', storage: '#e4edff' },
+  extraShapes: {
+    storage: {
+      label: 'Storage',
+      syntax: ['[(', ')]'],
+      draw({ element, width, height, paint }) {
+        return element('rect', {
+          x: -width / 2, y: -height / 2, width, height, rx: 12, ...paint
+        });
+      }
+    }
+  }
+});
+```
+
+Feature switches default to enabled. Disable any of create, connect, delete,
+edit, move, pan, zoom, fit, snap, history, shortcuts, source, exports, or project.
+These switches control the UI. The SDK still exposes explicit methods for
+host-driven imports and exports. The tools array lists the shape buttons to
+show. Theme keys include canvas, grid, text, surface, stroke, accent, and shape
+type names. Extra shapes supply unique Mermaid delimiters and an SVG drawing
+callback centered at the origin. Register the same shapes when reopening
+projects that use them.
+
+## Agent integration
+
+Use MiniFlow.parse(source) to inspect built-in shapes and MiniFlow.stringify(graph)
+to generate source. For custom shapes, pass the registered delimiter map as
+the second argument. A mounted editor uses its configured shapes automatically.
+
+Read the board with editor.getProject() and apply a complete board with
+editor.setProject(project). The project schema is version 1 with a Mermaid
+source string and a positions object mapping node IDs to finite [x, y] pairs.
+Use editor.setMermaid(source) to update structure and retain matching positions.
+Call editor.fit(), editor.undo(), or editor.redo() directly. Pass onChange(source,
+positions) when mounting to subscribe to committed edits. These methods require
+no pointer or keyboard simulation.

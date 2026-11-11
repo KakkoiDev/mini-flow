@@ -8,7 +8,7 @@
   const encode = value => value.replace(/["#&<>|\\\r\n]/g, char => char === '\n' ? '<br/>' : '#' + char.charCodeAt(0) + ';');
   const decode = value => value.replace(/<br\s*\/?>/gi, '\n').replace(/#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
 
-  function parse(source) {
+  function parse(source, definitions = shapes) {
     const lines = source.split(/\r?\n/).map(s => s.trim()).filter(s => s && !s.startsWith('%%'));
     if (!/^(?:flowchart|graph) (?:TD|TB)$/.test(lines.shift() || '')) {
       throw new Error('Start with flowchart TD.');
@@ -22,12 +22,12 @@
         continue;
       }
       const node = line.match(/^([A-Za-z][\w-]*)\s*(.*)$/);
-      const type = node && Object.keys(shapes).find(key => {
-        const [open, close] = shapes[key];
+      const type = node && Object.keys(definitions).sort((a, b) => definitions[b][0].length - definitions[a][0].length).find(key => {
+        const [open, close] = definitions[key];
         return node[2].startsWith(open) && node[2].endsWith(close);
       });
       if (!type || ids.has(node[1])) throw new Error('Invalid or repeated node: ' + line);
-      const [open, close] = shapes[type];
+      const [open, close] = definitions[type];
       const label = node[2].slice(open.length, -close.length).replace(/^"(.*)"$/, '$1');
       ids.add(node[1]);
       nodes.push({ id: node[1], type, label: decode(label), x: 300, y: 65 + nodes.length * 115 });
@@ -38,17 +38,32 @@
     return { nodes, edges };
   }
 
-  function stringify({ nodes, edges }) {
+  function stringify({ nodes, edges }, definitions = shapes) {
     return ['flowchart TD', ...nodes.map(({ id, type, label }) => {
-      const [open, close] = shapes[type];
+      const [open, close] = definitions[type];
       return '    ' + id + open + '"' + encode(label) + '"' + close;
     }), ...edges.map(({ from, to, label }) =>
       '    ' + from + ' --> ' + (label ? '|' + encode(label) + '| ' : '') + to
     )].join('\n');
   }
 
-  function mount(host, source = 'flowchart TD', positions = {}, { onChange } = {}) {
-    let graph = parse(source), selected, origin, drag, pendingShape;
+  function mount(host, source = 'flowchart TD', positions = {}, { onChange, features = {}, colors = {}, extraShapes = {}, tools } = {}) {
+    const enabled = name => features[name] !== false;
+    const palette = { canvas: '#f7faff', grid: '#c5d4e4', text: '#203044', surface: '#fff',
+      stroke: '#536982', accent: '#3965be', terminal: '#dcf4e9', step: '#e4edff', decision: '#fff0c7', ...colors };
+    const definitions = { ...shapes };
+    for (const [name, shape] of Object.entries(extraShapes)) {
+      const syntax = shape.syntax;
+      if (!/^[a-z][\w-]*$/i.test(name) || name in definitions ||
+          !Array.isArray(syntax) || syntax.length !== 2 ||
+          syntax.some(part => typeof part !== 'string' || !/^[()[\]{}]+$/.test(part)) ||
+          Object.values(definitions).some(pair => pair[0] === syntax[0] && pair[1] === syntax[1]) ||
+          typeof shape.draw !== 'function') throw new Error('Invalid extra shape: ' + name);
+      definitions[name] = syntax;
+    }
+    const parseSource = source => parse(source, definitions);
+    const sourceText = () => stringify(graph, definitions);
+    let graph = parseSource(source), selected, origin, drag, pendingShape;
     for (const node of graph.nodes) {
       if (Object.hasOwn(positions, node.id)) [node.x, node.y] = positions[node.id];
     }
@@ -60,35 +75,39 @@
     let pan, editing, zoom = 1, cameraX = 0, cameraY = 0;
     const gridSize = 16;
     const root = document.createElement('div');
+    for (const key of ['canvas', 'grid', 'text', 'surface', 'stroke', 'accent']) {
+      root.style.setProperty('--mf-' + key, palette[key]);
+    }
     const shadow = root.attachShadow({ mode: 'open' });
     shadow.innerHTML = `
       <style>
-        :host {display:block;color:#203044;font:15px system-ui}
+        :host {display:block;color:var(--mf-text);font:15px system-ui}
         * {box-sizing:border-box}
+        [hidden] {display:none!important}
         .frame {position:relative;height:var(--mini-flow-height, 72vh);min-height:360px;isolation:isolate}
         @media (max-width: 550px) { .toolbar button {font-size:13px;padding:5px} .toolbar kbd {font-size:10px} .status {font-size:12px} }
         .toolbar {position:absolute;inset:12px 12px auto;z-index:2;width:fit-content;max-width:calc(100% - 24px);margin:auto;border:1px solid #d9e2ec;border-radius:14px;box-shadow:0 4px 20px #20304418;
-display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#fff;border-bottom:1px solid #d9e2ec}
+display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:var(--mf-surface);border-bottom:1px solid #d9e2ec}
         button,input,textarea {font:inherit;color:inherit}
-        button,input {background:white;border:1px solid #bdcbd9;border-radius:8px;padding:8px}
+        button,input {background:var(--mf-surface);border:1px solid #bdcbd9;border-radius:8px;padding:8px}
         button {cursor:pointer} button[aria-pressed=true]{background:#e0eaff;border-color:#3965be}
         kbd {margin-inline-start:5px;padding:1px 4px;border:1px solid #bdcbd9;border-radius:4px;font:12px ui-monospace,monospace}
         button:disabled {opacity:.45;cursor:default}
         .frame {border:1px solid #bdcbd9;border-radius:12px;overflow:hidden}
-        .scroll {position:absolute;inset:0;overflow:hidden;background:#f7faff radial-gradient(#c5d4e4 1px,transparent 1px) 0 0/16px 16px}
+        .scroll {position:absolute;inset:0;overflow:hidden;background:var(--mf-canvas) radial-gradient(var(--mf-grid) 1px,transparent 1px) 0 0/16px 16px}
         svg {display:block;width:100%;height:100%;cursor:grab;touch-action:none;user-select:none}
         g[role=button] {cursor:pointer}
-        g:focus-visible {outline:2px solid #3965be}
-        text {fill:#203044;pointer-events:none}
-        .panel {position:absolute;inset:auto 12px 50px auto;width:min(350px,calc(100% - 24px));max-height:65%;overflow:auto;background:white;border:1px solid #d9e2ec;border-radius:14px;box-shadow:0 4px 24px #20304424;z-index:1}
-        .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);min-width:48px;min-height:1.2em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.2;color:#203044;outline:none;background:transparent}
-        .status {position:absolute;inset:auto 12px 8px;pointer-events:none;border-radius:10px;margin:0;padding:8px 12px;background:#fff;border-top:1px solid #d9e2ec;min-height:38px}
-        .panel details {padding:14px;background:#fff}
+        g:focus-visible {outline:2px solid var(--mf-accent)}
+        text {fill:var(--mf-text);pointer-events:none}
+        .panel {position:absolute;inset:auto 12px 50px auto;width:min(350px,calc(100% - 24px));max-height:65%;overflow:auto;background:var(--mf-surface);border:1px solid #d9e2ec;border-radius:14px;box-shadow:0 4px 24px #20304424;z-index:1}
+        .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);min-width:48px;min-height:1.2em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.2;color:var(--mf-text);outline:none;background:transparent}
+        .status {position:absolute;inset:auto 12px 8px;pointer-events:none;border-radius:10px;margin:0;padding:8px 12px;background:var(--mf-surface);border-top:1px solid #d9e2ec;min-height:38px}
+        .panel details {padding:14px;background:var(--mf-surface)}
         .panel details + details {border-top:1px solid #d9e2ec}
         .panel-actions {display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
         .panel textarea {margin:10px 0 0}
         summary {cursor:pointer}
-        textarea {background:#fff;color:#203044;color-scheme:light;border:1px solid #bdcbd9;border-radius:8px;padding:10px;display:block;width:100%;min-height:155px;margin:10px 0;font:14px ui-monospace,monospace}
+        textarea {background:var(--mf-surface);color:var(--mf-text);color-scheme:light;border:1px solid #bdcbd9;border-radius:8px;padding:10px;display:block;width:100%;min-height:155px;margin:10px 0;font:14px ui-monospace,monospace}
       </style>
       <section class="frame" aria-label="Flowchart editor">
         <div class="toolbar">
@@ -98,20 +117,22 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
           <button aria-keyshortcuts="4" title="Shortcut: 4" data-link aria-pressed="false">Connect <kbd aria-hidden="true">4</kbd></button>
           <label><input type="checkbox" data-snap> Snap to grid</label>
           <button aria-keyshortcuts="Backspace" title="Shortcut: Backspace" data-delete disabled>Delete <kbd aria-hidden="true">⌫</kbd></button>
+          <button data-edit disabled>Edit</button><button data-undo disabled>Undo</button><button data-redo disabled>Redo</button>
           <button data-panel aria-expanded="false">Code &amp; export</button><button data-fit>Fit</button>
         </div>
         <div class="scroll"><svg aria-label="Flowchart canvas"></svg></div>
         <p class="status" role="status"></p>
-        <aside class="panel" hidden><details open><summary>Mermaid source</summary>
+        <aside class="panel" hidden><details data-source open><summary>Mermaid source</summary>
           <textarea aria-label="Mermaid source" spellcheck="false"></textarea>
           <div class="panel-actions"><button data-import>Apply source</button>
           <button data-export>Refresh source</button>
           <button data-copy="mermaid">Copy Mermaid</button></div>
         </details>
-        <details><summary>Export</summary>
+        <details data-exports><summary>Export</summary>
           <div class="panel-actions"><button data-download="png">Download PNG</button>
           <button data-download="svg">Download SVG</button>
           <button data-download="md">Download Markdown</button></div>
+          <div class="panel-actions" data-project><button data-backup>Download project</button><button data-open>Open project</button><input type="file" accept=".json,application/json" hidden></div>
           <div class="panel-actions"><button data-copy="png">Copy PNG</button>
           <button data-copy="svg">Copy SVG markup</button>
           <button data-copy="md">Copy Markdown</button></div>
@@ -148,12 +169,15 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
     }
     function changed(record = true) {
       const next = snapshot();
-      if (record && next !== current) {
+      if (enabled('history') && record && next !== current) {
         undoStack.push(current);
+        if (undoStack.length > 100) undoStack.shift();
         redoStack.length = 0;
       }
       current = next;
-      area.value = stringify(graph);
+      undoButton.disabled = !undoStack.length;
+      redoButton.disabled = !redoStack.length;
+      area.value = sourceText();
       onChange?.(area.value, Object.fromEntries(graph.nodes.map(n => [n.id, [n.x, n.y]])));
     }
     function positionEditor() {
@@ -166,6 +190,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       field.style.top = ((item.y ?? item.labelY) - cameraY) * zoom + 'px';
     }
     function editLabel(item) {
+      if (!enabled('edit') || !item) return;
       if (editing) editing.field.blur();
       const field = document.createElement('div');
       field.contentEditable = 'plaintext-only';
@@ -180,7 +205,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       positionEditor();
       function updateLabel() {
         item.label = (field.childElementCount ? field.innerText : field.textContent).replace(/\r/g, '');
-        area.value = stringify(graph);
+        area.value = sourceText();
         render();
         positionEditor();
       }
@@ -221,6 +246,29 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
     }
     const connect = get('[data-link]'), remove = get('[data-delete]');
     const snap = get('[data-snap]');
+    const editButton = get('[data-edit]'), undoButton = get('[data-undo]'), redoButton = get('[data-redo]');
+    const controls = { connect, delete: remove, edit: editButton, history: undoButton, fit: get('[data-fit]'),
+      snap: snap.parentElement, source: get('[data-source]'), exports: get('[data-exports]'), project: get('[data-project]') };
+    for (const [feature, control] of Object.entries(controls)) control.hidden = !enabled(feature);
+    redoButton.hidden = !enabled('history');
+    get('[data-panel]').hidden = !enabled('source') && !enabled('exports') && !enabled('project');
+    if (!enabled('exports') && enabled('project')) {
+      controls.exports.hidden = false;
+      for (const row of controls.exports.querySelectorAll('.panel-actions:not([data-project])')) row.hidden = true;
+    }
+    const file = get('input[type=file]');
+    get('[data-backup]').onclick = () => download(new Blob([JSON.stringify(getProject(), null, 2)],
+      { type: 'application/json' }), 'json');
+    get('[data-open]').onclick = () => file.click();
+    file.onchange = async () => {
+      const selectedFile = file.files[0];
+      file.value = '';
+      if (!selectedFile) return;
+      try {
+        setProject(JSON.parse(await selectedFile.text()));
+        status('Project opened.');
+      } catch (error) { status(error.message); }
+    };
     const coordinate = value => snap.checked ? Math.round(value / gridSize) * gridSize : value;
     const status = value => { get('.status').textContent = value; };
     const element = (tag, attrs, content) => {
@@ -246,14 +294,54 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
         : Math.max(Math.abs(dx / w), Math.abs(dy / h));
       return [node.x + dx / scale, node.y + dy / scale];
     };
+    function detour(from, to, start, end, control) {
+      const obstacles = graph.nodes.filter(node => node !== from && node !== to).map(node => ({
+        left: node.x - radius(node) - 8, right: node.x + radius(node) + 8,
+        top: node.y - height(node) - 8, bottom: node.y + height(node) + 8
+      }));
+      const hits = ([ax, ay], [bx, by], box) => {
+        let low = 0, high = 1;
+        for (const [a, b, min, max] of [[ax, bx, box.left, box.right], [ay, by, box.top, box.bottom]]) {
+          if (a === b) {
+            if (a < min || a > max) return false;
+            continue;
+          }
+          const first = (min - a) / (b - a), last = (max - a) / (b - a);
+          low = Math.max(low, Math.min(first, last));
+          high = Math.min(high, Math.max(first, last));
+        }
+        return low <= high;
+      };
+      const clear = points => points.slice(1).every((point, index) =>
+        obstacles.every(box => !hits(points[index], point, box)));
+      const curve = Array.from({ length: 9 }, (_, index) => {
+        const t = index / 8;
+        return start.map((value, axis) => (1 - t) ** 2 * value + 2 * t * (1 - t) * control[axis] + t ** 2 * end[axis]);
+      });
+      if (clear(curve)) return null;
+      const routes = [];
+      for (const box of obstacles) {
+        for (const x of [box.left - 12, box.right + 12]) {
+          routes.push([[from.x + Math.sign(x - from.x) * radius(from), from.y],
+            [x, from.y], [x, to.y], [to.x + Math.sign(x - to.x) * radius(to), to.y]]);
+        }
+        for (const y of [box.top - 12, box.bottom + 12]) {
+          routes.push([[from.x, from.y + Math.sign(y - from.y) * height(from)],
+            [from.x, y], [to.x, y], [to.x, to.y + Math.sign(y - to.y) * height(to)]]);
+        }
+      }
+      const length = route => route.slice(1).reduce((sum, [x, y], index) =>
+        sum + Math.hypot(x - route[index][0], y - route[index][1]), 0);
+      return routes.filter(route => (route[1][0] !== route[2][0] || route[1][1] !== route[2][1]) && clear(route)).sort((a, b) => length(a) - length(b))[0];
+    }
     function select(item) {
       selected = item;
-      remove.disabled = !item;
+      remove.disabled = editButton.disabled = !item;
     }
     function render(focus) {
       svg.replaceChildren();
       const defs = element('defs', {});
-      for (const [id, color] of [['arrow', '#536982'], ['active', '#3965be']]) {
+      for (const [id, color] of [['arrow', palette.stroke], ['active', palette.accent]]) {
         const marker = element('marker', { id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto' });
         marker.append(element('path', { d: 'M0 0 L10 5 L0 10Z', fill: color }));
         defs.append(marker);
@@ -264,7 +352,9 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
         const a = byId.get(edge.from), b = byId.get(edge.to);
         let start, end, d, x, y;
         if (b.y <= a.y && Math.abs(a.x - b.x) < 40) {
-          const lane = Math.max(a.x + radius(a), b.x + radius(b)) + 52;
+          const lane = Math.max(a.x + radius(a), b.x + radius(b),
+            ...graph.nodes.filter(node => node.y > b.y && node.y < a.y && Math.abs(node.x - a.x) < radius(node))
+              .map(node => node.x + radius(node))) + 52;
           start = [a.x + radius(a), a.y];
           end = [b.x + radius(b), b.y + (a === b ? 16 : 0)];
           if (a === b) {
@@ -287,15 +377,21 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
           x = mx + (offset ? ox * .7 : 17);
           y = my + oy * .7;
           if (!offset && Math.abs(dy) < 12) { x = mx; y -= 9; }
+          const route = detour(a, b, start, end, [mx + ox, my + oy]);
+          if (route) {
+            d = 'M' + route.map(point => point.join(' ')).join(' L');
+            x = (route[1][0] + route[2][0]) / 2 + 9;
+            y = (route[1][1] + route[2][1]) / 2 - 9;
+          }
         }
         edge.labelX = x;
         edge.labelY = y;
         const active = selected === edge;
         const group = itemGroup(edge, 'Arrow from ' + a.label + ' to ' + b.label);
         group.append(element('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': 22 }),
-          element('path', { d, fill: 'none', stroke: active ? '#3965be' : '#536982', 'stroke-width': 2,
+          element('path', { d, fill: 'none', stroke: active ? palette.accent : palette.stroke, 'stroke-width': 2,
             'marker-end': active ? 'url(#active)' : 'url(#arrow)' }),
-          labelText({ x, y, 'text-anchor': 'middle', 'font-size': 13, visibility: editing?.item === edge ? 'hidden' : 'visible', stroke: '#f7faff', 'stroke-width': 5, 'paint-order': 'stroke' }, edge.label));
+          labelText({ x, y, 'text-anchor': 'middle', 'font-size': 13, visibility: editing?.item === edge ? 'hidden' : 'visible', stroke: palette.canvas, 'stroke-width': 5, 'paint-order': 'stroke' }, edge.label));
         svg.append(group);
         if (focus === edge) group.focus();
       }
@@ -304,17 +400,19 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
         group.setAttribute('transform', 'translate(' + node.x + ' ' + node.y + ')');
         const w = radius(node), h = height(node);
         const paint = {
-          fill: node.type === 'decision' ? '#fff0c7' : node.type === 'terminal' ? '#dcf4e9' : '#e4edff',
-          stroke: selected === node || origin === node ? '#3965be' : '#536982',
+          fill: palette[node.type] ?? palette.step,
+          stroke: selected === node || origin === node ? palette.accent : palette.stroke,
           'stroke-width': selected === node || origin === node ? 3 : 1.5
         };
-        group.append(node.type === 'decision'
+        const custom = extraShapes[node.type];
+        group.append(custom ? custom.draw({ element, node: { ...node }, width: w * 2, height: h * 2, paint })
+          : node.type === 'decision'
           ? element('polygon', { points: '0,' + -h + ' ' + w + ',0 0,' + h + ' ' + -w + ',0', ...paint })
           : element('rect', { x: -w, y: -h, width: 2*w, height: 2*h, rx: node.type === 'terminal' ? h : 4, ...paint }),
           labelText({ 'text-anchor': 'middle', visibility: editing?.item === node ? 'hidden' : 'visible' }, node.label));
         if (connect.getAttribute('aria-pressed') === 'false') {
           group.addEventListener('pointerdown', event => {
-            if (event.button !== 0 || pendingShape) return;
+            if (event.button !== 0 || pendingShape || !enabled('move')) return;
             event.preventDefault();
             select(node);
             drag = { pointerId: event.pointerId, node, x: node.x, y: node.y, clientX: event.clientX, clientY: event.clientY };
@@ -374,7 +472,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
         distance: Math.max(1, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)) };
     }
     svg.addEventListener('pointerdown', event => {
-      if (event.pointerType !== 'touch') return;
+      if (event.pointerType !== 'touch' || !enabled('zoom')) return;
       pinched.delete(event.pointerId);
       touches.set(event.pointerId, event);
       if (touches.size < 2) return;
@@ -403,6 +501,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       if (pinched.has(event.pointerId)) event.stopImmediatePropagation();
     }, true);
     svg.addEventListener('wheel', event => {
+      if (!enabled('zoom')) return;
       event.preventDefault();
       if (drag || pan) return;
       const [x, y] = world(event);
@@ -452,7 +551,14 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
         selectLabel(completed.node);
       }
     });
+    for (const [type, shape] of Object.entries(extraShapes)) {
+      const button = document.createElement('button');
+      button.dataset.shape = type;
+      button.textContent = shape.label ?? type;
+      connect.before(button);
+    }
     const shapeButtons = [...shadow.querySelectorAll('[data-shape]')];
+    for (const button of shapeButtons) button.hidden = !enabled('create') || Boolean(tools && !tools.includes(button.dataset.shape));
     function chooseShape(button) {
       pendingShape = button;
       for (const candidate of shapeButtons) {
@@ -464,7 +570,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       const type = button.dataset.shape;
       let id;
       do { id = 'N' + serial++; } while (graph.nodes.some(node => node.id === id));
-      const node = { id, type, label: type === 'terminal' ? 'Start' : type === 'step' ? 'Step' : 'Decision', x, y };
+      const node = { id, type, label: type === 'terminal' ? 'Start' : type === 'step' ? 'Step' : type === 'decision' ? 'Decision' : extraShapes[type].label ?? type, x, y };
       node.x = coordinate(node.x);
       node.y = coordinate(node.y);
       graph.nodes.push(node);
@@ -498,7 +604,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
     svg.addEventListener('pointerdown', event => {
       if (event.target !== svg || event.button !== 0) return;
       root.focus({ preventScroll: true });
-      if (pendingShape || drag || pan) return;
+      if (pendingShape || drag || pan || !enabled('pan')) return;
       pan = { pointerId: event.pointerId, x: cameraX, y: cameraY, clientX: event.clientX, clientY: event.clientY };
       svg.setPointerCapture(event.pointerId);
     });
@@ -515,15 +621,21 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       root.focus({ preventScroll: true });
       status(message);
     }
+    const undo = () => replay(undoStack, redoStack, 'Edit undone.');
+    const redo = () => replay(redoStack, undoStack, 'Edit redone.');
+    undoButton.onclick = undo;
+    redoButton.onclick = redo;
+    editButton.onclick = () => editLabel(selected);
     root.addEventListener('keydown', event => {
+      if (!enabled('shortcuts')) return;
       if (event.defaultPrevented || event.isComposing || event.repeat || event.altKey ||
           event.composedPath().some(target => target.matches?.('input, textarea, select, [contenteditable]'))) return;
       if (event.ctrlKey || event.metaKey) {
         const key = event.key.toLowerCase();
         if (key !== 'z' && key !== 'y') return;
         event.preventDefault();
-        if (key === 'y' || event.shiftKey) replay(redoStack, undoStack, 'Edit redone.');
-        else replay(undoStack, redoStack, 'Edit undone.');
+        if (key === 'y' || event.shiftKey) redo();
+        else undo();
         return;
       }
       if (event.shiftKey) return;
@@ -532,7 +644,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       const command = commands[event.key];
       if (!Object.hasOwn(commands, event.key)) return;
       event.preventDefault();
-      if (command.disabled) return;
+      if (command.disabled || command.hidden) return;
       command.dispatchEvent(new MouseEvent('click', { detail: 1 }));
     });
     shadow.addEventListener('keydown', event => {
@@ -561,7 +673,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       status('Selection deleted.');
     };
     function setMermaid(value) {
-      const next = parse(value);
+      const next = parseSource(value);
       const previous = new Map(graph.nodes.map(node => [node.id, node]));
       let nextY = Math.max(-50, ...graph.nodes.map(node => node.y)) + 115;
       for (const node of next.nodes) {
@@ -574,6 +686,28 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
           nextY += 115;
         }
       }
+      replaceGraph(next);
+    }
+    function getProject() {
+      return { version: 1, source: sourceText(), positions: Object.fromEntries(graph.nodes.map(n => [n.id, [n.x, n.y]])) };
+    }
+    function setProject(project) {
+      if (project?.version !== 1 || typeof project.source !== 'string' || !project.positions) {
+        throw new Error('Invalid Mini Flow project.');
+      }
+      const next = parseSource(project.source);
+      for (const node of next.nodes) {
+        const pair = project.positions[node.id];
+        if (!Array.isArray(pair) || pair.length !== 2 || !pair.every(Number.isFinite)) {
+          throw new Error('Invalid position for ' + node.id);
+        }
+        [node.x, node.y] = pair;
+      }
+      replaceGraph(next);
+      fit();
+    }
+    function replaceGraph(next) {
+      editing?.field.blur();
       const wasEmpty = !graph.nodes.length;
       graph = next;
       chooseShape(undefined);
@@ -590,7 +724,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       catch (error) { status(error.message); }
     };
     get('[data-export]').onclick = () => {
-      area.value = stringify(graph);
+      area.value = sourceText();
       area.focus();
       area.select();
       status('Mermaid source refreshed and selected.');
@@ -604,17 +738,18 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       copy.setAttribute('viewBox', [box.x - 24, box.y - 24, width, height].join(' '));
       copy.setAttribute('font-family', 'system-ui, sans-serif');
       copy.setAttribute('font-size', '15');
-      copy.setAttribute('fill', '#203044');
+      copy.setAttribute('fill', palette.text);
+      for (const label of copy.querySelectorAll('text')) label.removeAttribute('visibility');
       for (const group of copy.querySelectorAll('[role="button"]')) {
         group.removeAttribute('tabindex');
         group.removeAttribute('role');
       }
-      for (const shape of copy.querySelectorAll('[stroke="#3965be"]')) {
-        shape.setAttribute('stroke', '#536982');
+      for (const shape of Array.from(copy.querySelectorAll('[stroke]')).filter(shape => shape.getAttribute('stroke') === palette.accent)) {
+        shape.setAttribute('stroke', palette.stroke);
         shape.setAttribute('stroke-width', shape.hasAttribute('marker-end') ? '2' : '1.5');
         if (shape.hasAttribute('marker-end')) shape.setAttribute('marker-end', 'url(#arrow)');
       }
-      copy.prepend(element('rect', { width: '100%', height: '100%', fill: '#f7faff' }));
+      copy.prepend(element('rect', { width: '100%', height: '100%', fill: palette.canvas }));
       return new Blob([new XMLSerializer().serializeToString(copy)], { type: 'image/svg+xml;charset=utf-8' });
     }
     function download(blob, extension) {
@@ -643,7 +778,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       }
     }
     function exportMarkdown() {
-      const source = stringify(graph);
+      const source = sourceText();
       const runs = source.match(/`+/g) || [];
       const fence = '`'.repeat(Math.max(2, ...runs.map(run => run.length)) + 1);
       return fence + 'mermaid\n' + source + '\n' + fence + '\n';
@@ -668,7 +803,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
           if (format === 'png') {
             await navigator.clipboard.write([new ClipboardItem({ 'image/png': exportPng() })]);
           } else {
-            const value = format === 'mermaid' ? stringify(graph)
+            const value = format === 'mermaid' ? sourceText()
               : format === 'svg' ? await exportSvg().text() : exportMarkdown();
             try {
               await navigator.clipboard.writeText(value);
@@ -693,11 +828,11 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:#
       };
     }
     host.append(root);
-    area.value = stringify(graph);
+    area.value = sourceText();
     status('Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
     render();
     fit();
-    return { getMermaid: () => stringify(graph), setMermaid, exportSvg, exportPng, exportMarkdown, destroy: () => { observer.disconnect(); root.remove(); } };
+    return { getMermaid: sourceText, setMermaid, getProject, setProject, undo, redo, fit, exportSvg, exportPng, exportMarkdown, destroy: () => { observer.disconnect(); root.remove(); } };
   }
 
   globalThis.MiniFlow = { mount, parse, stringify };

@@ -46,6 +46,7 @@ const examplePositions = {
 };
 const key = 'mini-flow-edit-v1';
 const prefix = '#flow=';
+const sharedSession = location.hash.startsWith(prefix) && !history.state?.miniFlowLocal;
 const message = document.querySelector('#save-status');
 function readEdit(raw) {
   try {
@@ -73,10 +74,12 @@ function restore() {
 }
 function save(source, positions) {
   const raw = JSON.stringify({ source, positions });
-  try { localStorage.setItem(key, raw); } catch {}
+  if (!sharedSession) {
+    try { localStorage.setItem(key, raw); } catch {}
+  }
   const hash = prefix + encodeURIComponent(raw);
   if (location.hash !== hash) {
-    try { history.replaceState(null, '', hash); }
+    try { history.replaceState({ miniFlowLocal: !sharedSession }, '', hash); }
     catch { message.textContent = 'Could not update the share link.'; }
   }
 }
