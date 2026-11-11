@@ -432,7 +432,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           'aria-label': 'Attachment for ' + note.label });
         const coords = { x1: startX, y1: startY, x2: x, y2: y };
         group.append(
-          element('line', { ...coords, stroke: 'transparent', 'stroke-width': 20 }),
+          element('line', { ...coords, stroke: 'transparent', 'stroke-width': 20,
+            'pointer-events': connect.getAttribute('aria-pressed') === 'true' ? 'none' : 'stroke' }),
           element('line', { ...coords, stroke: selected === attachment ? palette.accent : palette.stroke,
             'stroke-width': 2, 'stroke-dasharray': '2 5', 'stroke-linecap': 'round', 'pointer-events': 'none' })
         );
