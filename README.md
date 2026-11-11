@@ -117,3 +117,28 @@ Pass `onSend: async ({ project, selection }) => { … }` to show **Send to chat*
 The host handles delivery. A selection is either a node summary with its ID,
 an arrow summary with its index and endpoints, or null. Use `setProject()` to
 apply an incoming board as one undoable change.
+
+## Feedback for SDK updates
+
+Both `setProject(project, options)` and `setMermaid(source, options)` accept
+`{ message: 'Added a fallback after Data here?' }`. Added or changed blocks
+and arrows are highlighted for three seconds. Without a message, the editor
+reports counts of additions, updates, and removals. Each call is one diagram
+undo step. Feedback is transient and excluded from project data and exported
+images. Pass `{ highlight: false }` per call or configure
+`features: { updateFeedback: false }` to disable it.
+
+## Reconnect a connection
+
+Select an arrow and drag either endpoint onto a block. The target is highlighted
+during the drag. Dropping elsewhere or pressing Escape cancels. Select a dotted
+note attachment and drag its destination onto a block or arrow to reattach it.
+Each reconnection is one undo step. Embeds can disable handles with
+`features: { reconnect: false }`.
+
+## Remember snap preferences
+
+Pass `settingsKey: 'my-editor-preferences'` to persist the snap toggle in local
+storage across reloads. Use distinct keys for independent embeds. Optional
+`snapToGrid: true` sets the initial value when no saved preference exists.
+The demo uses `mini-flow-preferences`.

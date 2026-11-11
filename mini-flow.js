@@ -90,7 +90,7 @@ SOFTWARE.
     ), ...metadata].join('\n');
   }
 
-  function mount(host, source = 'flowchart TD', positions = {}, { onChange, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic' } = {}) {
+  function mount(host, source = 'flowchart TD', positions = {}, { onChange, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic', settingsKey, snapToGrid = false } = {}) {
     const enabled = name => features[name] !== false;
     const palette = { canvas: '#f7faff', grid: '#c5d4e4', text: '#203044', surface: '#fff',
       stroke: '#536982', accent: '#3965be', terminal: '#dcf4e9', step: '#e4edff', decision: '#fff0c7', ...colors };
@@ -115,6 +115,17 @@ SOFTWARE.
       key === 'labelX' || key === 'labelY' ? undefined : value);
     let current = snapshot();
     let serial = 1;
+    const connectionGeometry = new WeakMap();
+    let reconnect;
+    let updateTimer;
+    let highlighted = new Set();
+    let updateMessage;
+    function clearUpdate() {
+      clearTimeout(updateTimer);
+      highlighted.clear();
+      if (get('.status').textContent === updateMessage) status('');
+      updateMessage = undefined;
+    }
     let pan, editing, zoom = 1, cameraX = 0, cameraY = 0;
     const gridSize = 16;
     const root = document.createElement('div');
@@ -126,6 +137,7 @@ SOFTWARE.
       <style>
         :host {display:block;color:var(--mf-text);font:15px system-ui}
         * {box-sizing:border-box}
+        :host(.is-dragging), :host(.is-dragging) * {cursor:grabbing!important}
         [hidden] {display:none!important}
         .frame {position:relative;height:var(--mini-flow-height, 72vh);min-height:360px;isolation:isolate}
         @media (max-width: 550px) { .toolbar button {font-size:13px;padding:5px} .toolbar kbd {font-size:10px} .status {font-size:12px} }
@@ -153,6 +165,11 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .export-group + .export-group {border-top:1px solid #d9e2ec;padding-top:12px}
         .connection-actions {position:absolute;z-index:1;white-space:nowrap}
         .connection-actions button {min-height:44px;box-shadow:0 2px 8px #20304420}
+        .endpoint-handle {position:absolute;z-index:2;width:44px;height:44px;padding:0;transform:translate(-50%,-50%);
+          background:transparent;border:0;cursor:grab;touch-action:none}
+        .endpoint-handle::after {content:'';display:block;width:13px;height:13px;margin:auto;
+          border:2px solid var(--mf-accent);border-radius:50%;background:var(--mf-surface)}
+        .endpoint-handle:active {cursor:grabbing}
         .bend-handle {position:absolute;z-index:1;width:44px;height:44px;padding:0;transform:translate(-50%,-50%);background:transparent;border:0;cursor:grab;touch-action:none}
         .bend-handle::after {content:'';display:block;width:14px;height:14px;margin:auto;border:2px solid var(--mf-accent);border-radius:50%;background:var(--mf-surface)}
         .dock-layout {border:0;border-radius:0;background:var(--mf-canvas);--dock-height:64px;--dock-bottom:calc(12px + env(safe-area-inset-bottom, 0px))}
@@ -222,6 +239,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           <div class="connection-actions" role="group" aria-label="Connection actions" hidden>
             <button data-bend><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M6 6v6a3 3 0 0 0 3 3h10l-4 -4m0 8l4 -4" /></svg><span>Add bend</span></button><button data-straight hidden>Reset bend</button>
           </div>
+          <button class="endpoint-handle" data-endpoint="from" aria-label="Reconnect source" hidden></button>
+          <button class="endpoint-handle" data-endpoint="to" aria-label="Reconnect destination" hidden></button>
           <button class="bend-handle" aria-label="Move connection bend" title="Drag or use arrow keys" hidden></button>
         </div>
         <p class="status" role="status"></p>
@@ -362,6 +381,16 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     }
     const connect = get('[data-link]'), remove = get('[data-delete]');
     const snap = get('[data-snap]');
+    snap.checked = Boolean(snapToGrid);
+    if (settingsKey) {
+      try {
+        const saved = localStorage.getItem(settingsKey + ':snap');
+        if (saved === 'true' || saved === 'false') snap.checked = saved === 'true';
+      } catch {}
+      snap.addEventListener('change', () => {
+        try { localStorage.setItem(settingsKey + ':snap', String(snap.checked)); } catch {}
+      });
+    }
     const undoButton = get('[data-undo]'), redoButton = get('[data-redo]');
     const controls = { connect, delete: remove, history: undoButton, fit: get('[data-fit]'),
       snap: snap.parentElement, source: get('[data-source]'), exports: get('[data-exports]'), project: get('[data-project]') };
@@ -376,8 +405,9 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     const connectionActions = get('.connection-actions'), bendHandle = get('.bend-handle');
     let bending, bendDrag;
     function positionBendControls() {
+      positionEndpoints();
       const edge = selected;
-      const show = enabled('bend') && edge && !edge.type && !edge.attachment && !editing &&
+      const show = !reconnect && enabled('bend') && edge && !edge.type && !edge.attachment && !editing &&
         !pendingShape && !bending && connect.getAttribute('aria-pressed') === 'false';
       if (!show) {
         connectionActions.hidden = bendHandle.hidden = true;
@@ -402,12 +432,94 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       connectionActions.style.left = Math.max(8, right <= maxLeft ? right : left - connectionActions.offsetWidth - 28) + 'px';
       connectionActions.style.top = Math.max(8, Math.min(maxTop, top + 18)) + 'px';
     }
+    const endpointHandles = [...shadow.querySelectorAll('[data-endpoint]')];
+    function positionEndpoints() {
+      const item = reconnect?.item ?? selected;
+      const show = enabled('reconnect') && enabled('connect') && item && !item.type &&
+        !editing && !pendingShape && !bending && !bendDrag &&
+        connect.getAttribute('aria-pressed') === 'false';
+      for (const handle of endpointHandles) {
+        const side = handle.dataset.endpoint;
+        const point = reconnect?.side === side ? reconnect.pointer : connectionGeometry.get(item)?.[side];
+        handle.hidden = !show || !point || Boolean(item?.attachment && side === 'from');
+        if (handle.hidden) continue;
+        const x = (point[0] - cameraX) * zoom, y = (point[1] - cameraY) * zoom;
+        handle.style.left = x + 'px';
+        handle.style.top = y + 'px';
+      }
+    }
+    function findReconnectTarget(pointer) {
+      const [x, y] = pointer;
+      const nodes = graph.nodes.filter(node => node.type !== 'note').reverse();
+      const node = nodes.find(node => {
+        const dx = Math.abs(x - node.x), dy = Math.abs(y - node.y);
+        const padding = 10 / zoom;
+        return node.type === 'decision'
+          ? dx / (radius(node) + padding) + dy / (height(node) + padding) <= 1
+          : dx <= radius(node) + padding && dy <= height(node) + padding;
+      });
+      if (node || !reconnect.item.attachment) return node;
+      for (const edge of graph.edges) {
+        const path = connectionGeometry.get(edge)?.hitPath;
+        if (path?.isPointInStroke(new DOMPoint(x, y))) return edge;
+      }
+    }
+    function finishReconnect(commit) {
+      if (!reconnect) return;
+      const { item, side, candidate } = reconnect;
+      const handle = endpointHandles.find(handle => handle.dataset.endpoint === side);
+      const pointerId = reconnect.id;
+      reconnect = undefined;
+      root.classList.remove('is-dragging');
+      if (commit && candidate) {
+        if (item.attachment) item.attachment.target = candidate.type ? candidate.id : graph.edges.indexOf(candidate);
+        else item[side] = candidate.id;
+        changed();
+        status('Connection updated.');
+      } else {
+        status('Reconnection canceled.');
+      }
+      if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+      render();
+      root.focus({ preventScroll: true });
+    }
+    for (const handle of endpointHandles) {
+      handle.onpointerdown = event => {
+        if (event.button !== 0 || !selected || selected.type || reconnect) return;
+        event.preventDefault();
+        root.classList.add('is-dragging');
+        reconnect = { id: event.pointerId, item: selected, side: handle.dataset.endpoint,
+          pointer: world(event), candidate: undefined };
+        handle.setPointerCapture(event.pointerId);
+        status('Drag onto a block to reconnect. Drop elsewhere to cancel.');
+        render();
+      };
+      handle.onpointermove = event => {
+        if (reconnect?.id !== event.pointerId) return;
+        reconnect.pointer = world(event);
+        reconnect.candidate = findReconnectTarget(reconnect.pointer);
+        render();
+      };
+      handle.onpointerup = event => {
+        if (reconnect?.id !== event.pointerId) return;
+        reconnect.pointer = world(event);
+        reconnect.candidate = findReconnectTarget(reconnect.pointer);
+        finishReconnect(true);
+      };
+      handle.onpointercancel = event => {
+        if (reconnect?.id === event.pointerId) finishReconnect(false);
+      };
+      handle.onlostpointercapture = event => {
+        if (reconnect?.id === event.pointerId) finishReconnect(false);
+      };
+    }
     bendHandle.onpointerdown = event => {
       if (event.button !== 0 || !selected?.bend || bendDrag) return;
       bendHandle.focus({ preventScroll: true });
       bendDrag = { id: event.pointerId, edge: selected, start: selected.bend, pointer: world(event) };
       bendHandle.setPointerCapture(event.pointerId);
       bendHandle.style.cursor = 'grabbing';
+      root.classList.add('is-dragging');
       positionBendControls();
     };
     bendHandle.onpointermove = event => {
@@ -420,6 +532,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       if (bendDrag?.id !== event.pointerId) return;
       bendDrag = undefined;
       bendHandle.style.cursor = '';
+      root.classList.remove('is-dragging');
       changed();
       render();
     };
@@ -562,7 +675,14 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         }
         edge.labelX = x;
         edge.labelY = y;
-        const active = selected === edge;
+        if (reconnect?.item === edge) {
+          if (reconnect.side === 'from') start = reconnect.pointer;
+          else end = reconnect.pointer;
+          d = edge.bend ? 'M' + start + ' L' + edge.bend + ' L' + end : 'M' + start + ' L' + end;
+          x = (start[0] + end[0]) / 2;
+          y = (start[1] + end[1]) / 2 - 10;
+        }
+        const active = selected === edge || reconnect?.candidate === edge;
         const group = itemGroup(edge, 'Arrow from ' + a.label + ' to ' + b.label);
         const visibility = editing?.item === edge ? 'hidden' : 'visible';
         const label = labelText({ x, y, 'text-anchor': 'middle', 'font-size': 13, 'data-edge-label': '',
@@ -572,7 +692,12 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           element('path', { d, fill: 'none', stroke: active ? palette.accent : palette.stroke, 'stroke-width': 2,
             'marker-end': active ? 'url(#active)' : 'url(#arrow)' }),
           label);
+        if (highlighted.has(edge)) {
+          group.prepend(element('path', { d, fill: 'none', stroke: palette.accent, 'stroke-width': 8,
+            opacity: .25, 'pointer-events': 'none', 'data-update-highlight': '' }));
+        }
         svg.append(group);
+        connectionGeometry.set(edge, { from: start, to: end, hitPath: group.querySelector('path[stroke="transparent"]') });
         if (dockLayout && edge.label.trim()) {
           const box = label.getBBox();
           group.insertBefore(element('rect', {
@@ -591,7 +716,9 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         const attachment = selected?.attachment === note ? selected : { attachment: note };
         const group = element('g', { role: 'button', tabindex: 0,
           'aria-label': 'Attachment for ' + note.label });
-        const coords = { x1: startX, y1: startY, x2: x, y2: y };
+        const destination = reconnect?.item === attachment ? reconnect.pointer : [x, y];
+        connectionGeometry.set(attachment, { from: [startX, startY], to: destination });
+        const coords = { x1: startX, y1: startY, x2: destination[0], y2: destination[1] };
         group.append(
           element('line', { ...coords, stroke: 'transparent', 'stroke-width': 20,
             'pointer-events': connect.getAttribute('aria-pressed') === 'true' ? 'none' : 'stroke' }),
@@ -618,9 +745,14 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         const w = radius(node), h = height(node);
         const paint = {
           fill: palette[node.type] ?? (node.type === 'note' ? '#fff4ae' : palette.step),
-          stroke: selected === node || origin === node ? palette.accent : palette.stroke,
+          stroke: selected === node || origin === node || reconnect?.candidate === node ? palette.accent : palette.stroke,
           'stroke-width': selected === node || origin === node ? 3 : 1.5
         };
+        if (highlighted.has(node)) {
+          group.append(element('rect', { x: -w - 6, y: -h - 6, width: w * 2 + 12, height: h * 2 + 12,
+            rx: 8, fill: 'none', stroke: palette.accent, 'stroke-width': 3, opacity: .7,
+            'pointer-events': 'none', 'data-update-highlight': '' }));
+        }
         const custom = Object.hasOwn(extraShapes, node.type) ? extraShapes[node.type] : undefined;
         group.append(custom ? custom.draw({ element, node: { ...node }, width: w * 2, height: h * 2, paint })
           : node.type === 'decision'
@@ -632,6 +764,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
             if (event.button !== 0 || pendingShape || bending || !enabled('move')) return;
             event.preventDefault();
             select(node);
+            root.classList.add('is-dragging');
             drag = { pointerId: event.pointerId, node, x: node.x, y: node.y, clientX: event.clientX, clientY: event.clientY };
             svg.setPointerCapture(event.pointerId);
             group.focus({ preventScroll: true });
@@ -722,6 +855,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       event.stopPropagation();
       if (drag?.moved) changed();
       drag = pan = undefined;
+      root.classList.remove('is-dragging');
       for (const id of touches.keys()) {
         pinched.add(id);
         svg.setPointerCapture(id);
@@ -746,7 +880,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     svg.addEventListener('wheel', event => {
       if (!enabled('zoom')) return;
       event.preventDefault();
-      if (drag || pan || bendDrag) return;
+      if (drag || pan || bendDrag || reconnect) return;
       const [x, y] = world(event);
       const oldZoom = zoom;
       const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 100 : 1);
@@ -783,6 +917,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       }
     });
     svg.addEventListener('lostpointercapture', event => {
+      root.classList.remove('is-dragging');
       if (pinched.has(event.pointerId)) return;
       const completed = drag;
       drag = pan = undefined;
@@ -855,11 +990,13 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         render();
       }
       if (!enabled('pan')) return;
+      root.classList.add('is-dragging');
       pan = { pointerId: event.pointerId, x: cameraX, y: cameraY, clientX: event.clientX, clientY: event.clientY };
       svg.setPointerCapture(event.pointerId);
     });
     function replay(from, to, message) {
-      if (!from.length || drag || pan || bendDrag) return;
+      if (!from.length || drag || pan || bendDrag || reconnect) return;
+      clearUpdate();
       to.push(current);
       graph = JSON.parse(from.pop());
       chooseShape(undefined);
@@ -899,6 +1036,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     function cancelTool(event) {
       if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
       event.preventDefault();
+      if (reconnect) finishReconnect(false);
       chooseShape(undefined);
       origin = undefined;
       connect.setAttribute('aria-pressed', 'false');
@@ -944,7 +1082,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       changed();
       status('Selection deleted.');
     };
-    function setMermaid(value) {
+    function setMermaid(value, options = {}) {
       const next = parseSource(value);
       const previous = new Map(graph.nodes.map(node => [node.id, node]));
       let nextY = Math.max(-50, ...graph.nodes.map(node => node.y)) + 115;
@@ -958,12 +1096,12 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           nextY += 115;
         }
       }
-      replaceGraph(next);
+      replaceGraph(next, options);
     }
     function getProject() {
       return { version: 1, source: sourceText(), positions: Object.fromEntries(graph.nodes.map(n => [n.id, [n.x, n.y]])) };
     }
-    function setProject(project) {
+    function setProject(project, options = {}) {
       if (project?.version !== 1 || typeof project.source !== 'string' || !project.positions) {
         throw new Error('Invalid Mini Flow project.');
       }
@@ -978,8 +1116,40 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       replaceGraph(next);
       fit();
     }
-    function replaceGraph(next) {
+    function replaceGraph(next, options = {}) {
+      if (reconnect) finishReconnect(false);
       editing?.field.blur();
+      clearUpdate();
+      const previousNodes = new Map(graph.nodes.map(node => [node.id, node]));
+      const previousEdges = new Map();
+      for (const edge of graph.edges) {
+        const key = JSON.stringify([edge.from, edge.to]);
+        if (!previousEdges.has(key)) previousEdges.set(key, []);
+        previousEdges.get(key).push(edge);
+      }
+      let added = 0, updated = 0;
+      const moved = new Set();
+      for (const node of next.nodes) {
+        const previous = previousNodes.get(node.id);
+        if (!previous) { highlighted.add(node); added++; }
+        else if (['type', 'label', 'x', 'y', 'target'].some(key => previous[key] !== node[key])) {
+          highlighted.add(node);
+          updated++;
+          if (previous.x !== node.x || previous.y !== node.y) moved.add(node.id);
+        }
+      }
+      const nodeIds = new Set(next.nodes.map(node => node.id));
+      let removed = graph.nodes.filter(node => !nodeIds.has(node.id)).length;
+      for (const edge of next.edges) {
+        const previous = previousEdges.get(JSON.stringify([edge.from, edge.to]))?.shift();
+        if (!previous) { highlighted.add(edge); added++; }
+        else if (previous.label !== edge.label || JSON.stringify(previous.bend) !== JSON.stringify(edge.bend) ||
+            moved.has(edge.from) || moved.has(edge.to)) {
+          highlighted.add(edge);
+          updated++;
+        }
+      }
+      for (const remaining of previousEdges.values()) removed += remaining.length;
       const wasEmpty = !graph.nodes.length;
       graph = next;
       chooseShape(undefined);
@@ -990,9 +1160,24 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       render();
       if (wasEmpty && graph.nodes.length) fit();
       root.focus({ preventScroll: true });
+      const total = added + updated + removed;
+      if (total && options.highlight !== false && enabled('updateFeedback')) {
+        const counts = [[added, 'added'], [updated, 'updated'], [removed, 'removed']]
+          .filter(([count]) => count).map(([count, label]) => count + ' ' + label).join(', ');
+        updateMessage = typeof options.message === 'string' && options.message.trim()
+          ? options.message : 'Diagram updated. ' + counts + '.';
+        status(updateMessage);
+        updateTimer = setTimeout(() => {
+          clearUpdate();
+          render();
+        }, 3000);
+      } else {
+        highlighted.clear();
+        render();
+      }
     }
     get('[data-import]').onclick = () => {
-      try { setMermaid(area.value); status('Mermaid source applied.'); }
+      try { setMermaid(area.value, { highlight: false }); status('Mermaid source applied.'); }
       catch (error) { status(error.message); }
     };
     get('[data-export]').onclick = () => {
@@ -1003,6 +1188,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     };
     function exportSvg() {
       const copy = svg.cloneNode(true);
+      for (const highlight of copy.querySelectorAll('[data-update-highlight]')) highlight.remove();
       const box = svg.getBBox();
       const width = Math.ceil(box.width + 48), height = Math.ceil(box.height + 48);
       copy.setAttribute('width', width);
@@ -1111,7 +1297,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     status('Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
     render();
     fit();
-    return { getMermaid: sourceText, setMermaid, getProject, setProject, undo, redo, fit, exportSvg, exportPng, exportMarkdown, destroy: () => { observer.disconnect(); headerActions.remove(); root.remove(); } };
+    return { getMermaid: sourceText, setMermaid, getProject, setProject, undo, redo, fit, exportSvg, exportPng, exportMarkdown, destroy: () => { clearTimeout(updateTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
   }
 
   globalThis.MiniFlow = { mount, parse, stringify };

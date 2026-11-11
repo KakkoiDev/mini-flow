@@ -63,3 +63,60 @@ test('pinch changes the canvas zoom', async ({ page, browserName }) => {
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await expect(svg).not.toHaveAttribute('viewBox', before);
 });
+
+test('SDK feedback identifies changes and applies one undo step', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const host = document.body.appendChild(document.createElement('div'));
+    host.id = 'sdk-feedback';
+    const editor = MiniFlow.mount(host, 'flowchart TD\nA[Before]', { A: [100, 100] });
+    const before = editor.getProject();
+    editor.setProject({ version: 1, source: 'flowchart TD\nA[After]\nB[Fallback]\nA --> B',
+      positions: { A: [100, 100], B: [300, 100] } }, { message: 'Added a fallback.' });
+    const root = host.firstChild.shadowRoot;
+    const summary = root.querySelector('[role=status]').textContent;
+    const highlighted = root.querySelectorAll('[data-update-highlight]').length;
+    window.feedbackEditor = editor;
+    editor.undo();
+    const restored = JSON.stringify(editor.getProject()) === JSON.stringify(before);
+    editor.redo();
+    editor.setMermaid('flowchart TD\nA[Latest]\nB[Fallback]\nA --> B', { message: 'Latest update.' });
+    return { summary, highlighted, restored };
+  });
+  expect(result.summary).toBe('Added a fallback.');
+  expect(result.highlighted).toBe(3);
+  expect(result.restored).toBe(true);
+  await expect(page.locator('#sdk-feedback [data-update-highlight]')).toHaveCount(0, { timeout: 5000 });
+});
+
+test('reconnect an endpoint and undo it', async ({ page }) => {
+  await page.evaluate(() => {
+    const host = document.body.appendChild(document.createElement('div'));
+    host.id = 'sdk-reconnect';
+    window.reconnectEditor = MiniFlow.mount(host, 'flowchart TD\nA[Source]\nB[First]\nC[Second]\nA --> B',
+      { A: [100, 150], B: [350, 150], C: [600, 150] });
+    host.scrollIntoView();
+  });
+  const host = page.locator('#sdk-reconnect');
+  await host.getByRole('button', { name: 'Arrow from Source to First', exact: true }).click();
+  const handle = host.getByRole('button', { name: 'Reconnect destination', exact: true });
+  const box = await handle.boundingBox();
+  const target = await host.getByRole('button', { name: 'step: Second', exact: true }).boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 5 });
+  expect(await page.evaluate(() => reconnectEditor.getMermaid())).toContain('A --> B');
+  await page.mouse.up();
+  expect(await page.evaluate(() => reconnectEditor.getMermaid())).toContain('A --> C');
+  await page.evaluate(() => reconnectEditor.undo());
+  expect(await page.evaluate(() => reconnectEditor.getMermaid())).toContain('A --> B');
+});
+
+test('snap preference survives reloads in both directions', async ({ page }) => {
+  const snap = page.getByRole('checkbox', { name: 'Snap to grid' });
+  await snap.check();
+  await page.reload();
+  await expect(snap).toBeChecked();
+  await snap.uncheck();
+  await page.reload();
+  await expect(snap).not.toBeChecked();
+});
