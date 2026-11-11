@@ -19,11 +19,14 @@ header [data-fit] > svg{display:none}
 header [data-fit]::before{content:"";display:block;flex:0 0 19px;width:19px;height:19px;
 background:center / contain no-repeat url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23242b29%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M9%204H4v5m11-5h5v5M4%2015v5h5m11-5v5h-5%22%2F%3E%3C%2Fsvg%3E")}
 header .header-actions{display:contents}
+header .view-actions{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
 header button{display:inline-flex;align-items:center;gap:7px;font:inherit;border:1px solid transparent;background:transparent;color:inherit;border-radius:8px;padding:7px 10px;min-height:38px;cursor:pointer}
 header button:hover:not(:disabled){background:#f0ece6}
 header button[hidden]{display:none}
 header button:disabled{opacity:.45;cursor:default}
 header #blank{border-color:#ded9d2}
+header [data-layout]{color:#175b50;background:#edf6f2;border-color:#d7e8df}
+header [data-layout]:hover:not(:disabled){background:#dcefe7;border-color:#b9d8ca}
 header [data-panel]{background:#e4f4ee;border-color:#c9e8df}
 header [data-panel][aria-expanded=true]{background:#cdebe1}
 header button:focus-visible{outline:2px solid #087f71;outline-offset:2px}
@@ -32,7 +35,8 @@ header button:focus-visible{outline:2px solid #087f71;outline-offset:2px}
 #editor{flex:1;min-height:0;--mini-flow-height:100%}
 #editor > div{height:100%}
 @media(max-width:550px){header{gap:3px;padding:5px 8px}h1{font-size:18px}
-header button{font-size:13px;padding:5px 7px;min-height:44px}}
+header button{font-size:13px;padding:5px 7px;min-height:44px}
+header .header-actions{display:flex;flex:1 1 100%;flex-wrap:wrap;gap:3px}}
 dialog{width:min(560px,calc(100% - 32px));max-height:85dvh;padding:22px;border:1px solid #ded9d2;border-radius:14px;color:inherit;background:#fffdfb}
 dialog::backdrop{background:#242b2959}
 dialog h2{margin:0;font-size:20px}
@@ -62,7 +66,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=label-line-breaks"></script>
+<script src="./mini-flow.js?v=layout-header"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -172,8 +176,8 @@ repositoryLink.textContent = 'Source on GitHub';
 document.querySelector('#editor > div').shadowRoot.querySelector('.panel').append(repositoryLink);
 const headerActions = document.querySelector('header .header-actions');
 const panelButton = headerActions.querySelector('[data-panel]');
-headerActions.append(headerActions.querySelector('[data-fit]'));
-headerActions.querySelector('[data-fit]').after(document.querySelector('#share'));
+const viewActions = headerActions.querySelector('.view-actions');
+headerActions.append(viewActions, document.querySelector('#share'));
 headerActions.append(panelButton);
 const proposalDialog = document.querySelector('#edit-proposal');
 const applyButton = document.querySelector('#apply-proposal');

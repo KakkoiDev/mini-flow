@@ -165,6 +165,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .panel details + details {border-top:1px solid #d9e2ec}
         .header-actions {position:absolute;z-index:2;inset:auto 12px 54px;display:flex;gap:6px;flex-wrap:wrap;pointer-events:none}
         .header-actions button {pointer-events:auto}
+        .view-actions {display:inline-flex;gap:6px}
+        .view-actions:not(:has(button:not([hidden]))) {display:none}
         .export-group {margin-top:14px}
         .export-group + .export-group {border-top:1px solid #d9e2ec;padding-top:12px}
         .connection-actions {position:absolute;z-index:1;white-space:nowrap}
@@ -236,7 +238,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         </div>
         <div class="header-actions">
           <button data-undo disabled><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M9 14l-4 -4l4 -4" /><path d="M5 10h11a4 4 0 1 1 0 8h-1" /></svg><span>Undo</span></button><button data-redo disabled><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M15 14l4 -4l-4 -4" /><path d="M19 10h-11a4 4 0 1 0 0 8h1" /></svg><span>Redo</span></button>
-          <button data-panel aria-expanded="false"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M7 8l-4 4l4 4" /><path d="M17 8l4 4l-4 4" /><path d="M14 4l-4 16" /></svg><span>Code &amp; export</span></button><button data-fit><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M4 8v-2a2 2 0 0 1 2 -2h2" /><path d="M4 16v2a2 2 0 0 0 2 2h2" /><path d="M16 4h2a2 2 0 0 1 2 2v2" /><path d="M16 20h2a2 2 0 0 0 2 -2v-2" /></svg><span>Fit</span></button>
+          <button data-panel aria-expanded="false"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M7 8l-4 4l4 4" /><path d="M17 8l4 4l-4 4" /><path d="M14 4l-4 16" /></svg><span>Code &amp; export</span></button><div class="view-actions"><button data-fit><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M4 8v-2a2 2 0 0 1 2 -2h2" /><path d="M4 16v2a2 2 0 0 0 2 2h2" /><path d="M16 4h2a2 2 0 0 1 2 2v2" /><path d="M16 20h2a2 2 0 0 0 2 -2v-2" /></svg><span>Fit</span></button>
+          <button data-layout hidden title="Arrange blocks and fit the diagram"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2l0 -2" /><path d="M15 17a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2l0 -2" /><path d="M9 5a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2l0 -2" /><path d="M6 15v-1a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v1" /><path d="M12 9l0 3" /></svg><span>Auto layout</span></button></div>
           <button data-send hidden>Send to chat</button>
         </div>
         <div class="scroll"><svg aria-label="Flowchart canvas"></svg>
@@ -251,7 +254,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         <aside class="panel" hidden><details data-source open><summary>Mermaid source</summary>
           <textarea aria-label="Mermaid source" spellcheck="false"></textarea>
           <div class="panel-actions"><button data-import>Apply source</button>
-          <button data-discard-source hidden>Discard edits</button><button data-layout hidden>Auto layout</button></div>
+          <button data-discard-source hidden>Discard edits</button></div>
         </details>
         <details data-exports><summary>Export</summary>
           <section class="export-group" data-copy-group><strong>Copy</strong>
@@ -270,7 +273,9 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       </section>`;
     const get = selector => shadow.querySelector(selector);
     const svg = get('.scroll > svg'), area = get('.panel textarea'), viewport = get('.scroll');
-    const panel = get('.panel');
+    const panel = get('.panel'), layoutButton = get('[data-layout]');
+    layoutButton.hidden = !dagre;
+    layoutButton.disabled = !graph.nodes.length;
     get('[data-panel]').onclick = event => {
       panel.hidden = !panel.hidden;
       event.currentTarget.setAttribute('aria-expanded', String(!panel.hidden));
@@ -332,6 +337,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       current = next;
       undoButton.disabled = !undoStack.length;
       redoButton.disabled = !redoStack.length;
+      layoutButton.disabled = !graph.nodes.length;
       syncSource();
       onChange?.(sourceText(), boardPositions());
     }
@@ -1270,8 +1276,6 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         status('Mermaid source applied.');
       } catch (error) { status(error.message); }
     };
-    const layoutButton = get('[data-layout]');
-    layoutButton.hidden = !dagre;
     layoutButton.onclick = () => {
       try { autoLayout(); } catch (error) { status(error.message); }
     };

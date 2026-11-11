@@ -21,7 +21,7 @@ To serve locally, run `python3 -m http.server 8765 --bind 127.0.0.1` in this dir
 - Select any shape or arrow and edit its label. Delete removes the selection
   and any arrows attached to a deleted shape.
 - Mermaid source updates as you edit the board. Use Apply source to apply changes typed or pasted into the source panel. Discard edits appears while you have unapplied source changes.
-- Use Auto layout to arrange the current diagram in one undoable edit. Dagre follows the arrows and places branches side by side.
+- Use Auto layout next to Fit to arrange the current diagram in one undoable edit. Dagre follows the arrows and places branches side by side.
   Mini Flow's copied source includes a layout comment so reimporting restores the canvas positions.
   Mermaid Live ignores that comment and computes its own layout.
 
