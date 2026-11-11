@@ -337,7 +337,10 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
 function readPresence(data) {
   const point = Array.isArray(data?.point) && data.point.length === 2 && data.point.every(Number.isFinite) ? data.point : null;
   const focus = typeof data?.focus === 'string' && data.focus.length <= 128 ? data.focus : null;
-  return { point, focus };
+  const laser = Array.isArray(data?.laser) ? data.laser.slice(-40).filter(sample =>
+    Array.isArray(sample) && sample.length === 4 && Number.isSafeInteger(sample[0]) && sample[0] > 0 &&
+    Number.isFinite(sample[1]) && Number.isFinite(sample[2]) && typeof sample[3] === 'boolean') : [];
+  return { point, focus, ...(laser.length ? { laser } : {}) };
 }
 
 function failure(reason, message) {

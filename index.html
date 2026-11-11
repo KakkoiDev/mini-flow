@@ -140,7 +140,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=guest-counter"></script>
+<script src="./mini-flow.js?v=laser"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -417,8 +417,8 @@ document.querySelector('#share').onclick = async () => {
 </script>
 <script type="module">
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=agent-presence';
-import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=5';
-import { setupSavedProjects } from './mini-flow-projects.js?v=3';
+import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=6';
+import { setupSavedProjects } from './mini-flow-projects.js?v=4';
 
 const projectsButton = document.createElement('button');
 projectsButton.id = 'open-saved-projects';

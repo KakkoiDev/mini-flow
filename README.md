@@ -70,6 +70,7 @@ textarea keep their normal text-editing behavior.
 | `3` | Decision tool |
 | `4` | Connect tool |
 | `5` | Note tool |
+| `6` | Laser pointer |
 | `Esc` | Cancel the active tool or connection placement |
 | `Backspace` | Delete the selected block, arrow, or note attachment |
 | `Enter` while editing a label | Save and close the label editor |
@@ -77,6 +78,9 @@ textarea keep their normal text-editing behavior.
 
 Use Ctrl+Z to undo and Ctrl+Y to redo diagram edits. Cmd+Z and Cmd+Shift+Z
 also work on Mac. Text fields keep their native undo behavior.
+
+With **Laser** selected, drag to draw a temporary trail that fades on its own.
+Guests in a live session see the trail as you draw.
 
 
 ## Configure an embed
@@ -101,7 +105,7 @@ const editor = MiniFlow.mount(host, 'flowchart TD', {}, {
 ```
 
 Feature switches default to enabled. Disable any of create, connect, delete,
-edit, move, pan, zoom, fit, snap, history, shortcuts, source, exports, or project.
+edit, move, pan, zoom, fit, snap, history, shortcuts, laser, source, exports, or project.
 These switches control the UI. The SDK still exposes explicit methods for
 host-driven imports and exports. The tools array lists the shape buttons to
 show. Theme keys include canvas, grid, text, surface, stroke, accent, and shape

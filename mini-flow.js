@@ -152,6 +152,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .frame {border:1px solid #bdcbd9;border-radius:12px;overflow:hidden}
         .scroll {position:absolute;inset:0;overflow:hidden;background:var(--mf-canvas) radial-gradient(var(--mf-grid) 1px,transparent 1px) 0 0/16px 16px}
         .scroll > svg {display:block;width:100%;height:100%;cursor:grab;touch-action:none;user-select:none}
+        .scroll > .laser-layer {position:absolute;inset:0;pointer-events:none}
+        .scroll > svg.is-laser, svg.is-laser g[role=button] {cursor:crosshair}
+        .laser-mark {animation:laser-fade 1.2s ease-in forwards}
+        @keyframes laser-fade {0%,20% {opacity:1} 100% {opacity:0}}
         g[role=button] {cursor:pointer}
         g:focus-visible {outline:2px solid var(--mf-accent)}
         text {fill:var(--mf-text);pointer-events:none}
@@ -239,6 +243,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           <button aria-keyshortcuts="3" title="Shortcut: 3" data-shape="decision"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M6 5h12l3 5l-8.5 9.5a.7 .7 0 0 1 -1 0l-8.5 -9.5l3 -5" /><path d="M10 12l-2 -2.2l.6 -1" /></svg><span>Decision</span> <kbd aria-hidden="true">3</kbd></button>
           <button aria-keyshortcuts="4" title="Shortcut: 4" data-link aria-pressed="false"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M5 12l14 0" /><path d="M13 18l6 -6" /><path d="M13 6l6 6" /></svg><span>Connect</span> <kbd aria-hidden="true">4</kbd></button>
           <button aria-keyshortcuts="5" title="Shortcut: 5" data-shape="note"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M13 20l7 -7" /><path d="M13 20v-6a1 1 0 0 1 1 -1h6v-7a2 2 0 0 0 -2 -2h-12a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7" /></svg><span>Note</span> <kbd aria-hidden="true">5</kbd></button>
+          <button aria-keyshortcuts="6" title="Laser pointer (6)" data-laser aria-pressed="false"><svg aria-hidden="true" focusable="false" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19l9 -9l3 3l-9 9zM17 7l3 -3m-5 2V2m4 7h4" /></svg><span>Laser</span> <kbd aria-hidden="true">6</kbd></button>
           <label><input type="checkbox" data-snap> <svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M4 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M18 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M4 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M18 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M4 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M18 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /></svg><span>Snap to grid</span></label>
           <button aria-keyshortcuts="Backspace" title="Shortcut: Backspace" data-delete disabled><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" /><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" /></svg><span>Delete</span> <kbd aria-hidden="true">⌫</kbd></button>
         </div>
@@ -278,12 +283,97 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         </details></aside>
       </section>`;
     const get = selector => shadow.querySelector(selector);
+    const element = (tag, attrs, content) => {
+      const child = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      for (const [name, value] of Object.entries(attrs)) child.setAttribute(name, value);
+      if (content !== undefined) child.textContent = content;
+      return child;
+    };
     const svg = get('.scroll > svg'), area = get('.panel textarea'), viewport = get('.scroll');
+    const laserButton = get('[data-laser]');
+    const laserLayer = element('svg', { class: 'laser-layer', 'aria-hidden': 'true' });
+    const laserDuration = 1200;
+    const remoteLasers = new Map();
+    let laserActive = false, laserPointer, laserSerial = 0, laserPoints = [], laserTimer;
+    laserButton.hidden = !enabled('laser');
+    if (enabled('laser')) svg.after(laserLayer);
+
+    function drawLaser(point, previous) {
+      const [ , x, y, start] = point;
+      const mark = previous && !start
+        ? element('line', { x1: previous[1], y1: previous[2], x2: x, y2: y,
+            stroke: '#e62649', 'stroke-width': 4, 'stroke-linecap': 'round', 'vector-effect': 'non-scaling-stroke' })
+        : element('circle', { cx: x, cy: y, r: 3 / zoom, fill: '#e62649' });
+      mark.setAttribute('class', 'laser-mark');
+      mark.addEventListener('animationend', () => mark.remove(), { once: true });
+      laserLayer.append(mark);
+    }
+
+    function recordLaser(event, start) {
+      const [x, y] = world(event);
+      const previous = laserPoints.at(-1);
+      if (!start && previous && Math.hypot(x - previous[1], y - previous[2]) * zoom < 2) return;
+      const point = [++laserSerial, x, y, start];
+      drawLaser(point, previous);
+      laserPoints = [...laserPoints.slice(-39), point];
+      pointerPosition = [x, y];
+      publishPresence();
+      clearTimeout(laserTimer);
+      laserTimer = setTimeout(() => {
+        laserPoints = [];
+        publishPresence();
+      }, laserDuration);
+    }
+
+    function stopLaser() {
+      laserActive = false;
+      laserButton.setAttribute('aria-pressed', 'false');
+      svg.classList.remove('is-laser');
+      if (laserPointer !== undefined) {
+        const id = laserPointer;
+        laserPointer = undefined;
+        if (svg.hasPointerCapture(id)) svg.releasePointerCapture(id);
+      }
+    }
+
+    svg.addEventListener('pointerdown', event => {
+      if (!laserActive || event.button !== 0) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (laserPointer !== undefined) return;
+      root.focus({ preventScroll: true });
+      laserPointer = event.pointerId;
+      svg.setPointerCapture(laserPointer);
+      recordLaser(event, true);
+    }, true);
+    svg.addEventListener('pointermove', event => {
+      if (event.pointerId !== laserPointer) return;
+      event.stopImmediatePropagation();
+      recordLaser(event, false);
+    }, true);
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+      svg.addEventListener(type, event => {
+        if (event.pointerId !== laserPointer) return;
+        event.stopImmediatePropagation();
+        if (type === 'pointerup') recordLaser(event, false);
+        laserPointer = undefined;
+        if (event.pointerType === 'touch') {
+          pointerPosition = null;
+          publishPresence();
+        }
+      }, true);
+    }
+    for (const type of ['click', 'dblclick']) {
+      svg.addEventListener(type, event => {
+        if (laserActive) event.stopImmediatePropagation();
+      }, true);
+    }
     const peerOverlays = new Map();
     const peerColors = ['#6d3c83', '#9b422d', '#316849', '#28549a', '#8a3462', '#426037', '#644b28', '#375c73'];
     let peerPresence = [], pointerPosition = null;
     function publishPresence() {
-      onPresence?.({ point: pointerPosition, focus: selected?.type ? selected.id : null });
+      onPresence?.({ point: pointerPosition, focus: selected?.type ? selected.id : null,
+        ...(laserPoints.length ? { laser: laserPoints } : {}) });
     }
     function renderPresence() {
       for (const { id, label, point, focus } of peerPresence) {
@@ -323,6 +413,19 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     function setPeerPresence(presence) {
       peerPresence = Array.isArray(presence) ? presence : presence ? [{ id: 'peer', ...presence }] : [];
       const presentIds = new Set(peerPresence.map(peer => peer.id));
+      for (const id of remoteLasers.keys()) {
+        if (!presentIds.has(id)) remoteLasers.delete(id);
+      }
+      if (enabled('laser')) for (const { id, laser } of peerPresence) {
+        if (!Array.isArray(laser)) continue;
+        let previous = remoteLasers.get(id);
+        for (const point of laser) {
+          if (previous && point[0] <= previous[0]) continue;
+          drawLaser(point, previous?.[0] === point[0] - 1 ? previous : undefined);
+          previous = point;
+        }
+        if (previous) remoteLasers.set(id, previous);
+      }
       for (const [id, { cursor, outline }] of peerOverlays) {
         if (presentIds.has(id)) continue;
         cursor.remove();
@@ -356,6 +459,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     function updateCamera() {
       const width = viewport.clientWidth || 1, height = viewport.clientHeight || 1;
       svg.setAttribute('viewBox', [cameraX, cameraY, width / zoom, height / zoom].join(' '));
+      laserLayer.setAttribute('viewBox', svg.getAttribute('viewBox'));
       viewport.style.backgroundSize = (16 * zoom) + 'px ' + (16 * zoom) + 'px';
       viewport.style.backgroundPosition = (-cameraX * zoom) + 'px ' + (-cameraY * zoom) + 'px';
       positionEditor();
@@ -701,12 +805,6 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     };
     const coordinate = value => snap.checked ? Math.round(value / gridSize) * gridSize : value;
     const status = value => { get('.status').textContent = value; };
-    const element = (tag, attrs, content) => {
-      const child = document.createElementNS('http://www.w3.org/2000/svg', tag);
-      for (const [name, value] of Object.entries(attrs)) child.setAttribute(name, value);
-      if (content !== undefined) child.textContent = content;
-      return child;
-    };
     const radius = node => Math.max(66, ...node.label.split('\n').map(line => line.length * 5 + 25));
     const height = node => (node.type === 'decision' ? 39 : 25) + (node.label.split('\n').length - 1) * 11;
     function arrangeGraph(next) {
@@ -1081,6 +1179,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     for (const button of shapeButtons) button.hidden = !enabled('create') || Boolean(tools && !tools.includes(button.dataset.shape)) ||
       (button.dataset.shape === 'note' && !enabled('notes'));
     function chooseShape(button) {
+      if (laserActive) stopLaser();
       bending = undefined;
       pendingShape = button;
       for (const candidate of shapeButtons) {
@@ -1104,6 +1203,18 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       status('Shape added. Type its label or choose another tool.');
     }
     chooseShape(undefined);
+    laserButton.onclick = () => {
+      const active = !laserActive;
+      chooseShape(undefined);
+      origin = undefined;
+      connect.setAttribute('aria-pressed', 'false');
+      select(undefined);
+      laserActive = active;
+      laserButton.setAttribute('aria-pressed', String(active));
+      svg.classList.toggle('is-laser', active);
+      status(active ? 'Drag on the canvas to point with the laser.' : '');
+      render();
+    };
     for (const button of shapeButtons) {
       button.onclick = event => {
         if (event.detail === 0) {
@@ -1168,7 +1279,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       }
       if (event.shiftKey) return;
       const commands = { '1': shapeButtons[0], '2': shapeButtons[1],
-        '3': shapeButtons[2], '4': connect, '5': get('[data-shape="note"]'), Backspace: remove };
+        '3': shapeButtons[2], '4': connect, '5': get('[data-shape="note"]'), '6': laserButton, Backspace: remove };
       const command = commands[event.key];
       if (!Object.hasOwn(commands, event.key)) return;
       event.preventDefault();
@@ -1306,7 +1417,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       for (const remaining of previousEdges.values()) removed += remaining.length;
       const wasEmpty = !graph.nodes.length;
       graph = next;
-      chooseShape(undefined);
+      if (!laserActive || !options.preserveView) chooseShape(undefined);
       origin = undefined;
       connect.setAttribute('aria-pressed', 'false');
       select(undefined);
@@ -1460,7 +1571,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     status('Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
     render();
     fit();
-    return { getMermaid: sourceText, setMermaid, getProject, setProject, setPeerPresence, setHistoryEnabled, isInteracting: () => Boolean(drag || bendDrag || reconnect || editing), undo, redo, fit, autoLayout, exportSvg, exportPng, exportMarkdown, destroy: () => { clearTimeout(updateTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
+    return { getMermaid: sourceText, setMermaid, getProject, setProject, setPeerPresence, setHistoryEnabled, isInteracting: () => Boolean(drag || bendDrag || reconnect || editing), undo, redo, fit, autoLayout, exportSvg, exportPng, exportMarkdown, destroy: () => { clearTimeout(updateTimer); clearTimeout(laserTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
   }
 
   globalThis.MiniFlow = { mount, parse, stringify };

@@ -62,7 +62,7 @@ function manageProject(record, newName) {
         return;
       }
       if (newName) {
-        const renamed = { ...existing, name: newName, revision: crypto.randomUUID(), updatedAt: Date.now() };
+        const renamed = { ...existing, name: newName, revision: crypto.randomUUID() };
         store.add(renamed).onsuccess = () => {
           store.delete(record.name);
           done(renamed);
@@ -80,7 +80,7 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
   const saveButton = panel.querySelector('#save-project');
   const list = panel.querySelector('#saved-project-list');
   const message = panel.querySelector('#saved-project-status');
-  const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
   let busy = false;
   let opening = false;
   let writes = Promise.resolve();
@@ -185,7 +185,9 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
       name.textContent = record.name;
       name.dataset.projectName = record.name;
       const date = document.createElement('small');
-      date.textContent = dateFormat.format(record.updatedAt);
+      const time = document.createElement('time');
+      setSavedTime(time, record.updatedAt);
+      date.append('Last saved ', time);
       details.append(name, date);
       const open = makeButton('Open', async () => {
         if (busy) return;
@@ -224,6 +226,11 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
       if (name.dataset.projectName === getActive()?.name) name.setAttribute('aria-current', 'true');
       else name.removeAttribute('aria-current');
     }
+  }
+
+  function setSavedTime(time, timestamp) {
+    time.dateTime = new Date(timestamp).toISOString();
+    time.textContent = dateFormat.format(timestamp);
   }
 
   function syncActive() {
@@ -267,6 +274,9 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
       const record = await writeProject(active.name, project, active);
       active.revision = record.revision;
       if (getActive() === active) setActive(record, { reuse: true, silent: true });
+      const row = [...list.querySelectorAll('[data-project-name]')]
+        .find(name => name.dataset.projectName === record.name)?.closest('li');
+      if (row) setSavedTime(row.querySelector('time'), record.updatedAt);
     }).catch(error => {
       if (queuedSnapshots.get(active) === snapshot) queuedSnapshots.delete(active);
       const text = 'Could not autosave ' + active.name + '. ' + error.message;

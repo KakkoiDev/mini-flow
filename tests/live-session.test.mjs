@@ -93,12 +93,15 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.deepEqual(guest.getProject(), host.getProject());
 
     host.session.updatePresence({ point: [25, -10], focus: 'A' });
-    guest.session.updatePresence({ point: [12, 34], focus: 'A' });
+    const laser = [[1, 8, 30, true], [2, 12, 34, false]];
+    guest.session.updatePresence({ point: [12, 34], focus: 'A', laser: [...laser, ['invalid']] });
     secondGuest.session.updatePresence({ point: [-20, 31], focus: 'A' });
     await new Promise(resolve => setTimeout(resolve, 115));
     await network.settle();
     assert.deepEqual(guest.presence().find(peer => peer.id === host.id), { id: host.id, point: [25, -10], focus: 'A', label: 'Host' });
     assert.deepEqual(secondGuest.presence().find(peer => peer.id === guest.id)?.point, [12, 34]);
+    assert.deepEqual(secondGuest.presence().find(peer => peer.id === guest.id)?.laser, laser);
+    assert.deepEqual(host.presence().find(peer => peer.id === guest.id)?.laser, laser);
     assert.deepEqual(host.presence().find(peer => peer.id === secondGuest.id)?.point, [-20, 31]);
     assert.equal(guest.presence().some(peer => peer.id === guest.id), false);
     secondGuest.session.stop();
