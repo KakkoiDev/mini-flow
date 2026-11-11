@@ -209,6 +209,11 @@ in a WebMCP-capable browser. The host owns Undo and Redo, and accepted edits
 and Undo or Redo sync to everyone. If edits conflict, the guest sees the current
 board and can retry.
 
+When the host ends the session or a guest leaves, the guest can continue
+editing their own copy. Mini Flow switches the guest's URL to a snapshot and
+enables local Undo and Redo. During a connection interruption, guests can use
+**Leave session** to keep editing a copy while the host is away.
+
 Live sessions load the pinned p2p-core browser module and use its online
 transport. Sessions require both tabs to stay connected and end when the host
 closes or reloads the page. GitHub Pages continues to host the editor.

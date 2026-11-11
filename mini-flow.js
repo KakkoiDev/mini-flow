@@ -92,6 +92,7 @@ SOFTWARE.
 
   function mount(host, source = 'flowchart TD', positions = {}, { onChange, onPresence, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic', settingsKey, snapToGrid = false, dagre } = {}) {
     const enabled = name => features[name] !== false;
+    let historyEnabled = enabled('history');
     const palette = { canvas: '#f7faff', grid: '#c5d4e4', text: '#203044', surface: '#fff',
       stroke: '#536982', accent: '#3965be', terminal: '#dcf4e9', step: '#e4edff', decision: '#fff0c7', ...colors };
     const definitions = { ...shapes };
@@ -391,7 +392,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
 
     function changed(record = true) {
       const next = snapshot();
-      if (enabled('history') && record && next !== current) {
+      if (historyEnabled && record && next !== current) {
         undoStack.push(current);
         if (undoStack.length > 100) undoStack.shift();
         redoStack.length = 0;
@@ -487,6 +488,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       });
     }
     const undoButton = get('[data-undo]'), redoButton = get('[data-redo]');
+    function setHistoryEnabled(value) {
+      historyEnabled = Boolean(value);
+      undoButton.hidden = redoButton.hidden = !historyEnabled;
+    }
     const controls = { connect, delete: remove, history: undoButton, fit: get('[data-fit]'),
       snap: snap.parentElement, source: get('[data-source]'), exports: get('[data-exports]'), project: get('[data-project]') };
     for (const [feature, control] of Object.entries(controls)) control.hidden = !enabled(feature);
@@ -1132,7 +1137,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       svg.setPointerCapture(event.pointerId);
     });
     function replay(from, to, message) {
-      if (!from.length || drag || pan || bendDrag || reconnect) return;
+      if (!historyEnabled || !from.length || drag || pan || bendDrag || reconnect) return;
       clearUpdate();
       to.push(current);
       graph = JSON.parse(from.pop());
@@ -1455,7 +1460,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     status('Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
     render();
     fit();
-    return { getMermaid: sourceText, setMermaid, getProject, setProject, setPeerPresence, isInteracting: () => Boolean(drag || bendDrag || reconnect || editing), undo, redo, fit, autoLayout, exportSvg, exportPng, exportMarkdown, destroy: () => { clearTimeout(updateTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
+    return { getMermaid: sourceText, setMermaid, getProject, setProject, setPeerPresence, setHistoryEnabled, isInteracting: () => Boolean(drag || bendDrag || reconnect || editing), undo, redo, fit, autoLayout, exportSvg, exportPng, exportMarkdown, destroy: () => { clearTimeout(updateTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
   }
 
   globalThis.MiniFlow = { mount, parse, stringify };

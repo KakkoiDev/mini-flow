@@ -85,7 +85,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=multi-user"></script>
+<script src="./mini-flow.js?v=guest-copy"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -116,10 +116,10 @@ const examplePositions = {
 const key = 'mini-flow-edit-v1';
 const prefix = '#flow=';
 const proposalPrefix = '#apply=';
-const joiningLive = location.hash.startsWith('#live=');
+let joiningLive = location.hash.startsWith('#live=');
 let liveBoard;
-const sharedSession = (joiningLive || location.hash.startsWith(prefix) || location.hash.startsWith(proposalPrefix)) &&
-  !history.state?.miniFlowLocal;
+const sharedSession = joiningLive || ((location.hash.startsWith(prefix) || location.hash.startsWith(proposalPrefix)) &&
+  !history.state?.miniFlowLocal);
 const message = document.querySelector('#save-status');
 const address = new URL(location.href);
 if (address.searchParams.has('tab') && /^https?:$/.test(location.protocol)) {
@@ -189,9 +189,13 @@ function save(source, positions) {
 const initialProposal = readProposal();
 const saved = joiningLive ? { source: 'flowchart TD', positions: {} } : initialProposal?.base ?? restore();
 const editorHost = document.querySelector('#editor');
+const liveNotice = document.createElement('span');
 const editor = MiniFlow.mount(editorHost, saved?.source ?? example,
   saved?.positions ?? examplePositions, { onChange(source, positions) {
-      if (!joiningLive) save(source, positions);
+      if (!joiningLive) {
+        liveNotice.textContent = '';
+        save(source, positions);
+      }
       liveBoard?.changed();
     }, onPresence: presence => liveBoard?.updatePresence(presence),
     features: { history: !joiningLive }, header: document.querySelector('header'), layout: 'dock', dagre: window.dagre, settingsKey: 'mini-flow-preferences',
@@ -215,15 +219,14 @@ liveToggle.innerHTML = '<svg aria-hidden="true" focusable="false" xmlns="http://
 const liveToggleState = liveToggle.querySelector('.live-state');
 liveToggle.setAttribute('aria-haspopup', 'dialog');
 headerActions.append(liveToggle, panelButton);
-const liveNotice = document.createElement('span');
 liveNotice.id = 'live-notice';
 liveNotice.setAttribute('role', 'status');
 liveToggle.closest('header').append(liveNotice);
 function setGuestAvailability(available) {
-  if (!joiningLive) return;
-  editorHost.inert = !available;
+  const locked = joiningLive && !available;
+  editorHost.inert = locked;
   for (const control of [document.querySelector('#blank'), viewActions.querySelector('[data-layout]'), panelButton]) {
-    if (control) control.inert = !available;
+    if (control) control.inert = locked;
   }
 }
 setGuestAvailability(false);
@@ -342,7 +345,7 @@ document.querySelector('#share').onclick = async () => {
 </script>
 <script type="module">
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=ai-core';
-import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=3';
+import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=4';
 
 const liveDialog = document.querySelector('#live-session');
 const liveStatus = document.querySelector('#live-status');
@@ -361,6 +364,8 @@ function showStatus(text) {
   if (text.startsWith('Live ·')) clearTimeout(connectionTimer);
 }
 function ended() {
+  const wasGuest = joiningLive;
+  joiningLive = false;
   liveBoard = undefined;
   clearTimeout(connectionTimer);
   clearTimeout(copiedTimer);
@@ -369,11 +374,22 @@ function ended() {
   inviteRow.hidden = true;
   delete liveToggle.dataset.active;
   liveToggleState.textContent = 'Off';
-  showStatus('Session ended.');
-  if (!joiningLive) startSession.hidden = false;
+  startSession.hidden = false;
+  if (wasGuest) {
+    setGuestAvailability(true);
+    editor.setHistoryEnabled(true);
+    const { source, positions } = editor.getProject();
+    save(source, positions);
+    showStatus('Session ended. You can keep editing this copy.');
+    liveNotice.textContent = liveStatus.textContent;
+    if (liveDialog.open) liveDialog.close();
+  } else {
+    showStatus('Session ended.');
+  }
 }
 async function startLive(invite, host) {
   startSession.disabled = true;
+  if (host) liveNotice.textContent = '';
   showStatus('Connecting…');
   try {
     liveBoard = await connectLiveBoard(invite, host, {
@@ -407,6 +423,9 @@ async function startLive(invite, host) {
 liveToggle.onclick = () => liveDialog.showModal();
 startSession.onclick = () => startLive(newLiveInvite(), true);
 endSession.onclick = () => liveBoard?.stop();
+window.addEventListener('pagehide', () => {
+  if (liveBoard?.host) liveBoard.stop();
+});
 copyInvite.onclick = async () => {
   try {
     await navigator.clipboard.writeText(inviteInput.value);

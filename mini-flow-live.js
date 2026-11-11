@@ -164,7 +164,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     localDirty = false;
     available();
     onPresence([]);
-    onStatus('Waiting for the host to reconnect…');
+    onStatus('Host disconnected. You can wait or choose Leave session to keep editing a copy.');
   });
   room.onRefused?.((_, reason) => {
     if (host || hostPeer || closed) return;
@@ -246,8 +246,11 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     closed = true;
     clearTimeout(flushTimer);
     clearTimeout(presenceTimer);
-    const departure = host && guests.size && notify ? send('end', null, [...guests.keys()]).catch(() => {}) : Promise.resolve();
-    departure.finally(() => room.leave());
+    let departure;
+    if (host && guests.size && notify) {
+      try { departure = room.send('end', null, [...guests.keys()]); } catch {}
+    }
+    Promise.resolve(departure).catch(() => {}).finally(() => room.leave());
     finish(failure('live_disconnected', 'The live session ended.'));
     available();
     onPresence([]);
