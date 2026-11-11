@@ -37,14 +37,14 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   const pendingClaims = new Map();
   let requestSequence = 0;
 
-  function finishOffer(requestId, label) {
+  function finishOffer(requestId, label, author) {
     const offer = offers.get(requestId);
     if (!offer) return;
     clearTimeout(offer.timer);
     offers.delete(requestId);
     if (label) {
       results.delete(offer.noteId);
-      results.set(offer.noteId, { phase: 'result', label });
+      results.set(offer.noteId, { phase: 'result', label, ...(author && { author }) });
       if (results.size > 32) results.delete(results.keys().next().value);
     }
     if (!closed) publishPresence();
@@ -376,7 +376,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       if (guest.agent) for (const [requestId, offer] of offers) {
         if (offer.winner !== from) continue;
         if (data.keepClaim === true) offer.lastEdit = message;
-        else finishOffer(requestId, message);
+        else finishOffer(requestId, message, guest.label);
       }
     } catch {
       publish({ id: data.id, ...failure('invalid_edit', 'The host rejected an invalid board.') }, from);
@@ -453,7 +453,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
         for (const [requestId, offer] of offers) {
           if (offer.winner === from) finishOffer(requestId,
             typeof data.result === 'string' && data.result.trim() ? data.result.trim().slice(0, 200)
-              : offer.lastEdit ?? 'AI finished the request');
+              : offer.lastEdit ?? 'AI finished the request', guests.get(from).label);
         }
         return;
       }

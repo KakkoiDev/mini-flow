@@ -1106,13 +1106,15 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           const request = aiRequests[node.id];
           const result = request.phase === 'result';
           const waiting = request.phase === 'waiting' || request === 'Waiting for AI';
-          const summary = result ? request.label : '';
-          const label = result ? 'Result · ' + (summary.length > 34 ? summary.slice(0, 33) + '…' : summary)
+          const author = result && typeof request.author === 'string' && /^AI \d+$/.test(request.author)
+            ? request.author.replace(' ', '') + ' · ' : '';
+          const summary = result ? author + request.label : '';
+          const label = result ? (summary.length > 42 ? summary.slice(0, 41) + '…' : summary)
             : waiting ? 'Waiting for AI…' : (request.label ?? request) + ' working…';
           const badgeWidth = label.length * 7 + 30;
           const badge = element('g', { class: result ? 'note-ai-mark note-ai-result' : 'note-ai-mark',
             transform: `translate(${Math.max(-w, w - badgeWidth + 8)} ${result ? h + 6 : -h - 13})`,
-            role: 'img', 'aria-label': result ? 'Result · ' + summary : label });
+            role: 'img', 'aria-label': result ? summary : label });
           if (result) badge.append(element('title', {}, summary));
           badge.append(element('rect', { width: badgeWidth, height: 26, rx: 9, fill: palette.surface, stroke: palette.accent }));
           if (!result) badge.append(element('circle', { class: 'note-ai-spinner', cx: 13, cy: 13, r: 6 }));

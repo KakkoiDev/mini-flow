@@ -79,7 +79,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.deepEqual(secondGuest.getProject(), makeProject('Second batch'));
     guest.session.reportAIActivity('', 'Two batches added');
     await network.settle();
-    assert.deepEqual(host.requests().N1, { phase: 'result', label: 'Two batches added' });
+    assert.deepEqual(host.requests().N1, { phase: 'result', label: 'Two batches added', author: 'AI 1' });
     assert.deepEqual(secondGuest.requests().N1, host.requests().N1);
     assert.deepEqual(await secondGuest.session.askAI('N1'), { ok: true });
     const next = await wait({ after: first.request.sequence, timeoutMs: 1000 });
