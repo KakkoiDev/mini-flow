@@ -23,7 +23,11 @@ header .view-actions{display:inline-flex;align-items:center;gap:4px;white-space:
 header button{display:inline-flex;align-items:center;gap:7px;font:inherit;border:1px solid transparent;background:transparent;color:inherit;border-radius:8px;padding:7px 10px;min-height:38px;cursor:pointer}
 header button:hover:not(:disabled){background:#f0ece6}
 header button[hidden],#live-session [hidden]{display:none}
-#live-toggle[data-active]{color:#087f71}
+#live-toggle{white-space:nowrap}
+#live-toggle svg{color:#666f69}
+#live-toggle[data-active] svg{color:#087f71}
+.live-state{font-size:11px;font-weight:650;line-height:1.5;padding:0 5px;border-radius:5px;background:#eeebe6;color:#525b55}
+#live-toggle[data-active] .live-state{background:#e0f1e8;color:#175b50}
 #live-invite{display:block;width:100%;box-sizing:border-box;margin:6px 0 12px;font:inherit;padding:8px}
 #live-session form{flex-wrap:wrap}
 header button:disabled{opacity:.45;cursor:default}
@@ -81,7 +85,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=live-session"></script>
+<script src="./mini-flow.js?v=layout-reset"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -211,7 +215,8 @@ const viewActions = headerActions.querySelector('.view-actions');
 headerActions.append(viewActions, document.querySelector('#share'));
 const liveToggle = document.createElement('button');
 liveToggle.id = 'live-toggle';
-liveToggle.textContent = 'Live session';
+liveToggle.innerHTML = '<svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.364 19.364a9 9 0 1 0 -12.728 0" /><path d="M15.536 16.536a5 5 0 1 0 -7.072 0" /><path d="M11 13a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /></svg><span>Live session</span><span class="live-state">Off</span>';
+const liveToggleState = liveToggle.querySelector('.live-state');
 liveToggle.setAttribute('aria-haspopup', 'dialog');
 headerActions.append(liveToggle, panelButton);
 document.querySelector('#blank').hidden = joiningLive;
@@ -328,7 +333,7 @@ document.querySelector('#share').onclick = async () => {
 };
 </script>
 <script type="module">
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=live-session';
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=ai-core';
 import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=1';
 
 const liveDialog = document.querySelector('#live-session');
@@ -344,7 +349,7 @@ let copiedTimer;
 function showStatus(text) {
   liveStatus.textContent = text;
   liveToggle.title = text;
-  liveToggle.textContent = text === 'Live · Connected' ? 'Live · Connected' : 'Live session';
+
   if (text === 'Live · Connected') clearTimeout(connectionTimer);
 }
 function ended() {
@@ -355,6 +360,7 @@ function ended() {
   endSession.hidden = true;
   inviteRow.hidden = true;
   delete liveToggle.dataset.active;
+  liveToggleState.textContent = 'Off';
   showStatus('Session ended.');
   if (!joiningLive) startSession.hidden = false;
 }
@@ -367,6 +373,7 @@ async function startLive(invite, host) {
       canAccept: () => !editor.isInteracting(), onStatus: showStatus, onEnd: ended
     });
     liveToggle.dataset.active = '';
+    liveToggleState.textContent = 'On';
     endSession.hidden = false;
     endSession.textContent = host ? 'End session' : 'Leave session';
     startSession.hidden = true;
@@ -423,3 +430,4 @@ registerMiniFlowTools(editor, undefined, undefined, {
 }).catch(error => console.error('Mini Flow site tools:', error));
 </script>
 </html>
+

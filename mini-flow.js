@@ -156,6 +156,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         text {fill:var(--mf-text);pointer-events:none}
         .panel {position:absolute;inset:auto 12px 50px auto;width:min(350px,calc(100% - 24px));max-height:65%;overflow:auto;background:var(--mf-surface);border:1px solid #d9e2ec;border-radius:14px;box-shadow:0 4px 24px #20304424;z-index:1}
         .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);min-width:48px;min-height:1.2em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.2;color:var(--mf-text);outline:none;background:transparent}
+        .status:empty {display:none}
         .status {position:absolute;inset:auto 12px 8px;pointer-events:none;border-radius:10px;margin:0;padding:8px 12px;background:var(--mf-surface);border-top:1px solid #d9e2ec;min-height:38px}
         .panel > .repo-link {display:block;margin:0 14px;padding:12px 0;color:var(--mf-stroke);
           font-size:12px;text-decoration:none;border-top:1px solid #e7e2dc;width:fit-content}
@@ -677,16 +678,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       if (!graph.nodes.length) return;
       editing?.field.blur();
       const next = JSON.parse(snapshot());
-      const previous = new Map(next.nodes.map(node => [node.id, [node.x, node.y]]));
+      for (const edge of next.edges) delete edge.bend;
       arrangeGraph(next);
-      const nodes = new Map(next.nodes.map(node => [node.id, node]));
-      for (const edge of next.edges) {
-        if (!edge.bend) continue;
-        const a = nodes.get(edge.from), b = nodes.get(edge.to);
-        const [ax, ay] = previous.get(edge.from), [bx, by] = previous.get(edge.to);
-        edge.bend = [edge.bend[0] + (a.x - ax + b.x - bx) / 2,
-          edge.bend[1] + (a.y - ay + b.y - by) / 2];
-      }
       replaceGraph(next, { message: 'Diagram laid out.', ...options });
       fit();
     }
@@ -1404,3 +1397,4 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
 
   globalThis.MiniFlow = { mount, parse, stringify };
 })();
+

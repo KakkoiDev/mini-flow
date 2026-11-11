@@ -21,7 +21,7 @@ To serve locally, run `python3 -m http.server 8765 --bind 127.0.0.1` in this dir
 - Select any shape or arrow and edit its label. Delete removes the selection
   and any arrows attached to a deleted shape.
 - Mermaid source updates as you edit the board. Use Apply source to apply changes typed or pasted into the source panel. Discard edits appears while you have unapplied source changes.
-- Use Auto layout next to Fit to arrange the current diagram in one undoable edit. Dagre follows the arrows and places branches side by side.
+- Use Auto layout next to Fit to arrange the current diagram in one undoable edit. Dagre follows the arrows, places branches side by side, and resets manual bends. Undo restores positions and bends.
   Mini Flow's copied source includes a layout comment so reimporting restores the canvas positions.
   Mermaid Live ignores that comment and computes its own layout.
 
@@ -214,3 +214,8 @@ WebMCP.
 Live sessions load the pinned p2p-core browser module and use its online
 transport. Sessions require both tabs to stay connected and end when the host
 closes or reloads the page. GitHub Pages continues to host the editor.
+
+
+Run the live-session regression with `node --test tests/live-session.test.mjs`.
+Serve the repo and open `tests/auto-layout.html` to run the browser regression
+for bend reset, note attachments, Undo, and Redo.

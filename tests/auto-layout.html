@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Mini Flow Auto layout regression</title>
+<output id="result">Running…</output>
+<div id="editor"></div>
+<script src="../vendor/dagre.min.js"></script>
+<script src="../mini-flow.js"></script>
+<script>
+const result = document.querySelector('#result');
+function check(condition, message) {
+  if (!condition) throw new Error(message);
+}
+try {
+  const source = `flowchart TD
+    A(["Start"])
+    B["Step"]
+    C(["End"])
+    A --> B
+    B --> C
+    %% mini-flow {"notes":[{"id":"N1","label":"Keep this attachment","target":1}],"bends":[[0,[500,300]],[1,[-80,400]]]}`;
+  const positions = { A: [0, 0], B: [30, 100], C: [60, 200], N1: [-80, 100] };
+  const host = document.querySelector('#editor');
+  const editor = MiniFlow.mount(host, source, positions, { dagre: window.dagre, layout: 'dock' });
+  const root = host.firstElementChild.shadowRoot;
+  const before = editor.getProject();
+  check(MiniFlow.parse(before.source).edges.every(edge => edge.bend), 'Fixture needs two manual bends.');
+  root.querySelector('[data-layout]').click();
+  const after = editor.getProject();
+  const graph = MiniFlow.parse(after.source);
+  check(graph.edges.length === 2 && graph.edges.every(edge => !edge.bend), 'Auto layout must reset every bend.');
+  check(graph.nodes.find(node => node.id === 'N1').target === 1, 'Auto layout must retain the note attachment.');
+  check(JSON.stringify(after.positions) !== JSON.stringify(before.positions), 'Auto layout must move the blocks.');
+  root.querySelector('[data-undo]').click();
+  check(JSON.stringify(editor.getProject()) === JSON.stringify(before), 'One Undo must restore positions and bends.');
+  root.querySelector('[data-redo]').click();
+  check(JSON.stringify(editor.getProject()) === JSON.stringify(after), 'Redo must restore the bend-free layout.');
+  result.textContent = 'PASS';
+} catch (error) {
+  result.textContent = 'FAIL: ' + error.message;
+  throw error;
+}
+</script>

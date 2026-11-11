@@ -1,3 +1,5 @@
+import { registerRevisionedBoardTools } from './vendor/ai-core/webmcp.mjs';
+
 const idSchema = { type: 'string', pattern: '^[A-Za-z][\\w-]*$' };
 const labelSchema = { type: 'string' };
 const positionSchema = { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 };
@@ -98,55 +100,16 @@ function applyEdits(project, edits, library) {
 }
 
 export async function registerMiniFlowTools(editor, library = globalThis.MiniFlow, context = document.modelContext, options = {}) {
-  if (typeof context?.registerTool !== 'function') return;
-  const tabId = options.tabId ?? globalThis.crypto.randomUUID();
-  let revision = 0;
-  let previousProject;
-  function readBoard() {
-    const project = editor.getProject();
-    const snapshot = JSON.stringify(project);
-    if (previousProject !== snapshot) {
-      previousProject = snapshot;
-      revision++;
-    }
-    return { tabId, revision: tabId + ':' + revision, project };
-  }
-
-  const notReady = { ok: false, reason: 'live_not_ready', message: 'The live board is not ready. Wait for the host and try again.' };
-  await context.registerTool({
-    name: 'get_board',
-    description: 'Read the Mini Flow diagram in this tab. Returns its tab ID, revision, and project, including node positions and Mermaid metadata for notes and bends. Read before applying edits.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    annotations: { readOnlyHint: true },
-    execute: async () => options.isReady?.() === false ? notReady : readBoard()
-  });
-
-  await context.registerTool({
-    name: 'apply_board_edit',
-    description: 'Edit the Mini Flow diagram in this tab. Use the revision from get_board on this same tab. Applies the full batch as one Undo step and highlights changes. A revision conflict leaves the board untouched.',
-    inputSchema: editSchema,
-    execute: async ({ revision, edits, message } = {}) => {
-      if (options.isReady?.() === false) return notReady;
-      const board = readBoard();
-      if (revision !== board.revision) {
-        return { ok: false, reason: 'revision_conflict', message: 'Read the current board again before editing.' };
-      }
-      if (!Array.isArray(edits) || !edits.length || edits.length > 100 || typeof message !== 'string' || !message.trim()) {
-        return { ok: false, reason: 'invalid_edit', message: 'Supply 1–100 edits and a short message.' };
-      }
-      let project;
-      try {
-        project = applyEdits(board.project, edits, library);
-      } catch (error) {
-        return { ok: false, reason: 'invalid_edit', message: error.message };
-      }
-      if (options.commitProject) {
-        const result = await options.commitProject(project, message);
-        if (!result.ok) return result;
-      } else {
-        editor.setProject(project, { message });
-      }
-      return { ok: true, ...readBoard() };
-    }
+  return registerRevisionedBoardTools({
+    context, editSchema, tabId: options.tabId, isReady: options.isReady,
+    getProject: () => editor.getProject(),
+    applyEdits: (project, edits) => applyEdits(project, edits, library),
+    commitProject: options.commitProject ?? ((project, message) => {
+      editor.setProject(project, { message });
+      return { ok: true };
+    }),
+    readDescription: 'Read the Mini Flow diagram in this tab. Returns its tab ID, revision, and project, including node positions and Mermaid metadata for notes and bends. Read before applying edits.',
+    editDescription: 'Edit the Mini Flow diagram in this tab. Use the revision from get_board on this same tab. Applies the full batch as one Undo step and highlights changes. A revision conflict leaves the board untouched.'
   });
 }
+
