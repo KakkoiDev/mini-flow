@@ -183,3 +183,7 @@ editor.setProject(project, { message: 'Added the requested fallback.' });
 Embeds expose their own mounted instance or bridge. The manifest describes the
 public demo's instance, and the optional `onSend` callback connects host-owned
 chat delivery.
+
+Agents can also send an **Apply edit** link containing a base board, proposed
+board, and summary. Mini Flow reviews the proposal before applying it as one
+Undo step. See [Apply edit links](./agent-guide.md#apply-edit-links).

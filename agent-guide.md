@@ -63,3 +63,33 @@ This discovery layer requires browser tooling that permits page JavaScript
 execution. It advertises capabilities and does not register WebMCP tools.
 The host's optional `onSend({ project, selection })` callback can connect a
 Send to chat button to its chat system. The public demo has no chat backend.
+
+## Apply edit links
+
+An agent that can read the board from a share link can propose a change with an
+Apply edit link. Decode the JSON after `#flow=` in the original link and add
+`version: 1` to turn it into the base project. Build a second project with the
+requested changes. Both projects need a position for every node.
+
+```js
+const original = new URL(boardUrl);
+const base = { ...JSON.parse(decodeURIComponent(original.hash.slice('#flow='.length))), version: 1 };
+const project = structuredClone(base);
+const graph = MiniFlow.parse(project.source);
+const step = graph.nodes.find(node => node.id === 'N3');
+if (!step) throw new Error('Node N3 is absent from this board.');
+step.label = 'Read database';
+project.source = MiniFlow.stringify(graph);
+original.hash = 'apply=' + encodeURIComponent(JSON.stringify({
+  version: 1, base, project, message: 'Renamed the database step.'
+}));
+const applyLink = original.href;
+```
+
+Send the link to the user. Opening it in a new tab loads the base board and
+opens a review dialog. In an existing Mini Flow tab, paste the link into the
+address bar to review the proposal against the current board. The user can
+inspect the Mermaid source before applying. Apply highlights the changes and
+creates one Undo step. Mini Flow checks the base again on Apply and blocks
+the edit if the board in that tab has changed. A new tab works on the shared
+copy encoded in the link.

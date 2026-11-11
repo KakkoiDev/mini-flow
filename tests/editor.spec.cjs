@@ -120,3 +120,22 @@ test('snap preference survives reloads in both directions', async ({ page }) => 
   await page.reload();
   await expect(snap).not.toBeChecked();
 });
+
+test('review and apply an edit link as one undo step', async ({ page }) => {
+  const base = await page.evaluate(() => miniFlowEditor.getProject());
+  const project = { ...base, source: base.source.replace('Prompt In', 'Read prompt') };
+  const hash = '#apply=' + encodeURIComponent(JSON.stringify({ version: 1, base, project, message: 'Renamed the first step.' }));
+  await page.goto('http://127.0.0.1:8765/' + hash);
+  await expect(page.getByRole('dialog')).toBeVisible();
+  expect(await page.evaluate(() => miniFlowEditor.getMermaid())).toContain('Prompt In');
+  await page.getByRole('button', { name: 'Apply edit' }).click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'terminal: Read prompt' })).toBeVisible();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'terminal: Prompt In' })).toBeVisible();
+
+  await page.evaluate(() => miniFlowEditor.setMermaid(miniFlowEditor.getMermaid().replace('Prompt In', 'Newer edit')));
+  await page.evaluate(hash => { location.hash = hash; }, hash);
+  await expect(page.getByRole('button', { name: 'Apply edit' })).toBeDisabled();
+  expect(await page.evaluate(() => miniFlowEditor.getMermaid())).toContain('Newer edit');
+});

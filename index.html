@@ -33,11 +33,35 @@ header button:focus-visible{outline:2px solid #087f71;outline-offset:2px}
 #editor > div{height:100%}
 @media(max-width:550px){header{gap:3px;padding:5px 8px}h1{font-size:18px}
 header button{font-size:13px;padding:5px 7px;min-height:44px}}
+dialog{width:min(560px,calc(100% - 32px));max-height:85dvh;padding:22px;border:1px solid #ded9d2;border-radius:14px;color:inherit;background:#fffdfb}
+dialog::backdrop{background:#242b2959}
+dialog h2{margin:0;font-size:20px}
+dialog p{margin:12px 0;overflow-wrap:anywhere}
+dialog summary{cursor:pointer}
+dialog pre{padding:10px;max-height:150px;overflow:auto;background:#faf8f5;border:1px solid #e7e2dc;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}
+dialog form{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+dialog button{font:inherit;padding:8px 12px;min-height:44px;border:1px solid #ded9d2;border-radius:8px;background:#fffdfb;color:inherit;cursor:pointer}
+dialog #apply-proposal{background:#e4f4ee;border-color:#a7cfc4}
+dialog button:disabled{opacity:.5;cursor:default}
 </style>
 <main>
   <header><h1><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M3 19a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" /><path d="M19 7a2 2 0 1 0 0 -4a2 2 0 0 0 0 4" /><path d="M11 19h5.5a3.5 3.5 0 0 0 0 -7h-8a3.5 3.5 0 0 1 0 -7h4.5" /></svg>Mini Flow</h1><button id="blank"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M12 5l0 14" /><path d="M5 12l14 0" /></svg><span>Start blank</span></button><button id="share"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M9 15l6 -6" /><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464" /><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463" /></svg><span>Copy link</span></button><span id="save-status" role="status"></span></header>
   <div id="editor"></div>
 </main>
+<dialog id="edit-proposal" aria-labelledby="proposal-title">
+  <h2 id="proposal-title">Apply diagram edit?</h2>
+  <p id="proposal-message"></p>
+  <p id="proposal-status" role="status"></p>
+  <details>
+    <summary>Review Mermaid source</summary>
+    <h3>Current</h3><pre id="proposal-before"></pre>
+    <h3>Proposed</h3><pre id="proposal-after"></pre>
+  </details>
+  <form method="dialog">
+    <button value="cancel" autofocus>Cancel</button>
+    <button id="apply-proposal" value="apply" type="button">Apply edit</button>
+  </form>
+</dialog>
 <script src="./mini-flow.js?v=quiet-source-link"></script>
 <script>
 const example = `flowchart TD
@@ -68,7 +92,9 @@ const examplePositions = {
 };
 const key = 'mini-flow-edit-v1';
 const prefix = '#flow=';
-const sharedSession = location.hash.startsWith(prefix) && !history.state?.miniFlowLocal;
+const proposalPrefix = '#apply=';
+const sharedSession = (location.hash.startsWith(prefix) || location.hash.startsWith(proposalPrefix)) &&
+  !history.state?.miniFlowLocal;
 const message = document.querySelector('#save-status');
 function readEdit(raw) {
   try {
@@ -80,6 +106,31 @@ function readEdit(raw) {
     }));
     return { source: edit.source, positions };
   } catch { return null; }
+}
+function normalizeProject(project) {
+  if (project?.version !== 1 || typeof project.source !== 'string' || !project.positions) {
+    throw new Error('Invalid project.');
+  }
+  const graph = MiniFlow.parse(project.source);
+  const positions = Object.fromEntries(graph.nodes.map(({ id }) => {
+    const pair = project.positions[id];
+    if (!Array.isArray(pair) || pair.length !== 2 || !pair.every(Number.isFinite)) {
+      throw new Error('Invalid position for ' + id);
+    }
+    return [id, pair];
+  }));
+  return { version: 1, source: MiniFlow.stringify(graph), positions };
+}
+function readProposal() {
+  if (!location.hash.startsWith(proposalPrefix)) return null;
+  try {
+    const proposal = JSON.parse(decodeURIComponent(location.hash.slice(proposalPrefix.length)));
+    if (proposal.version !== 1 || typeof proposal.message !== 'string') throw new Error('Invalid edit link.');
+    return { base: normalizeProject(proposal.base), project: normalizeProject(proposal.project), message: proposal.message };
+  } catch {
+    message.textContent = 'Could not open this diagram edit link.';
+    return null;
+  }
 }
 function restore() {
   if (location.hash.startsWith(prefix)) {
@@ -105,7 +156,8 @@ function save(source, positions) {
     catch { message.textContent = 'Could not update the share link.'; }
   }
 }
-const saved = restore();
+const initialProposal = readProposal();
+const saved = initialProposal?.base ?? restore();
 const editor = MiniFlow.mount(document.querySelector('#editor'), saved?.source ?? example,
   saved?.positions ?? examplePositions, { onChange: save, header: document.querySelector('header'), layout: 'dock', settingsKey: 'mini-flow-preferences',
     colors: { canvas: '#faf8f5', grid: '#ded9d2', text: '#242b29', surface: '#fffdfb',
@@ -123,10 +175,61 @@ const panelButton = headerActions.querySelector('[data-panel]');
 headerActions.append(headerActions.querySelector('[data-fit]'));
 headerActions.querySelector('[data-fit]').after(document.querySelector('#share'));
 headerActions.append(panelButton);
+const proposalDialog = document.querySelector('#edit-proposal');
+const applyButton = document.querySelector('#apply-proposal');
+const proposalStatus = document.querySelector('#proposal-status');
+let pendingProposal;
+function isCurrent(base) {
+  return JSON.stringify(normalizeProject(editor.getProject())) === JSON.stringify(base);
+}
+function reviewProposal(proposal) {
+  if (!proposal) return;
+  pendingProposal = proposal;
+  document.querySelector('#proposal-message').textContent = proposal.message || 'Review the proposed diagram edit.';
+  document.querySelector('#proposal-before').textContent = editor.getProject().source;
+  document.querySelector('#proposal-after').textContent = proposal.project.source;
+  proposalDialog.querySelector('details').open = false;
+  applyButton.disabled = !isCurrent(proposal.base);
+  proposalStatus.textContent = applyButton.disabled ? 'This board has changed. Ask for an edit based on the current board.' : '';
+  if (!proposalDialog.open) proposalDialog.showModal();
+}
+applyButton.onclick = () => {
+  if (!pendingProposal || !isCurrent(pendingProposal.base)) {
+    applyButton.disabled = true;
+    proposalStatus.textContent = 'This board has changed. Ask for an edit based on the current board.';
+    return;
+  }
+  const { project, message } = pendingProposal;
+  try {
+    editor.setProject(project, { message });
+    proposalDialog.close();
+  } catch (error) {
+    proposalStatus.textContent = error.message;
+  }
+};
+proposalDialog.addEventListener('close', () => {
+  pendingProposal = undefined;
+  if (location.hash.startsWith(proposalPrefix)) {
+    const { source, positions } = editor.getProject();
+    const hash = prefix + encodeURIComponent(JSON.stringify({ source, positions }));
+    history.replaceState({ miniFlowLocal: !sharedSession }, '', hash);
+  }
+});
+window.addEventListener('hashchange', () => {
+  if (!location.hash.startsWith(proposalPrefix)) {
+    if (proposalDialog.open) proposalDialog.close();
+    return;
+  }
+  const proposal = readProposal();
+  if (proposal) reviewProposal(proposal);
+  else if (proposalDialog.open) proposalDialog.close();
+});
+reviewProposal(initialProposal);
 document.querySelector('#blank').onclick = () => editor.setMermaid('flowchart TD');
 let copyTimer;
 document.querySelector('#share').onclick = async () => {
-  if (!location.hash.startsWith(prefix)) save(saved?.source ?? example, saved?.positions ?? examplePositions);
+  const { source, positions } = editor.getProject();
+  if (!location.hash.startsWith(prefix)) save(source, positions);
   try {
     await navigator.clipboard.writeText(location.href);
     clearTimeout(copyTimer);

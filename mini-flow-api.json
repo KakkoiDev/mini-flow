@@ -133,5 +133,32 @@
       },
       "readOnly": true
     }
+  },
+  "applyLink": {
+    "fragment": "#apply=<percent-encoded JSON>",
+    "schema": {
+      "type": "object",
+      "required": [
+        "version",
+        "base",
+        "project",
+        "message"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "base": {
+          "$ref": "#/projectSchema"
+        },
+        "project": {
+          "$ref": "#/projectSchema"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "effects": "Open a review dialog. Apply updates the board with SDK feedback and Undo if it matches the base project."
   }
 }
