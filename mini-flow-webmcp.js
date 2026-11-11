@@ -79,9 +79,9 @@ function applyEdits(project, edits, library) {
   }
 }
 
-export async function registerMiniFlowTools(editor, library = globalThis.MiniFlow, context = document.modelContext) {
+export async function registerMiniFlowTools(editor, library = globalThis.MiniFlow, context = document.modelContext, options = {}) {
   if (typeof context?.registerTool !== 'function') return;
-  const tabId = globalThis.crypto.randomUUID();
+  const tabId = options.tabId ?? globalThis.crypto.randomUUID();
   let revision = 0;
   let previousProject;
   function readBoard() {
@@ -91,12 +91,12 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
       previousProject = snapshot;
       revision++;
     }
-    return { revision: tabId + ':' + revision, project };
+    return { tabId, revision: tabId + ':' + revision, project };
   }
 
   await context.registerTool({
     name: 'get_board',
-    description: 'Read the Mini Flow diagram in this tab. Returns its project and revision, including node positions and Mermaid metadata for notes and bends. Read before applying edits.',
+    description: 'Read the Mini Flow diagram in this tab. Returns its tab ID, revision, and project, including node positions and Mermaid metadata for notes and bends. Read before applying edits.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true },
     execute: async () => readBoard()

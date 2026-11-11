@@ -175,10 +175,12 @@
   },
   "webmcp": {
     "module": "./mini-flow-webmcp.js",
+    "tabLocator": "Match the origin, pathname, and tab query parameter against an existing tab. Each page load generates a fresh ID. Verify it with get_board before editing.",
     "tools": {
       "get_board": {
         "readOnly": true,
         "returns": {
+          "tabId": "ID of the current page instance, matching the tab query parameter on the demo",
           "revision": "Tab-scoped revision",
           "project": {
             "$ref": "#/projectSchema"

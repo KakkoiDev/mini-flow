@@ -98,6 +98,13 @@ const proposalPrefix = '#apply=';
 const sharedSession = (location.hash.startsWith(prefix) || location.hash.startsWith(proposalPrefix)) &&
   !history.state?.miniFlowLocal;
 const message = document.querySelector('#save-status');
+const tabId = Array.from(crypto.getRandomValues(new Uint8Array(8)),
+  byte => byte.toString(16).padStart(2, '0')).join('');
+if (location.protocol === 'https:' || location.protocol === 'http:') {
+  const address = new URL(location.href);
+  address.searchParams.set('tab', tabId);
+  history.replaceState(history.state, '', address);
+}
 function readEdit(raw) {
   try {
     const edit = JSON.parse(raw);
@@ -288,7 +295,8 @@ document.querySelector('#share').onclick = async () => {
 };
 </script>
 <script type="module">
-import { registerMiniFlowTools } from './mini-flow-webmcp.js';
-registerMiniFlowTools(window.miniFlowEditor).catch(error => console.error('Mini Flow site tools:', error));
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=tab-id';
+registerMiniFlowTools(window.miniFlowEditor, undefined, undefined, { tabId })
+  .catch(error => console.error('Mini Flow site tools:', error));
 </script>
 </html>
