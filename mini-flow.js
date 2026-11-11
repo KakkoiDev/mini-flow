@@ -251,7 +251,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         <aside class="panel" hidden><details data-source open><summary>Mermaid source</summary>
           <textarea aria-label="Mermaid source" spellcheck="false"></textarea>
           <div class="panel-actions"><button data-import>Apply source</button>
-          <button data-export>Refresh source</button><button data-layout hidden>Auto layout</button></div>
+          <button data-discard-source hidden>Discard edits</button><button data-layout hidden>Auto layout</button></div>
         </details>
         <details data-exports><summary>Export</summary>
           <section class="export-group" data-copy-group><strong>Copy</strong>
@@ -309,6 +309,18 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     const boardPositions = () => Object.fromEntries(graph.nodes.map(node => [node.id, [node.x, node.y]]));
     const layoutPrefix = '%% mini-flow-layout ';
     const sourceWithLayout = () => sourceText() + '\n    ' + layoutPrefix + JSON.stringify(boardPositions());
+    const discardSource = get('[data-discard-source]');
+    let syncedSource = '';
+    function updateSourceActions() {
+      discardSource.hidden = area.value === syncedSource;
+    }
+    function syncSource(discardDraft = false) {
+      const hasDraft = area.value !== syncedSource;
+      syncedSource = sourceWithLayout();
+      if (discardDraft || !hasDraft) area.value = syncedSource;
+      updateSourceActions();
+    }
+    area.addEventListener('input', updateSourceActions);
 
     function changed(record = true) {
       const next = snapshot();
@@ -320,7 +332,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       current = next;
       undoButton.disabled = !undoStack.length;
       redoButton.disabled = !redoStack.length;
-      area.value = sourceWithLayout();
+      syncSource();
       onChange?.(sourceText(), boardPositions());
     }
     function positionEditor() {
@@ -348,7 +360,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       positionEditor();
       function updateLabel() {
         item.label = (field.childElementCount ? field.innerText : field.textContent).replace(/\r/g, '');
-        area.value = sourceWithLayout();
+        syncSource();
         render();
         positionEditor();
       }
@@ -1245,19 +1257,21 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       }
     }
     get('[data-import]').onclick = () => {
-      try { setMermaid(area.value, { highlight: false }); status('Mermaid source applied.'); }
-      catch (error) { status(error.message); }
+      try {
+        setMermaid(area.value, { highlight: false });
+        syncSource(true);
+        status('Mermaid source applied.');
+      } catch (error) { status(error.message); }
     };
     const layoutButton = get('[data-layout]');
     layoutButton.hidden = !dagre;
     layoutButton.onclick = () => {
       try { autoLayout(); } catch (error) { status(error.message); }
     };
-    get('[data-export]').onclick = () => {
-      area.value = sourceWithLayout();
+    discardSource.onclick = () => {
+      syncSource(true);
       area.focus();
-      area.select();
-      status('Mermaid source refreshed and selected.');
+      status('Source edits discarded.');
     };
     function exportSvg() {
       const copy = svg.cloneNode(true);
@@ -1370,7 +1384,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     }
     host.append(root);
     if (dockLayout) frame.style.setProperty('--dock-height', toolbar.offsetHeight + 'px');
-    area.value = sourceWithLayout();
+    syncSource();
     status('Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
     render();
     fit();
