@@ -138,7 +138,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           <button aria-keyshortcuts="2" title="Shortcut: 2" data-shape="step">Step <kbd aria-hidden="true">2</kbd></button>
           <button aria-keyshortcuts="3" title="Shortcut: 3" data-shape="decision">Decision <kbd aria-hidden="true">3</kbd></button>
           <button aria-keyshortcuts="4" title="Shortcut: 4" data-link aria-pressed="false">Connect <kbd aria-hidden="true">4</kbd></button>
-          <button data-shape="note">Note</button>
+          <button aria-keyshortcuts="5" title="Shortcut: 5" data-shape="note">Note <kbd aria-hidden="true">5</kbd></button>
           <label><input type="checkbox" data-snap> Snap to grid</label>
           <button aria-keyshortcuts="Backspace" title="Shortcut: Backspace" data-delete disabled>Delete <kbd aria-hidden="true">⌫</kbd></button>
         </div>
@@ -313,7 +313,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     send.onclick = async () => {
       try {
         editing?.field.blur();
-        const selection = selected?.type ? { id: selected.id, type: selected.type, label: selected.label }
+        const item = selected?.attachment ?? selected;
+        const selection = item?.type ? { id: item.id, type: item.type, label: item.label }
           : selected ? { edge: graph.edges.indexOf(selected), from: selected.from, to: selected.to, label: selected.label } : null;
         await onSend({ project: getProject(), selection });
         status('Sent to chat.');
@@ -359,8 +360,9 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     };
     function select(item) {
       selected = item;
-      remove.disabled = editButton.disabled = !item;
-      bendButton.disabled = !item || Boolean(item.type);
+      remove.disabled = !item;
+      editButton.disabled = !item || Boolean(item.attachment);
+      bendButton.disabled = !item || Boolean(item.type || item.attachment);
       resetBend.disabled = !item?.bend;
     }
     function render(focus) {
@@ -425,9 +427,28 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         const [x, y] = target.type
           ? point(target, note.x - target.x, note.y - target.y) : [target.labelX, target.labelY];
         const [startX, startY] = point(note, x - note.x, y - note.y);
-        svg.append(element('line', { x1: startX, y1: startY, x2: x, y2: y,
-          stroke: palette.stroke, 'stroke-width': 2, 'stroke-dasharray': '2 5', 'stroke-linecap': 'round',
-          'pointer-events': 'none' }));
+        const attachment = selected?.attachment === note ? selected : { attachment: note };
+        const group = element('g', { role: 'button', tabindex: 0,
+          'aria-label': 'Attachment for ' + note.label });
+        const coords = { x1: startX, y1: startY, x2: x, y2: y };
+        group.append(
+          element('line', { ...coords, stroke: 'transparent', 'stroke-width': 20 }),
+          element('line', { ...coords, stroke: selected === attachment ? palette.accent : palette.stroke,
+            'stroke-width': 2, 'stroke-dasharray': '2 5', 'stroke-linecap': 'round', 'pointer-events': 'none' })
+        );
+        const activate = () => {
+          if (pendingShape || bending || connect.getAttribute('aria-pressed') === 'true') return;
+          select(attachment);
+          render(attachment);
+        };
+        group.addEventListener('click', activate);
+        group.addEventListener('keydown', event => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          activate();
+        });
+        svg.append(group);
+        if (focus === attachment) group.focus({ preventScroll: true });
       }
       for (const node of graph.nodes) {
         const group = itemGroup(node, node.type + ': ' + node.label);
@@ -695,7 +716,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       }
       if (event.shiftKey) return;
       const commands = { '1': shapeButtons[0], '2': shapeButtons[1],
-        '3': shapeButtons[2], '4': connect, Backspace: remove };
+        '3': shapeButtons[2], '4': connect, '5': get('[data-shape="note"]'), Backspace: remove };
       const command = commands[event.key];
       if (!Object.hasOwn(commands, event.key)) return;
       event.preventDefault();
@@ -720,6 +741,15 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     };
     remove.onclick = () => {
       if (!selected) return;
+      if (selected.attachment) {
+        delete selected.attachment.target;
+        select(undefined);
+        changed();
+        render();
+        root.focus({ preventScroll: true });
+        status('Note detached.');
+        return;
+      }
       const oldEdges = graph.edges;
       chooseShape(undefined);
       graph.nodes = graph.nodes.filter(node => node !== selected);
@@ -812,7 +842,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       }
       for (const shape of Array.from(copy.querySelectorAll('[stroke]')).filter(shape => shape.getAttribute('stroke') === palette.accent)) {
         shape.setAttribute('stroke', palette.stroke);
-        shape.setAttribute('stroke-width', shape.hasAttribute('marker-end') ? '2' : '1.5');
+        shape.setAttribute('stroke-width', shape.localName === 'line' || shape.hasAttribute('marker-end') ? '2' : '1.5');
         if (shape.hasAttribute('marker-end')) shape.setAttribute('marker-end', 'url(#arrow)');
       }
       copy.prepend(element('rect', { width: '100%', height: '100%', fill: palette.canvas }));
