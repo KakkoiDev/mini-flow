@@ -127,6 +127,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .header-actions button {pointer-events:auto}
         .export-group {margin-top:14px}
         .export-group + .export-group {border-top:1px solid #d9e2ec;padding-top:12px}
+        .connection-actions {position:absolute;z-index:1;white-space:nowrap}
+        .connection-actions button {min-height:44px;box-shadow:0 2px 8px #20304420}
+        .bend-handle {position:absolute;z-index:1;width:44px;height:44px;padding:0;transform:translate(-50%,-50%);background:transparent;border:0;cursor:grab;touch-action:none}
+        .bend-handle::after {content:'';display:block;width:14px;height:14px;margin:auto;border:2px solid var(--mf-accent);border-radius:50%;background:var(--mf-surface)}
         .panel-actions {display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
         .panel textarea {margin:10px 0 0}
         summary {cursor:pointer}
@@ -143,12 +147,16 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           <button aria-keyshortcuts="Backspace" title="Shortcut: Backspace" data-delete disabled>Delete <kbd aria-hidden="true">⌫</kbd></button>
         </div>
         <div class="header-actions">
-          <button data-edit disabled>Edit</button><button data-undo disabled>Undo</button><button data-redo disabled>Redo</button>
+          <button data-undo disabled><span aria-hidden="true">←</span> Undo</button><button data-redo disabled>Redo <span aria-hidden="true">→</span></button>
           <button data-panel aria-expanded="false">Code &amp; export</button><button data-fit>Fit</button>
-          <button data-bend disabled>Bend</button><button data-straight disabled>Reset bend</button>
           <button data-send hidden>Send to chat</button>
         </div>
-        <div class="scroll"><svg aria-label="Flowchart canvas"></svg></div>
+        <div class="scroll"><svg aria-label="Flowchart canvas"></svg>
+          <div class="connection-actions" role="group" aria-label="Connection actions" hidden>
+            <button data-bend>Add bend</button><button data-straight hidden>Reset bend</button>
+          </div>
+          <button class="bend-handle" aria-label="Move connection bend" title="Drag or use arrow keys" hidden></button>
+        </div>
         <p class="status" role="status"></p>
         <aside class="panel" hidden><details data-source open><summary>Mermaid source</summary>
           <textarea aria-label="Mermaid source" spellcheck="false"></textarea>
@@ -186,6 +194,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       viewport.style.backgroundSize = (16 * zoom) + 'px ' + (16 * zoom) + 'px';
       viewport.style.backgroundPosition = (-cameraX * zoom) + 'px ' + (-cameraY * zoom) + 'px';
       positionEditor();
+      positionBendControls();
     }
     function fit() {
       const box = svg.getBBox();
@@ -278,8 +287,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     }
     const connect = get('[data-link]'), remove = get('[data-delete]');
     const snap = get('[data-snap]');
-    const editButton = get('[data-edit]'), undoButton = get('[data-undo]'), redoButton = get('[data-redo]');
-    const controls = { connect, delete: remove, edit: editButton, history: undoButton, fit: get('[data-fit]'),
+    const undoButton = get('[data-undo]'), redoButton = get('[data-redo]');
+    const controls = { connect, delete: remove, history: undoButton, fit: get('[data-fit]'),
       snap: snap.parentElement, source: get('[data-source]'), exports: get('[data-exports]'), project: get('[data-project]') };
     for (const [feature, control] of Object.entries(controls)) control.hidden = !enabled(feature);
     redoButton.hidden = !enabled('history');
@@ -289,8 +298,69 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       for (const row of controls.exports.querySelectorAll('[data-copy-group], [data-download-group]')) row.hidden = true;
     }
     const bendButton = get('[data-bend]'), resetBend = get('[data-straight]');
-    bendButton.hidden = resetBend.hidden = !enabled('bend');
-    let bending;
+    const connectionActions = get('.connection-actions'), bendHandle = get('.bend-handle');
+    let bending, bendDrag;
+    function positionBendControls() {
+      const edge = selected;
+      const show = enabled('bend') && edge && !edge.type && !edge.attachment && !editing &&
+        !pendingShape && !bending && connect.getAttribute('aria-pressed') === 'false';
+      if (!show) {
+        connectionActions.hidden = bendHandle.hidden = true;
+        return;
+      }
+      const [x, y] = edge.bend ?? [edge.labelX, edge.labelY];
+      const left = (x - cameraX) * zoom, top = (y - cameraY) * zoom;
+      if (!bendDrag && (left < 0 || top < 0 || left > viewport.clientWidth || top > viewport.clientHeight)) {
+        connectionActions.hidden = bendHandle.hidden = true;
+        return;
+      }
+      bendHandle.hidden = !edge.bend;
+      bendHandle.style.left = left + 'px';
+      bendHandle.style.top = top + 'px';
+      connectionActions.hidden = Boolean(bendDrag);
+      if (bendDrag) return;
+      bendButton.hidden = Boolean(edge.bend);
+      resetBend.hidden = !edge.bend;
+      const right = left + 28;
+      const maxLeft = viewport.clientWidth - connectionActions.offsetWidth - 8;
+      const maxTop = viewport.clientHeight - connectionActions.offsetHeight - 8;
+      connectionActions.style.left = Math.max(8, right <= maxLeft ? right : left - connectionActions.offsetWidth - 28) + 'px';
+      connectionActions.style.top = Math.max(8, Math.min(maxTop, top + 18)) + 'px';
+    }
+    bendHandle.onpointerdown = event => {
+      if (event.button !== 0 || !selected?.bend || bendDrag) return;
+      bendHandle.focus({ preventScroll: true });
+      bendDrag = { id: event.pointerId, edge: selected, start: selected.bend, pointer: world(event) };
+      bendHandle.setPointerCapture(event.pointerId);
+      positionBendControls();
+    };
+    bendHandle.onpointermove = event => {
+      if (bendDrag?.id !== event.pointerId) return;
+      const pointer = world(event);
+      bendDrag.edge.bend = bendDrag.start.map((value, i) => coordinate(value + pointer[i] - bendDrag.pointer[i]));
+      render();
+    };
+    bendHandle.onlostpointercapture = event => {
+      if (bendDrag?.id !== event.pointerId) return;
+      bendDrag = undefined;
+      changed();
+      render();
+    };
+    bendHandle.onpointercancel = event => {
+      if (bendDrag?.id !== event.pointerId) return;
+      bendDrag.edge.bend = bendDrag.start;
+      bendDrag = undefined;
+      render();
+    };
+    bendHandle.onkeydown = event => {
+      const directions = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+      if (!Object.hasOwn(directions, event.key) || !selected?.bend) return;
+      event.preventDefault();
+      const direction = directions[event.key];
+      selected.bend = selected.bend.map((value, i) => coordinate(value + direction[i] * (snap.checked ? gridSize : 4)));
+      changed();
+      render();
+    };
     bendButton.onclick = () => {
       if (!selected || selected.type) return;
       chooseShape(undefined);
@@ -298,10 +368,13 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       connect.setAttribute('aria-pressed', 'false');
       bending = selected;
       svg.style.cursor = 'crosshair';
-      status('Click the canvas to place the bend.');
+      root.focus({ preventScroll: true });
+      positionBendControls();
+      status('Click or tap the canvas to place the bend.');
     };
     resetBend.onclick = () => {
       delete selected.bend;
+      root.focus({ preventScroll: true });
       chooseShape(undefined);
       select(selected);
       changed();
@@ -361,9 +434,6 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     function select(item) {
       selected = item;
       remove.disabled = !item;
-      editButton.disabled = !item || Boolean(item.attachment);
-      bendButton.disabled = !item || Boolean(item.type || item.attachment);
-      resetBend.disabled = !item?.bend;
     }
     function render(focus) {
       svg.replaceChildren();
@@ -479,6 +549,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         svg.append(group);
         if (focus === node) group.focus();
       }
+      positionBendControls();
     }
     let lastClick;
     function selectLabel(item) {
@@ -681,12 +752,17 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     svg.addEventListener('pointerdown', event => {
       if (event.target !== svg || event.button !== 0) return;
       root.focus({ preventScroll: true });
-      if (pendingShape || bending || drag || pan || !enabled('pan')) return;
+      if (pendingShape || bending || drag || pan) return;
+      if (selected && connect.getAttribute('aria-pressed') === 'false') {
+        select(undefined);
+        render();
+      }
+      if (!enabled('pan')) return;
       pan = { pointerId: event.pointerId, x: cameraX, y: cameraY, clientX: event.clientX, clientY: event.clientY };
       svg.setPointerCapture(event.pointerId);
     });
     function replay(from, to, message) {
-      if (!from.length || drag || pan) return;
+      if (!from.length || drag || pan || bendDrag) return;
       to.push(current);
       graph = JSON.parse(from.pop());
       chooseShape(undefined);
@@ -702,7 +778,6 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     const redo = () => replay(redoStack, undoStack, 'Edit redone.');
     undoButton.onclick = undo;
     redoButton.onclick = redo;
-    editButton.onclick = () => editLabel(selected);
     root.addEventListener('keydown', event => {
       if (!enabled('shortcuts')) return;
       if (event.defaultPrevented || event.isComposing || event.repeat || event.altKey ||
