@@ -100,3 +100,19 @@ Use editor.setMermaid(source) to update structure and retain matching positions.
 Call editor.fit(), editor.undo(), or editor.redo() directly. Pass onChange(source,
 positions) when mounting to subscribe to committed edits. These methods require
 no pointer or keyboard simulation.
+
+## Notes, connector bends, and chat
+
+Choose **Note**, click the canvas, and type. To attach a note, choose **Connect**,
+click the note, then click a block or arrow. Connecting again moves the attachment.
+Deleting the target leaves the note on the canvas. To route an arrow manually,
+select it, choose **Bend**, then click the canvas. **Reset bend** restores its
+normal path. Project files and share links retain notes, attachments, and bends
+in a Mini Flow Mermaid comment. Other Mermaid renderers ignore that comment.
+
+Embeds can pass a `header` element to receive the editor action buttons, and
+turn off note creation or bend controls with `features: { notes: false, bend: false }`.
+Pass `onSend: async ({ project, selection }) => { … }` to show **Send to chat**.
+The host handles delivery. A selection is either a node summary with its ID,
+an arrow summary with its index and endpoints, or null. Use `setProject()` to
+apply an incoming board as one undoable change.

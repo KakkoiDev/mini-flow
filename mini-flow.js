@@ -9,6 +9,7 @@
   const decode = value => value.replace(/<br\s*\/?>/gi, '\n').replace(/#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
 
   function parse(source, definitions = shapes) {
+    const metadata = source.split(/\r?\n/).find(line => line.trim().startsWith('%% mini-flow '));
     const lines = source.split(/\r?\n/).map(s => s.trim()).filter(s => s && !s.startsWith('%%'));
     if (!/^(?:flowchart|graph) (?:TD|TB)$/.test(lines.shift() || '')) {
       throw new Error('Start with flowchart TD.');
@@ -35,26 +36,44 @@
     for (const edge of edges) {
       if (!ids.has(edge.from) || !ids.has(edge.to)) throw new Error('Declare both arrow endpoints.');
     }
+    if (metadata) {
+      const extras = JSON.parse(metadata.trim().slice('%% mini-flow '.length));
+      for (const [index, bend] of extras.bends ?? []) {
+        if (edges[index] && Array.isArray(bend) && bend.length === 2 && bend.every(Number.isFinite)) edges[index].bend = bend;
+      }
+      for (const note of extras.notes ?? []) {
+        if (!/^[A-Za-z][\w-]*$/.test(note.id) || ids.has(note.id) || typeof note.label !== 'string') {
+          throw new Error('Invalid note.');
+        }
+        const target = typeof note.target === 'string' && ids.has(note.target) ||
+          Number.isInteger(note.target) && edges[note.target] ? note.target : undefined;
+        nodes.push({ id: note.id, type: 'note', label: note.label, x: 300, y: 65 + nodes.length * 115, target });
+        ids.add(note.id);
+      }
+    }
     return { nodes, edges };
   }
 
   function stringify({ nodes, edges }, definitions = shapes) {
-    return ['flowchart TD', ...nodes.map(({ id, type, label }) => {
+    const notes = nodes.filter(node => node.type === 'note').map(({ id, label, target }) => ({ id, label, target }));
+    const bends = edges.flatMap((edge, index) => edge.bend ? [[index, edge.bend]] : []);
+    const metadata = notes.length || bends.length ? ['    %% mini-flow ' + JSON.stringify({ notes, bends })] : [];
+    return ['flowchart TD', ...nodes.filter(node => node.type !== 'note').map(({ id, type, label }) => {
       const [open, close] = definitions[type];
       return '    ' + id + open + '"' + encode(label) + '"' + close;
     }), ...edges.map(({ from, to, label }) =>
       '    ' + from + ' --> ' + (label ? '|' + encode(label) + '| ' : '') + to
-    )].join('\n');
+    ), ...metadata].join('\n');
   }
 
-  function mount(host, source = 'flowchart TD', positions = {}, { onChange, features = {}, colors = {}, extraShapes = {}, tools } = {}) {
+  function mount(host, source = 'flowchart TD', positions = {}, { onChange, features = {}, colors = {}, extraShapes = {}, tools, header, onSend } = {}) {
     const enabled = name => features[name] !== false;
     const palette = { canvas: '#f7faff', grid: '#c5d4e4', text: '#203044', surface: '#fff',
       stroke: '#536982', accent: '#3965be', terminal: '#dcf4e9', step: '#e4edff', decision: '#fff0c7', ...colors };
     const definitions = { ...shapes };
     for (const [name, shape] of Object.entries(extraShapes)) {
       const syntax = shape.syntax;
-      if (!/^[a-z][\w-]*$/i.test(name) || name in definitions ||
+      if (!/^[a-z][\w-]*$/i.test(name) || (name === 'note' || name in definitions) ||
           !Array.isArray(syntax) || syntax.length !== 2 ||
           syntax.some(part => typeof part !== 'string' || !/^[()[\]{}]+$/.test(part)) ||
           Object.values(definitions).some(pair => pair[0] === syntax[0] && pair[1] === syntax[1]) ||
@@ -104,6 +123,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .status {position:absolute;inset:auto 12px 8px;pointer-events:none;border-radius:10px;margin:0;padding:8px 12px;background:var(--mf-surface);border-top:1px solid #d9e2ec;min-height:38px}
         .panel details {padding:14px;background:var(--mf-surface)}
         .panel details + details {border-top:1px solid #d9e2ec}
+        .header-actions {position:absolute;z-index:2;inset:auto 12px 54px;display:flex;gap:6px;flex-wrap:wrap;pointer-events:none}
+        .header-actions button {pointer-events:auto}
+        .export-group {margin-top:14px}
+        .export-group + .export-group {border-top:1px solid #d9e2ec;padding-top:12px}
         .panel-actions {display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
         .panel textarea {margin:10px 0 0}
         summary {cursor:pointer}
@@ -115,27 +138,36 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           <button aria-keyshortcuts="2" title="Shortcut: 2" data-shape="step">Step <kbd aria-hidden="true">2</kbd></button>
           <button aria-keyshortcuts="3" title="Shortcut: 3" data-shape="decision">Decision <kbd aria-hidden="true">3</kbd></button>
           <button aria-keyshortcuts="4" title="Shortcut: 4" data-link aria-pressed="false">Connect <kbd aria-hidden="true">4</kbd></button>
+          <button data-shape="note">Note</button>
           <label><input type="checkbox" data-snap> Snap to grid</label>
           <button aria-keyshortcuts="Backspace" title="Shortcut: Backspace" data-delete disabled>Delete <kbd aria-hidden="true">⌫</kbd></button>
+        </div>
+        <div class="header-actions">
           <button data-edit disabled>Edit</button><button data-undo disabled>Undo</button><button data-redo disabled>Redo</button>
           <button data-panel aria-expanded="false">Code &amp; export</button><button data-fit>Fit</button>
+          <button data-bend disabled>Bend</button><button data-straight disabled>Reset bend</button>
+          <button data-send hidden>Send to chat</button>
         </div>
         <div class="scroll"><svg aria-label="Flowchart canvas"></svg></div>
         <p class="status" role="status"></p>
         <aside class="panel" hidden><details data-source open><summary>Mermaid source</summary>
           <textarea aria-label="Mermaid source" spellcheck="false"></textarea>
           <div class="panel-actions"><button data-import>Apply source</button>
-          <button data-export>Refresh source</button>
-          <button data-copy="mermaid">Copy Mermaid</button></div>
+          <button data-export>Refresh source</button></div>
         </details>
         <details data-exports><summary>Export</summary>
-          <div class="panel-actions"><button data-download="png">Download PNG</button>
-          <button data-download="svg">Download SVG</button>
-          <button data-download="md">Download Markdown</button></div>
-          <div class="panel-actions" data-project><button data-backup>Download project</button><button data-open>Open project</button><input type="file" accept=".json,application/json" hidden></div>
-          <div class="panel-actions"><button data-copy="png">Copy PNG</button>
-          <button data-copy="svg">Copy SVG markup</button>
-          <button data-copy="md">Copy Markdown</button></div>
+          <section class="export-group" data-copy-group><strong>Copy</strong>
+            <div class="panel-actions"><button data-copy="mermaid">Mermaid</button><button data-copy="png">PNG</button>
+            <button data-copy="svg">SVG markup</button><button data-copy="md">Markdown</button></div>
+          </section>
+          <section class="export-group" data-download-group><strong>Download</strong>
+            <div class="panel-actions"><button data-download="png">PNG</button><button data-download="svg">SVG</button>
+            <button data-download="md">Markdown</button></div>
+          </section>
+          <section class="export-group" data-project><strong>Project</strong>
+            <div class="panel-actions"><button data-backup>Download project</button><button data-open>Open project</button>
+            <input type="file" accept=".json,application/json" hidden></div>
+          </section>
         </details></aside>
       </section>`;
     const get = selector => shadow.querySelector(selector);
@@ -254,8 +286,39 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     get('[data-panel]').hidden = !enabled('source') && !enabled('exports') && !enabled('project');
     if (!enabled('exports') && enabled('project')) {
       controls.exports.hidden = false;
-      for (const row of controls.exports.querySelectorAll('.panel-actions:not([data-project])')) row.hidden = true;
+      for (const row of controls.exports.querySelectorAll('[data-copy-group], [data-download-group]')) row.hidden = true;
     }
+    const bendButton = get('[data-bend]'), resetBend = get('[data-straight]');
+    bendButton.hidden = resetBend.hidden = !enabled('bend');
+    let bending;
+    bendButton.onclick = () => {
+      if (!selected || selected.type) return;
+      chooseShape(undefined);
+      origin = undefined;
+      connect.setAttribute('aria-pressed', 'false');
+      bending = selected;
+      svg.style.cursor = 'crosshair';
+      status('Click the canvas to place the bend.');
+    };
+    resetBend.onclick = () => {
+      delete selected.bend;
+      chooseShape(undefined);
+      select(selected);
+      changed();
+      render(selected);
+    };
+    const send = get('[data-send]');
+    send.hidden = typeof onSend !== 'function';
+    send.disabled = typeof onSend !== 'function';
+    send.onclick = async () => {
+      try {
+        editing?.field.blur();
+        const selection = selected?.type ? { id: selected.id, type: selected.type, label: selected.label }
+          : selected ? { edge: graph.edges.indexOf(selected), from: selected.from, to: selected.to, label: selected.label } : null;
+        await onSend({ project: getProject(), selection });
+        status('Sent to chat.');
+      } catch (error) { status(error.message || 'Could not send to chat.'); }
+    };
     const file = get('input[type=file]');
     get('[data-backup]').onclick = () => download(new Blob([JSON.stringify(getProject(), null, 2)],
       { type: 'application/json' }), 'json');
@@ -292,51 +355,13 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       const scale = node.type === 'decision'
         ? Math.abs(dx / w) + Math.abs(dy / h)
         : Math.max(Math.abs(dx / w), Math.abs(dy / h));
-      return [node.x + dx / scale, node.y + dy / scale];
+      return scale ? [node.x + dx / scale, node.y + dy / scale] : [node.x + w, node.y];
     };
-    function detour(from, to, start, end, control) {
-      const obstacles = graph.nodes.filter(node => node !== from && node !== to).map(node => ({
-        left: node.x - radius(node) - 8, right: node.x + radius(node) + 8,
-        top: node.y - height(node) - 8, bottom: node.y + height(node) + 8
-      }));
-      const hits = ([ax, ay], [bx, by], box) => {
-        let low = 0, high = 1;
-        for (const [a, b, min, max] of [[ax, bx, box.left, box.right], [ay, by, box.top, box.bottom]]) {
-          if (a === b) {
-            if (a < min || a > max) return false;
-            continue;
-          }
-          const first = (min - a) / (b - a), last = (max - a) / (b - a);
-          low = Math.max(low, Math.min(first, last));
-          high = Math.min(high, Math.max(first, last));
-        }
-        return low <= high;
-      };
-      const clear = points => points.slice(1).every((point, index) =>
-        obstacles.every(box => !hits(points[index], point, box)));
-      const curve = Array.from({ length: 9 }, (_, index) => {
-        const t = index / 8;
-        return start.map((value, axis) => (1 - t) ** 2 * value + 2 * t * (1 - t) * control[axis] + t ** 2 * end[axis]);
-      });
-      if (clear(curve)) return null;
-      const routes = [];
-      for (const box of obstacles) {
-        for (const x of [box.left - 12, box.right + 12]) {
-          routes.push([[from.x + Math.sign(x - from.x) * radius(from), from.y],
-            [x, from.y], [x, to.y], [to.x + Math.sign(x - to.x) * radius(to), to.y]]);
-        }
-        for (const y of [box.top - 12, box.bottom + 12]) {
-          routes.push([[from.x, from.y + Math.sign(y - from.y) * height(from)],
-            [from.x, y], [to.x, y], [to.x, to.y + Math.sign(y - to.y) * height(to)]]);
-        }
-      }
-      const length = route => route.slice(1).reduce((sum, [x, y], index) =>
-        sum + Math.hypot(x - route[index][0], y - route[index][1]), 0);
-      return routes.filter(route => (route[1][0] !== route[2][0] || route[1][1] !== route[2][1]) && clear(route)).sort((a, b) => length(a) - length(b))[0];
-    }
     function select(item) {
       selected = item;
       remove.disabled = editButton.disabled = !item;
+      bendButton.disabled = !item || Boolean(item.type);
+      resetBend.disabled = !item?.bend;
     }
     function render(focus) {
       svg.replaceChildren();
@@ -351,10 +376,15 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       for (const edge of graph.edges) {
         const a = byId.get(edge.from), b = byId.get(edge.to);
         let start, end, d, x, y;
-        if (b.y <= a.y && Math.abs(a.x - b.x) < 40) {
-          const lane = Math.max(a.x + radius(a), b.x + radius(b),
-            ...graph.nodes.filter(node => node.y > b.y && node.y < a.y && Math.abs(node.x - a.x) < radius(node))
-              .map(node => node.x + radius(node))) + 52;
+        if (edge.bend) {
+          const [bx, by] = edge.bend;
+          start = point(a, bx - a.x, by - a.y);
+          end = point(b, bx - b.x, by - b.y);
+          d = 'M' + start + ' L' + edge.bend + ' L' + end;
+          x = bx + 10;
+          y = by - 10;
+        } else if (b.y <= a.y && Math.abs(a.x - b.x) < 40) {
+          const lane = Math.max(a.x + radius(a), b.x + radius(b)) + 52;
           start = [a.x + radius(a), a.y];
           end = [b.x + radius(b), b.y + (a === b ? 16 : 0)];
           if (a === b) {
@@ -377,12 +407,6 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           x = mx + (offset ? ox * .7 : 17);
           y = my + oy * .7;
           if (!offset && Math.abs(dy) < 12) { x = mx; y -= 9; }
-          const route = detour(a, b, start, end, [mx + ox, my + oy]);
-          if (route) {
-            d = 'M' + route.map(point => point.join(' ')).join(' L');
-            x = (route[1][0] + route[2][0]) / 2 + 9;
-            y = (route[1][1] + route[2][1]) / 2 - 9;
-          }
         }
         edge.labelX = x;
         edge.labelY = y;
@@ -395,16 +419,26 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         svg.append(group);
         if (focus === edge) group.focus();
       }
+      for (const note of graph.nodes.filter(node => node.type === 'note' && node.target !== undefined)) {
+        const target = typeof note.target === 'string' ? byId.get(note.target) : graph.edges[note.target];
+        if (!target) continue;
+        const [x, y] = target.type
+          ? point(target, note.x - target.x, note.y - target.y) : [target.labelX, target.labelY];
+        const [startX, startY] = point(note, x - note.x, y - note.y);
+        svg.append(element('line', { x1: startX, y1: startY, x2: x, y2: y,
+          stroke: palette.stroke, 'stroke-width': 2, 'stroke-dasharray': '2 5', 'stroke-linecap': 'round',
+          'pointer-events': 'none' }));
+      }
       for (const node of graph.nodes) {
         const group = itemGroup(node, node.type + ': ' + node.label);
         group.setAttribute('transform', 'translate(' + node.x + ' ' + node.y + ')');
         const w = radius(node), h = height(node);
         const paint = {
-          fill: palette[node.type] ?? palette.step,
+          fill: palette[node.type] ?? (node.type === 'note' ? '#fff4ae' : palette.step),
           stroke: selected === node || origin === node ? palette.accent : palette.stroke,
           'stroke-width': selected === node || origin === node ? 3 : 1.5
         };
-        const custom = extraShapes[node.type];
+        const custom = Object.hasOwn(extraShapes, node.type) ? extraShapes[node.type] : undefined;
         group.append(custom ? custom.draw({ element, node: { ...node }, width: w * 2, height: h * 2, paint })
           : node.type === 'decision'
           ? element('polygon', { points: '0,' + -h + ' ' + w + ',0 0,' + h + ' ' + -w + ',0', ...paint })
@@ -412,7 +446,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           labelText({ 'text-anchor': 'middle', visibility: editing?.item === node ? 'hidden' : 'visible' }, node.label));
         if (connect.getAttribute('aria-pressed') === 'false') {
           group.addEventListener('pointerdown', event => {
-            if (event.button !== 0 || pendingShape || !enabled('move')) return;
+            if (event.button !== 0 || pendingShape || bending || !enabled('move')) return;
             event.preventDefault();
             select(node);
             drag = { pointerId: event.pointerId, node, x: node.x, y: node.y, clientX: event.clientX, clientY: event.clientY };
@@ -435,11 +469,21 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     function itemGroup(item, label) {
       const group = element('g', { role: 'button', tabindex: 0, 'aria-label': label });
       const activate = () => {
-        if (pendingShape) return;
-        if (item.type && connect.getAttribute('aria-pressed') === 'true') {
+        if (pendingShape || bending) return;
+        if (connect.getAttribute('aria-pressed') === 'true' && (item.type || origin?.type === 'note')) {
           if (!origin) {
             origin = item;
-            status('Choose the destination shape.');
+            status(item.type === 'note' ? 'Choose a block or arrow to attach the note.' : 'Choose the destination shape.');
+          } else if (origin.type === 'note' || item.type === 'note') {
+            const note = origin.type === 'note' ? origin : item;
+            const target = note === origin ? item : origin;
+            if (target.type === 'note') return;
+            note.target = target.type ? target.id : graph.edges.indexOf(target);
+            item = note;
+            connect.setAttribute('aria-pressed', 'false');
+            origin = undefined;
+            changed();
+            status('Note attached.');
           } else {
             item = { from: origin.id, to: item.id, label: '' };
             graph.edges.push(item);
@@ -558,8 +602,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       connect.before(button);
     }
     const shapeButtons = [...shadow.querySelectorAll('[data-shape]')];
-    for (const button of shapeButtons) button.hidden = !enabled('create') || Boolean(tools && !tools.includes(button.dataset.shape));
+    for (const button of shapeButtons) button.hidden = !enabled('create') || Boolean(tools && !tools.includes(button.dataset.shape)) ||
+      (button.dataset.shape === 'note' && !enabled('notes'));
     function chooseShape(button) {
+      bending = undefined;
       pendingShape = button;
       for (const candidate of shapeButtons) {
         candidate.setAttribute('aria-pressed', String(candidate === button));
@@ -570,7 +616,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       const type = button.dataset.shape;
       let id;
       do { id = 'N' + serial++; } while (graph.nodes.some(node => node.id === id));
-      const node = { id, type, label: type === 'terminal' ? 'Start' : type === 'step' ? 'Step' : type === 'decision' ? 'Decision' : extraShapes[type].label ?? type, x, y };
+      const node = { id, type, label: type === 'terminal' ? 'Start' : type === 'step' ? 'Step' : type === 'decision' ? 'Decision' : type === 'note' ? 'Note' : extraShapes[type].label ?? type, x, y };
       node.x = coordinate(node.x);
       node.y = coordinate(node.y);
       graph.nodes.push(node);
@@ -597,6 +643,15 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       };
     }
     svg.addEventListener('click', event => {
+      if (bending) {
+        const edge = bending;
+        edge.bend = world(event).map(coordinate);
+        chooseShape(undefined);
+        select(edge);
+        changed();
+        render(edge);
+        return;
+      }
       if (!pendingShape || event.target !== svg) return;
       addShape(pendingShape, ...world(event));
     });
@@ -604,7 +659,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     svg.addEventListener('pointerdown', event => {
       if (event.target !== svg || event.button !== 0) return;
       root.focus({ preventScroll: true });
-      if (pendingShape || drag || pan || !enabled('pan')) return;
+      if (pendingShape || bending || drag || pan || !enabled('pan')) return;
       pan = { pointerId: event.pointerId, x: cameraX, y: cameraY, clientX: event.clientX, clientY: event.clientY };
       svg.setPointerCapture(event.pointerId);
     });
@@ -664,8 +719,19 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       render();
     };
     remove.onclick = () => {
+      if (!selected) return;
+      const oldEdges = graph.edges;
+      chooseShape(undefined);
       graph.nodes = graph.nodes.filter(node => node !== selected);
       graph.edges = graph.edges.filter(edge => edge !== selected && edge.from !== selected.id && edge.to !== selected.id);
+      for (const note of graph.nodes) {
+        if (Number.isInteger(note.target)) {
+          const index = graph.edges.indexOf(oldEdges[note.target]);
+          note.target = index < 0 ? undefined : index;
+        } else if (note.target === selected.id) {
+          delete note.target;
+        }
+      }
       if (origin === selected) origin = undefined;
       select(undefined);
       render();
@@ -827,12 +893,14 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         }
       };
     }
+    const headerActions = get('.header-actions');
+    if (header) header.append(headerActions);
     host.append(root);
     area.value = sourceText();
     status('Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
     render();
     fit();
-    return { getMermaid: sourceText, setMermaid, getProject, setProject, undo, redo, fit, exportSvg, exportPng, exportMarkdown, destroy: () => { observer.disconnect(); root.remove(); } };
+    return { getMermaid: sourceText, setMermaid, getProject, setProject, undo, redo, fit, exportSvg, exportPng, exportMarkdown, destroy: () => { observer.disconnect(); headerActions.remove(); root.remove(); } };
   }
 
   globalThis.MiniFlow = { mount, parse, stringify };
