@@ -1,0 +1,137 @@
+{
+  "name": "Mini Flow",
+  "apiVersion": 1,
+  "description": "Read and update the current flowchart through page JavaScript when permitted by the agent's browser tools and the user's request.",
+  "instance": "window.miniFlowEditor",
+  "library": "window.MiniFlow",
+  "documentation": "./agent-guide.md",
+  "repository": "https://github.com/KakkoiDev/mini-flow",
+  "projectSchema": {
+    "type": "object",
+    "required": [
+      "version",
+      "source",
+      "positions"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "version": {
+        "const": 1
+      },
+      "source": {
+        "type": "string",
+        "description": "Mini Flow Mermaid subset, including optional %% mini-flow metadata for notes, attachments, and bends."
+      },
+      "positions": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    }
+  },
+  "updateOptionsSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "message": {
+        "type": "string",
+        "description": "Brief human-readable explanation displayed after an update."
+      },
+      "highlight": {
+        "type": "boolean",
+        "default": true
+      }
+    }
+  },
+  "methods": {
+    "getProject": {
+      "arguments": [],
+      "returns": {
+        "$ref": "#/projectSchema"
+      },
+      "readOnly": true
+    },
+    "getMermaid": {
+      "arguments": [],
+      "returns": {
+        "type": "string"
+      },
+      "readOnly": true
+    },
+    "setProject": {
+      "arguments": [
+        {
+          "name": "project",
+          "schema": {
+            "$ref": "#/projectSchema"
+          }
+        },
+        {
+          "name": "options",
+          "optional": true,
+          "schema": {
+            "$ref": "#/updateOptionsSchema"
+          }
+        }
+      ],
+      "effects": "Replace board, notify host persistence, highlight changes for three seconds, and create one undo step."
+    },
+    "setMermaid": {
+      "arguments": [
+        {
+          "name": "source",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "options",
+          "optional": true,
+          "schema": {
+            "$ref": "#/updateOptionsSchema"
+          }
+        }
+      ],
+      "effects": "Replace diagram structure while preserving positions for matching node IDs. Custom Mini Flow metadata carries notes and bends."
+    },
+    "undo": {
+      "arguments": [],
+      "effects": "Undo one diagram edit."
+    },
+    "redo": {
+      "arguments": [],
+      "effects": "Redo one diagram edit."
+    },
+    "fit": {
+      "arguments": [],
+      "effects": "Fit the current board into the viewport."
+    },
+    "exportMarkdown": {
+      "arguments": [],
+      "returns": {
+        "type": "string"
+      },
+      "readOnly": true
+    },
+    "exportSvg": {
+      "arguments": [],
+      "returns": {
+        "javascriptType": "Blob"
+      },
+      "readOnly": true
+    },
+    "exportPng": {
+      "arguments": [],
+      "returns": {
+        "javascriptType": "Promise<Blob>"
+      },
+      "readOnly": true
+    }
+  }
+}

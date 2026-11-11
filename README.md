@@ -142,3 +142,25 @@ Pass `settingsKey: 'my-editor-preferences'` to persist the snap toggle in local
 storage across reloads. Use distinct keys for independent embeds. Optional
 `snapToGrid: true` sets the initial value when no saved preference exists.
 The demo uses `mini-flow-preferences`.
+
+## API discovery for visiting agents
+
+The demo exposes its current mounted instance as `window.miniFlowEditor`.
+The page advertises [mini-flow-api.json](./mini-flow-api.json) through a
+`rel="describedby"` link and `meta[name="mini-flow-api"]`. The manifest lists
+method signatures, update effects, and the project schema.
+
+Read the [agent guide](./agent-guide.md) for examples of reading a board,
+preserving notes and positions, and applying an update as one undo step.
+The agent's browser tooling must permit page JavaScript execution.
+
+```js
+const editor = window.miniFlowEditor;
+const project = editor.getProject();
+// Modify project.source and project.positions for the requested edit.
+editor.setProject(project, { message: 'Added the requested fallback.' });
+```
+
+Embeds expose their own mounted instance or bridge. The manifest describes the
+public demo's instance, and the optional `onSend` callback connects host-owned
+chat delivery.
