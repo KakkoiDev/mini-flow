@@ -885,14 +885,17 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       if (command.disabled || command.hidden) return;
       command.dispatchEvent(new MouseEvent('click', { detail: 1 }));
     });
-    shadow.addEventListener('keydown', event => {
-      if (event.key !== 'Escape') return;
+    function cancelTool(event) {
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+      event.preventDefault();
       chooseShape(undefined);
       origin = undefined;
       connect.setAttribute('aria-pressed', 'false');
       status('Tool canceled.');
       render();
-    });
+      root.focus({ preventScroll: true });
+    }
+    root.addEventListener('keydown', cancelTool);
     connect.onclick = () => {
       chooseShape(undefined);
       const enabled = connect.getAttribute('aria-pressed') === 'false';
@@ -1087,7 +1090,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       };
     }
     const headerActions = get('.header-actions');
-    if (header) header.append(headerActions);
+    if (header) {
+      header.append(headerActions);
+      headerActions.addEventListener('keydown', cancelTool);
+    }
     host.append(root);
     if (dockLayout) frame.style.setProperty('--dock-height', toolbar.offsetHeight + 'px');
     area.value = sourceText();
