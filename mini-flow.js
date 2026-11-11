@@ -90,7 +90,7 @@ SOFTWARE.
     ), ...metadata].join('\n');
   }
 
-  function mount(host, source = 'flowchart TD', positions = {}, { onChange, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic', settingsKey, snapToGrid = false } = {}) {
+  function mount(host, source = 'flowchart TD', positions = {}, { onChange, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic', settingsKey, snapToGrid = false, dagre } = {}) {
     const enabled = name => features[name] !== false;
     const palette = { canvas: '#f7faff', grid: '#c5d4e4', text: '#203044', surface: '#fff',
       stroke: '#536982', accent: '#3965be', terminal: '#dcf4e9', step: '#e4edff', decision: '#fff0c7', ...colors };
@@ -251,7 +251,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         <aside class="panel" hidden><details data-source open><summary>Mermaid source</summary>
           <textarea aria-label="Mermaid source" spellcheck="false"></textarea>
           <div class="panel-actions"><button data-import>Apply source</button>
-          <button data-export>Refresh source</button></div>
+          <button data-export>Refresh source</button><button data-layout hidden>Auto layout</button></div>
         </details>
         <details data-exports><summary>Export</summary>
           <section class="export-group" data-copy-group><strong>Copy</strong>
@@ -617,6 +617,54 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     };
     const radius = node => Math.max(66, ...node.label.split('\n').map(line => line.length * 5 + 25));
     const height = node => (node.type === 'decision' ? 39 : 25) + (node.label.split('\n').length - 1) * 11;
+    function arrangeGraph(next) {
+      const layout = new dagre.graphlib.Graph({ multigraph: true });
+      layout.setGraph({ rankdir: 'TB', nodesep: 56, ranksep: 60, marginx: 24, marginy: 24 });
+      const blocks = next.nodes.filter(node => node.type !== 'note');
+      for (const node of blocks) layout.setNode(node.id, { width: radius(node) * 2, height: height(node) * 2 });
+      next.edges.forEach((edge, index) => {
+        layout.setEdge(edge.from, edge.to, { width: edge.label ? edge.label.length * 7 + 12 : 0,
+          height: edge.label ? 18 : 0 }, String(index));
+      });
+      if (blocks.length) dagre.layout(layout);
+      const byId = new Map(blocks.map(node => [node.id, node]));
+      for (const node of blocks) {
+        const position = layout.node(node.id);
+        node.x = position.x;
+        node.y = position.y;
+      }
+      const left = blocks.reduce((boundary, node) => Math.min(boundary, node.x - radius(node)), 24);
+      const notes = next.nodes.filter(node => node.type === 'note').map(note => {
+        const target = typeof note.target === 'string' ? byId.get(note.target) : next.edges[note.target];
+        const y = target?.y ?? (target ? (byId.get(target.from).y + byId.get(target.to).y) / 2 : 24);
+        return { note, y };
+      });
+      notes.sort((a, b) => a.y - b.y);
+      let bottom = -Infinity;
+      for (const { note, y } of notes) {
+        note.x = blocks.length ? left - 48 - radius(note) : 300;
+        note.y = Math.max(y, bottom + height(note));
+        bottom = note.y + height(note) + 24;
+      }
+    }
+    function autoLayout(options = {}) {
+      if (!dagre) throw new Error('Auto layout requires Dagre.');
+      if (!graph.nodes.length) return;
+      editing?.field.blur();
+      const next = JSON.parse(snapshot());
+      const previous = new Map(next.nodes.map(node => [node.id, [node.x, node.y]]));
+      arrangeGraph(next);
+      const nodes = new Map(next.nodes.map(node => [node.id, node]));
+      for (const edge of next.edges) {
+        if (!edge.bend) continue;
+        const a = nodes.get(edge.from), b = nodes.get(edge.to);
+        const [ax, ay] = previous.get(edge.from), [bx, by] = previous.get(edge.to);
+        edge.bend = [edge.bend[0] + (a.x - ax + b.x - bx) / 2,
+          edge.bend[1] + (a.y - ay + b.y - by) / 2];
+      }
+      replaceGraph(next, { message: 'Diagram laid out.', ...options });
+      fit();
+    }
     function labelText(attrs, value) {
       const label = element('text', attrs);
       const lines = value.split('\n');
@@ -1113,7 +1161,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           nextY += 115;
         }
       }
+      const hasPositions = next.nodes.some(node => Object.hasOwn(layout, node.id) || previous.has(node.id));
+      if (dagre && next.nodes.length && !hasPositions) arrangeGraph(next);
       replaceGraph(next, options);
+      if (dagre && next.nodes.length && !hasPositions) fit();
     }
     function getProject() {
       return { version: 1, source: sourceText(), positions: boardPositions() };
@@ -1196,6 +1247,11 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     get('[data-import]').onclick = () => {
       try { setMermaid(area.value, { highlight: false }); status('Mermaid source applied.'); }
       catch (error) { status(error.message); }
+    };
+    const layoutButton = get('[data-layout]');
+    layoutButton.hidden = !dagre;
+    layoutButton.onclick = () => {
+      try { autoLayout(); } catch (error) { status(error.message); }
     };
     get('[data-export]').onclick = () => {
       area.value = sourceWithLayout();
@@ -1308,13 +1364,17 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       header.append(headerActions);
       headerActions.addEventListener('keydown', cancelTool);
     }
+    if (dagre && graph.nodes.length && !graph.nodes.some(node => Object.hasOwn(positions, node.id))) {
+      arrangeGraph(graph);
+      current = snapshot();
+    }
     host.append(root);
     if (dockLayout) frame.style.setProperty('--dock-height', toolbar.offsetHeight + 'px');
     area.value = sourceWithLayout();
     status('Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
     render();
     fit();
-    return { getMermaid: sourceText, setMermaid, getProject, setProject, undo, redo, fit, exportSvg, exportPng, exportMarkdown, destroy: () => { clearTimeout(updateTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
+    return { getMermaid: sourceText, setMermaid, getProject, setProject, undo, redo, fit, autoLayout, exportSvg, exportPng, exportMarkdown, destroy: () => { clearTimeout(updateTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
   }
 
   globalThis.MiniFlow = { mount, parse, stringify };

@@ -98,7 +98,19 @@
           }
         }
       ],
-      "effects": "Replace diagram structure while preserving positions for matching node IDs. Custom Mini Flow metadata carries notes and bends."
+      "effects": "Replace diagram structure while preserving saved or matching node positions. The demo uses Dagre if no positions are available. Custom Mini Flow metadata carries notes and bends."
+    },
+    "autoLayout": {
+      "arguments": [
+        {
+          "name": "options",
+          "optional": true,
+          "schema": {
+            "$ref": "#/updateOptionsSchema"
+          }
+        }
+      ],
+      "effects": "Arrange nodes and notes with Dagre, fit the result, and create one Undo step. Requires Dagre in the mount options."
     },
     "undo": {
       "arguments": [],

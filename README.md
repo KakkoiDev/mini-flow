@@ -1,6 +1,6 @@
 # Mini Flow
 
-Mini Flow is a small, dependency-free flowchart editor and reusable browser SDK.
+Mini Flow is a small flowchart editor with a dependency-free browser SDK.
 Build diagrams with start/end blocks, steps, decisions, labeled arrows, and linked
 sticky notes. Embed it in another application, customize its tools and colors,
 or let an AI agent inspect and update the board through the JavaScript API.
@@ -21,6 +21,7 @@ To serve locally, run `python3 -m http.server 8765 --bind 127.0.0.1` in this dir
 - Select any shape or arrow and edit its label. Delete removes the selection
   and any arrows attached to a deleted shape.
 - In Mermaid source, use Refresh source to export and Apply source to import.
+- Use Auto layout to arrange the current diagram in one undoable edit. Dagre follows the arrows and places branches side by side.
   Mini Flow's copied source includes a layout comment so reimporting restores the canvas positions.
   Mermaid Live ignores that comment and computes its own layout.
 
@@ -53,7 +54,7 @@ new nodes below the existing diagram.
 
 Mermaid syntax and the text-editor workflow come from the Mermaid project and
 its MIT-licensed Mermaid Live Editor (https://github.com/mermaid-js/mermaid-live-editor).
-Mini Flow uses an independent SVG canvas and has no runtime dependencies.
+The editor SDK uses an independent SVG canvas and has no required runtime dependencies. The demo bundles [Dagre 1.1.5](https://github.com/dagrejs/dagre/tree/v1.1.5), a layout engine supported by Mermaid, for automatic node placement. The editor draws the connections on its SVG canvas.
 
 Copy Mermaid in the source panel, or copy Markdown, SVG markup, or PNG in
 Export. PNG clipboard support depends on the browser.
@@ -116,7 +117,9 @@ the second argument. A mounted editor uses its configured shapes automatically.
 Read the board with editor.getProject() and apply a complete board with
 editor.setProject(project). The project schema is version 1 with a Mermaid
 source string and a positions object mapping node IDs to finite [x, y] pairs.
-Use editor.setMermaid(source) to update structure and retain matching positions.
+Use editor.setMermaid(source) to update structure and retain matching positions. Copied Mini Flow source also carries positions in a Mermaid comment. When an import has no saved or matching positions, the demo uses Dagre to place the nodes.
+
+Embeds can pass `{ dagre }` in the options to `MiniFlow.mount` to enable the same behavior. With Dagre configured, `editor.autoLayout()` arranges the current board in a single Undo step and fits it into view.
 Call editor.fit(), editor.undo(), or editor.redo() directly. Pass onChange(source,
 positions) when mounting to subscribe to committed edits. These methods require
 no pointer or keyboard simulation.

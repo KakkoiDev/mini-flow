@@ -61,7 +61,8 @@ dialog button:disabled{opacity:.5;cursor:default}
     <button id="apply-proposal" value="apply" type="button">Apply edit</button>
   </form>
 </dialog>
-<script src="./mini-flow.js?v=layout-and-labels"></script>
+<script src="./vendor/dagre.min.js"></script>
+<script src="./mini-flow.js?v=dagre-layout"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -158,7 +159,7 @@ function save(source, positions) {
 const initialProposal = readProposal();
 const saved = initialProposal?.base ?? restore();
 const editor = MiniFlow.mount(document.querySelector('#editor'), saved?.source ?? example,
-  saved?.positions ?? examplePositions, { onChange: save, header: document.querySelector('header'), layout: 'dock', settingsKey: 'mini-flow-preferences',
+  saved?.positions ?? examplePositions, { onChange: save, header: document.querySelector('header'), layout: 'dock', dagre: window.dagre, settingsKey: 'mini-flow-preferences',
     colors: { canvas: '#faf8f5', grid: '#ded9d2', text: '#242b29', surface: '#fffdfb',
       stroke: '#464d49', accent: '#087f71', terminal: '#d4f2e5', step: '#e0edf8', decision: '#fff0cd' } });
 window.miniFlowEditor = editor;
