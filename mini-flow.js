@@ -1206,7 +1206,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         }
         [node.x, node.y] = pair;
       }
-      replaceGraph(next);
+      replaceGraph(next, options);
       fit();
     }
     function replaceGraph(next, options = {}) {
