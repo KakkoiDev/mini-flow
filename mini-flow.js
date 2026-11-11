@@ -66,7 +66,7 @@
     ), ...metadata].join('\n');
   }
 
-  function mount(host, source = 'flowchart TD', positions = {}, { onChange, features = {}, colors = {}, extraShapes = {}, tools, header, onSend } = {}) {
+  function mount(host, source = 'flowchart TD', positions = {}, { onChange, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic' } = {}) {
     const enabled = name => features[name] !== false;
     const palette = { canvas: '#f7faff', grid: '#c5d4e4', text: '#203044', surface: '#fff',
       stroke: '#536982', accent: '#3965be', terminal: '#dcf4e9', step: '#e4edff', decision: '#fff0c7', ...colors };
@@ -131,6 +131,33 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .connection-actions button {min-height:44px;box-shadow:0 2px 8px #20304420}
         .bend-handle {position:absolute;z-index:1;width:44px;height:44px;padding:0;transform:translate(-50%,-50%);background:transparent;border:0;cursor:grab;touch-action:none}
         .bend-handle::after {content:'';display:block;width:14px;height:14px;margin:auto;border:2px solid var(--mf-accent);border-radius:50%;background:var(--mf-surface)}
+        .dock-layout {border:0;border-radius:0;background:var(--mf-canvas);--dock-height:64px;--dock-bottom:calc(12px + env(safe-area-inset-bottom, 0px))}
+        .dock-layout .toolbar {inset:auto 8px var(--dock-bottom);max-width:calc(100% - 16px);
+          justify-content:center;gap:6px;padding:8px;border:1px solid #ded9d2;border-radius:18px;
+          box-shadow:0 3px 14px #332c2212}
+        .dock-layout .toolbar button {min-height:44px;padding:8px 11px;border-color:#e7e2dc;border-radius:10px;font-weight:550}
+        .dock-layout .toolbar button:hover:not(:disabled) {background:#f5f1eb}
+        .dock-layout .toolbar button[aria-pressed=true] {background:#dcf3ed;border-color:var(--mf-accent)}
+        .dock-layout button:focus-visible {outline:2px solid var(--mf-accent);outline-offset:2px}
+        .dock-layout kbd {background:#fff;color:#5e6562;border-color:#ded9d2}
+        .dock-layout .toolbar label {display:flex;align-items:center;gap:7px;padding:0 9px;min-height:44px;
+          border-inline-start:1px solid #e7e2dc;white-space:nowrap;font-size:13px}
+        .dock-layout .toolbar input {accent-color:var(--mf-accent);width:17px;height:17px;margin:0}
+        .dock-layout .scroll {bottom:calc(var(--dock-height) + var(--dock-bottom) + 8px)}
+        .dock-layout .status {inset:8px auto auto 12px;min-height:0;max-width:calc(100% - 24px);
+          padding:6px 9px;border:0;background:var(--mf-canvas);color:var(--mf-stroke);font-size:12px}
+        .dock-layout .panel {inset:0 0 calc(var(--dock-height) + var(--dock-bottom) + 8px) auto;
+          max-height:none;border-radius:0;border-width:0 0 1px 1px;box-shadow:none;width:min(350px,100%)}
+        .dock-layout .connection-actions button {background:#e4f4ee;border-color:#a7cfc4}
+        @media (min-width: 850px) {
+          .dock-layout:has(.panel:not([hidden])) .scroll {right:350px}
+          .dock-layout:has(.panel:not([hidden])) .status {max-width:calc(100% - 374px)}
+        }
+        @media (max-width: 550px) {
+          .dock-layout .toolbar {gap:4px;padding:5px}
+          .dock-layout .toolbar button {padding:6px 8px}
+          .dock-layout .status {font-size:11px}
+        }
         .panel-actions {display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
         .panel textarea {margin:10px 0 0}
         summary {cursor:pointer}
@@ -186,7 +213,15 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       event.currentTarget.setAttribute('aria-expanded', String(!panel.hidden));
     };
     get('[data-fit]').onclick = fit;
-    const observer = new ResizeObserver(updateCamera);
+    const frame = get('.frame');
+    const toolbar = get('.toolbar');
+    const dockLayout = layout === 'dock';
+    if (dockLayout) frame.classList.add('dock-layout');
+    const observer = new ResizeObserver(() => {
+      if (dockLayout) frame.style.setProperty('--dock-height', toolbar.offsetHeight + 'px');
+      updateCamera();
+    });
+    if (dockLayout) observer.observe(toolbar);
     observer.observe(viewport);
     function updateCamera() {
       const width = viewport.clientWidth || 1, height = viewport.clientHeight || 1;
@@ -1002,6 +1037,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     const headerActions = get('.header-actions');
     if (header) header.append(headerActions);
     host.append(root);
+    if (dockLayout) frame.style.setProperty('--dock-height', toolbar.offsetHeight + 'px');
     area.value = sourceText();
     status('Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
     render();

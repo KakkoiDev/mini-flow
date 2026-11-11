@@ -4,14 +4,25 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Mini Flow</title>
 <style>
-body{margin:0;background:#f7faff;color:#203044;font:15px system-ui}
+:root{color-scheme:light}
+body{margin:0;background:#faf8f5;color:#242b29;font:15px system-ui,sans-serif}
 main{height:100dvh;display:flex;flex-direction:column}
-header{display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px;padding:9px 14px;background:white;border-bottom:1px solid #d9e2ec}
-h1{margin:0;font-size:20px;letter-spacing:-.04em}
+header{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:9px clamp(10px,2vw,28px);background:#faf8f5;border-bottom:1px solid #e7e2dc}
+h1{margin:0 auto 0 0;font-size:21px;font-weight:750;letter-spacing:-.035em}
 header .header-actions{display:contents}
-header button{font:inherit;border:1px solid #bdcbd9;background:white;color:inherit;border-radius:8px;padding:5px 8px;cursor:pointer}
+header button{font:inherit;border:1px solid transparent;background:transparent;color:inherit;border-radius:8px;padding:7px 10px;min-height:38px;cursor:pointer}
+header button:hover:not(:disabled){background:#f0ece6}
+header button:disabled{opacity:.45;cursor:default}
+header #blank{border-color:#ded9d2}
+header [data-panel]{background:#e4f4ee;border-color:#c9e8df}
+header [data-panel][aria-expanded=true]{background:#cdebe1}
+header button:focus-visible{outline:2px solid #087f71;outline-offset:2px}
+#save-status:empty{display:none}
+#save-status{order:1;flex-basis:100%;font-size:12px;color:#4c6660}
 #editor{flex:1;min-height:0;--mini-flow-height:100%}
 #editor > div{height:100%}
+@media(max-width:550px){header{gap:3px;padding:5px 8px}h1{font-size:18px}
+header button{font-size:13px;padding:5px 7px;min-height:44px}}
 </style>
 <main>
   <header><h1>Mini Flow</h1><button id="blank">Start blank</button><button id="share">Copy link</button><span id="save-status" role="status"></span></header>
@@ -86,7 +97,9 @@ function save(source, positions) {
 }
 const saved = restore();
 const editor = MiniFlow.mount(document.querySelector('#editor'), saved?.source ?? example,
-  saved?.positions ?? examplePositions, { onChange: save, header: document.querySelector('header') });
+  saved?.positions ?? examplePositions, { onChange: save, header: document.querySelector('header'), layout: 'dock',
+    colors: { canvas: '#faf8f5', grid: '#ded9d2', text: '#242b29', surface: '#fffdfb',
+      stroke: '#464d49', accent: '#087f71', terminal: '#d4f2e5', step: '#e0edf8', decision: '#fff0cd' } });
 document.querySelector('#blank').onclick = () => editor.setMermaid('flowchart TD');
 let copyTimer;
 document.querySelector('#share').onclick = async () => {
