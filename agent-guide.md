@@ -124,8 +124,9 @@ A regular board link opens a snapshot.
   update on the board. When building a diagram in multiple steps, report
   activity, then call `apply_board_edit` for each coherent batch as it is
   ready. Use the revision from each successful response for the next batch.
-  A reported activity keeps the claim open across batches. Send an empty
-  message when finished to clear the activity and close the claim.
+  A reported activity keeps the claim open across batches. When finished,
+  send an empty message with an optional `result` summary to close the
+  claim and show the outcome on the note.
 
 ```json
 {

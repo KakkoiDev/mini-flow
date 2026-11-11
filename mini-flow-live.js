@@ -33,14 +33,20 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   const pendingAsks = new Map();
   const pendingDeliveries = new Map();
   const offers = new Map();
+  const results = new Map();
   const pendingClaims = new Map();
   let requestSequence = 0;
 
-  function finishOffer(requestId) {
+  function finishOffer(requestId, label) {
     const offer = offers.get(requestId);
     if (!offer) return;
     clearTimeout(offer.timer);
     offers.delete(requestId);
+    if (label) {
+      results.delete(offer.noteId);
+      results.set(offer.noteId, { phase: 'result', label });
+      if (results.size > 32) results.delete(results.keys().next().value);
+    }
     if (!closed) publishPresence();
   }
 
@@ -93,6 +99,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     for (const claim of pendingClaims.values()) claim.finish(false);
     for (const offer of offers.values()) clearTimeout(offer.timer);
     offers.clear();
+    results.clear();
     onAIRequests({});
     requests.length = 0;
   }
@@ -107,7 +114,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     }
     if (offers.size >= 32) return failure('too_many_requests', 'Wait for a pending request to finish.');
     const requestId = id();
-    const expire = () => finishOffer(requestId);
+    results.delete(noteId);
+    const expire = () => finishOffer(requestId, 'No AI claimed the request');
     offers.set(requestId, { noteId, agents: new Set(agents), timer: setTimeout(expire, 90000) });
     publishPresence();
     return new Promise(resolve => {
@@ -115,7 +123,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       const finish = result => {
         clearTimeout(timer);
         pendingDeliveries.delete(requestId);
-        if (!result.ok) finishOffer(requestId);
+        if (!result.ok) finishOffer(requestId, result.message);
         resolve(result);
       };
       const timer = setTimeout(() => finish(failed), 3000);
@@ -269,8 +277,11 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
 
   function publishPresence() {
     if (!host) return;
-    const aiRequests = Object.fromEntries([...offers.values()].map(offer =>
-      [offer.noteId, offer.winner ? guests.get(offer.winner)?.label ?? 'AI' : 'Waiting for AI']));
+    const aiRequests = Object.fromEntries([...results, ...[...offers.values()].map(offer => [
+      offer.noteId, offer.winner
+        ? { phase: 'working', label: guests.get(offer.winner)?.label ?? 'AI' }
+        : { phase: 'waiting', label: 'Waiting for AI' }
+    ])]);
     onAIRequests(aiRequests);
     if (!guests.size) return;
     const snapshot = presenceSnapshot();
@@ -312,7 +323,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       if (!guests.delete(from)) return;
       for (const [requestId, offer] of offers) {
         offer.agents.delete(from);
-        if (offer.winner === from || !offer.agents.size) finishOffer(requestId);
+        if (offer.winner === from || !offer.agents.size) finishOffer(requestId, 'AI guest disconnected');
       }
       reportGuestCount();
       if (guests.size) publishPresence();
@@ -360,11 +371,13 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       const guest = guests.get(from);
       install(normalize(data.project), message);
       const changed = refresh(guest.color);
-      if (guest.agent && data.keepClaim !== true) for (const [requestId, offer] of offers) {
-        if (offer.winner === from) finishOffer(requestId);
-      }
       publish({ id: data.id, ok: true, message }, from);
       if (changed) publish({ message }, [...guests.keys()].filter(id => id !== from));
+      if (guest.agent) for (const [requestId, offer] of offers) {
+        if (offer.winner !== from) continue;
+        if (data.keepClaim === true) offer.lastEdit = message;
+        else finishOffer(requestId, message);
+      }
     } catch {
       publish({ id: data.id, ...failure('invalid_edit', 'The host rejected an invalid board.') }, from);
     }
@@ -412,8 +425,10 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
         item.id !== room.selfId && typeof item.label === 'string').map(item => ({
         id: item.id, label: item.label.slice(0, 32), ...readPresence(item, /^AI \d+$/.test(item.label))
       })));
-      onAIRequests(Object.fromEntries(Object.entries(data.aiRequests ?? {}).slice(0, 32)
-        .filter(([id, label]) => id.length <= 128 && typeof label === 'string' && label.length <= 32)));
+      onAIRequests(Object.fromEntries(Object.entries(data.aiRequests ?? {}).slice(0, 64)
+        .filter(([id, status]) => id.length <= 128 && (typeof status === 'string' && status.length <= 32 ||
+          ['waiting', 'working', 'result'].includes(status?.phase) &&
+          typeof status.label === 'string' && status.label.length <= 200))));
     }
   });
   room.onMessage('agent', (data, from) => {
@@ -436,7 +451,9 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (host) {
       if (data?.type === 'done' && guests.get(from)?.agent) {
         for (const [requestId, offer] of offers) {
-          if (offer.winner === from) finishOffer(requestId);
+          if (offer.winner === from) finishOffer(requestId,
+            typeof data.result === 'string' && data.result.trim() ? data.result.trim().slice(0, 200)
+              : offer.lastEdit ?? 'AI finished the request');
         }
         return;
       }
@@ -447,7 +464,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
         if (offer?.agents.has(from) && !offer.winner && !busy) {
           offer.winner = from;
           clearTimeout(offer.timer);
-          offer.timer = setTimeout(() => finishOffer(data.requestId), 300000);
+          offer.timer = setTimeout(() => finishOffer(data.requestId, 'AI request timed out'), 300000);
           const guest = guests.get(from);
           guest.presence = { ...guest.presence, activity: 'Reviewing a note…' };
           publishPresence();
@@ -528,13 +545,16 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       presence = readPresence({ ...next, activity: presence.activity }, agentRegistered);
       schedulePresence();
     },
-    reportAIActivity(message) {
+    reportAIActivity(message, result) {
       if (host || closed || !hostPeer || !agentRegistered) return failure('ai_not_connected', 'Register as a live AI guest first.');
       if (typeof message !== 'string' || message.length > 200) return failure('invalid_activity', 'Use a status of up to 200 characters.');
+      if (result !== undefined && (typeof result !== 'string' || result.length > 200 || message.trim())) {
+        return failure('invalid_result', 'Send a result of up to 200 characters with an empty progress message.');
+      }
       reportedActivity = Boolean(message.trim());
       presence = { ...presence, activity: message.trim() || undefined };
       schedulePresence();
-      if (!presence.activity) send('ask', { type: 'done' }).catch(() => {});
+      if (!presence.activity) send('ask', { type: 'done', result }).catch(() => {});
       return { ok: true };
     },
     submit,

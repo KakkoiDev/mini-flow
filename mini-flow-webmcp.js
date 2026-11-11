@@ -137,10 +137,10 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
   if (typeof context?.registerTool === 'function' && options.reportAIActivity) {
     await context.registerTool({
       name: 'report_ai_activity',
-      description: 'Show a short progress update to everyone on the live board. Use an empty message to clear it. Share actions and status summaries.',
+      description: 'Show a short progress update to everyone on the live board. Send an empty message with an optional result summary when finished.',
       inputSchema: { type: 'object', additionalProperties: false, required: ['message'],
-        properties: { message: { type: 'string', maxLength: 200 } } },
-      execute: ({ message } = {}) => options.reportAIActivity(message)
+        properties: { message: { type: 'string', maxLength: 200 }, result: { type: 'string', maxLength: 200 } } },
+      execute: ({ message, result } = {}) => options.reportAIActivity(message, result)
     });
   }
 }

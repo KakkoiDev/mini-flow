@@ -217,7 +217,8 @@ and Undo or Redo sync to everyone. If edits conflict, the guest sees the current
 board and can retry.
 
 When an AI guest is connected, select a sticky note and click **Ask AI** on
-its corner. The note shows when it is waiting and which AI guest claimed it.
+its corner. The note shows when it is waiting, which AI guest claimed it,
+and the result. You can ask again once the request finishes.
 Only the first AI guest to claim the request gets it from
 `wait_for_ai_request`. That call runs during an active agent turn.
 

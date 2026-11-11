@@ -172,6 +172,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           background:var(--mf-surface);border-color:var(--mf-accent);box-shadow:0 2px 8px #332c2220}
         .note-action svg {width:16px;height:16px}
         .note-ai-mark {pointer-events:none}
+        .note-ai-result {pointer-events:auto}
         .note-ai-spinner {fill:none;stroke:var(--mf-accent);stroke-width:2.2;stroke-dasharray:18 12;
           transform-box:fill-box;transform-origin:center;animation:note-ai-spin .85s linear infinite}
         @keyframes note-ai-spin {to {transform:rotate(360deg)}}
@@ -403,7 +404,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     function positionNoteAction() {
       if (!noteAction) return;
       const node = selected?.type === 'note' ? selected : null;
-      const active = node && Object.hasOwn(aiRequests, node.id);
+      const active = node && Object.hasOwn(aiRequests, node.id) && aiRequests[node.id]?.phase !== 'result';
       noteAction.hidden = !node || !noteActionAvailable || Boolean(active) || Boolean(editing || drag);
       if (noteAction.hidden) return;
       const right = (node.x + radius(node) - cameraX) * zoom;
@@ -1100,13 +1101,20 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
             ...(node.type === 'note' ? { 'data-note-fill': node.id } : {}) }),
           labelText({ 'text-anchor': 'middle', visibility: editing?.item === node ? 'hidden' : 'visible' }, shown.label));
         if (node.type === 'note' && Object.hasOwn(aiRequests, node.id)) {
-          const label = aiRequests[node.id] === 'Waiting for AI' ? 'Waiting for AI' : aiRequests[node.id] + ' working';
+          const request = aiRequests[node.id];
+          const result = request.phase === 'result';
+          const waiting = request.phase === 'waiting' || request === 'Waiting for AI';
+          const summary = result ? request.label : '';
+          const label = result ? 'Result · ' + (summary.length > 34 ? summary.slice(0, 33) + '…' : summary)
+            : waiting ? 'Waiting for AI…' : (request.label ?? request) + ' working…';
           const badgeWidth = label.length * 7 + 30;
-          const badge = element('g', { class: 'note-ai-mark', transform: `translate(${w - badgeWidth + 8} ${-h - 13})`,
-            role: 'img', 'aria-label': label });
-          badge.append(element('rect', { width: badgeWidth, height: 26, rx: 9, fill: palette.surface, stroke: palette.accent }),
-            element('circle', { class: 'note-ai-spinner', cx: 13, cy: 13, r: 6 }),
-            element('text', { x: 24, y: 17, 'font-size': 12 }, label));
+          const badge = element('g', { class: result ? 'note-ai-mark note-ai-result' : 'note-ai-mark',
+            transform: `translate(${Math.max(-w, w - badgeWidth + 8)} ${result ? h + 6 : -h - 13})`,
+            role: 'img', 'aria-label': result ? 'Result · ' + summary : label });
+          if (result) badge.append(element('title', {}, summary));
+          badge.append(element('rect', { width: badgeWidth, height: 26, rx: 9, fill: palette.surface, stroke: palette.accent }));
+          if (!result) badge.append(element('circle', { class: 'note-ai-spinner', cx: 13, cy: 13, r: 6 }));
+          badge.append(element('text', { x: result ? 10 : 24, y: 17, 'font-size': 12 }, label));
           group.append(badge);
         }
         if (connect.getAttribute('aria-pressed') === 'false') {

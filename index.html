@@ -190,7 +190,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=instant-notes"></script>
+<script src="./mini-flow.js?v=ai-results"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -519,8 +519,8 @@ document.querySelector('#share').onclick = async () => {
 };
 </script>
 <script type="module">
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=live-feedback';
-import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=9';
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=ai-results';
+import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=10';
 import { setupGistBackups } from './mini-flow-gist.js';
 import { setupSavedProjects } from './mini-flow-projects.js?v=7';
 
@@ -741,7 +741,7 @@ registerMiniFlowTools(editor, undefined, undefined, {
   registerAgent: joiningLive ? () => liveBoard?.registerAgent() ?? { ok: false, reason: 'live_not_ready' } : undefined,
   waitForAIRequest: joiningLive ? (after, timeoutMs) => liveBoard?.waitForAIRequest(after, timeoutMs) ??
     { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' } : undefined,
-  reportAIActivity: joiningLive ? message => liveBoard?.reportAIActivity(message) ??
+  reportAIActivity: joiningLive ? (message, result) => liveBoard?.reportAIActivity(message, result) ??
     { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' } : undefined,
   isReady: () => !joiningLive || Boolean(liveBoard?.ready()),
   commitProject(project, message) {

@@ -17,6 +17,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     let presence;
     let counts;
     let colors = {};
+    let requests = {};
     const room = joinRoom({ app: 'mini-flow-live-test', room: 'room', password: 'private', network,
       protocol: 3, maxPeers: host ? 8 : 1, profile: { role: host ? 'host' : 'editor' },
       acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host'),
@@ -34,9 +35,9 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     onPresence(value) { presence = value; }, onGuestCounts(value) { counts = value; },
     readNote: (_, id) => id === 'N1' ? { id, text: 'Review this step', target: { type: 'node', id: 'A' } } : null,
     noteIds: value => MiniFlow.parse(value.source).nodes.filter(node => node.type === 'note').map(node => node.id),
-    onNoteColors(value) { colors = value; } });
+    onNoteColors(value) { colors = value; }, onAIRequests(value) { requests = value; } });
     return { id: room.selfId, session, getProject, setProject, commits: () => commits, ended: () => ended,
-      presence: () => presence, counts: () => counts, colors: () => colors };
+      presence: () => presence, counts: () => counts, colors: () => colors, requests: () => requests };
   }
 
   const host = connect(true);
@@ -60,9 +61,11 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.deepEqual(host.counts(), { human: 1, ai: 1 });
     assert.deepEqual(secondGuest.counts(), host.counts());
     const wait = tools.get('wait_for_ai_request');
-    const listening = wait({ timeoutMs: 1000 });
     assert.deepEqual(await host.session.askAI('N1'), { ok: true });
+    assert.equal(host.requests().N1.phase, 'waiting');
+    const listening = wait({ timeoutMs: 1000 });
     const first = await listening;
+    assert.equal(host.requests().N1.phase, 'working');
     assert.equal(first.request.requester, 'Host');
     assert.deepEqual(first.request.note, { id: 'N1', text: 'Review this step', target: { type: 'node', id: 'A' } });
     assert.equal((await secondGuest.session.waitForAIRequest()).reason, 'ai_not_connected');
@@ -74,8 +77,10 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.equal((await guest.session.submitAIEdit(makeProject('Second batch'), 'Second batch')).ok, true);
     await network.settle();
     assert.deepEqual(secondGuest.getProject(), makeProject('Second batch'));
-    guest.session.reportAIActivity('');
+    guest.session.reportAIActivity('', 'Two batches added');
     await network.settle();
+    assert.deepEqual(host.requests().N1, { phase: 'result', label: 'Two batches added' });
+    assert.deepEqual(secondGuest.requests().N1, host.requests().N1);
     assert.deepEqual(await secondGuest.session.askAI('N1'), { ok: true });
     const next = await wait({ after: first.request.sequence, timeoutMs: 1000 });
     assert.equal(next.request.requester, 'Guest 2');
