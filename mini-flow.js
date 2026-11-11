@@ -274,7 +274,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     const get = selector => shadow.querySelector(selector);
     const svg = get('.scroll > svg'), area = get('.panel textarea'), viewport = get('.scroll');
     const panel = get('.panel'), layoutButton = get('[data-layout]');
-    layoutButton.hidden = !dagre;
+    layoutButton.hidden = !dagre || !enabled('autoLayout');
     layoutButton.disabled = !graph.nodes.length;
     get('[data-panel]').onclick = event => {
       panel.hidden = !panel.hidden;
@@ -1207,7 +1207,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         [node.x, node.y] = pair;
       }
       replaceGraph(next, options);
-      fit();
+      if (!options.preserveView) fit();
     }
     function replaceGraph(next, options = {}) {
       if (reconnect) finishReconnect(false);
@@ -1399,7 +1399,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     status('Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
     render();
     fit();
-    return { getMermaid: sourceText, setMermaid, getProject, setProject, undo, redo, fit, autoLayout, exportSvg, exportPng, exportMarkdown, destroy: () => { clearTimeout(updateTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
+    return { getMermaid: sourceText, setMermaid, getProject, setProject, isInteracting: () => Boolean(drag || bendDrag || reconnect || editing), undo, redo, fit, autoLayout, exportSvg, exportPng, exportMarkdown, destroy: () => { clearTimeout(updateTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
   }
 
   globalThis.MiniFlow = { mount, parse, stringify };

@@ -94,6 +94,15 @@ creates one Undo step. Mini Flow checks the base again on Apply and blocks
 the edit if the board in that tab has changed. A new tab works on the shared
 copy encoded in the link.
 
+## Live session
+
+When the user shares a `#live=` invite, open it in a browser tab you control
+and wait for **Live · Connected**. Use WebMCP on that tab. The host accepts or
+rejects edits against its current revision, and a successful response means the
+host acknowledged the edit. If the host is editing or its revision changed,
+read the board again before deciding whether to retry. The invite is a private
+editing link, so keep it within the session.
+
 ## WebMCP site tools
 
 In ChatGPT Desktop, open the desired board in the built-in browser, select
@@ -120,7 +129,7 @@ diagram. The ID is a locator for the browser's open tabs.
 }
 ```
 
-The supported operations are `rename_node` (ID and label), `move_node` (ID and
+The supported operations are `rename_node` (ID and label), `delete_node` (ID), `move_node` (ID and
 position), `add_node` (ID, type, label, and position), and `add_arrow` (from and to
 IDs, plus an optional label). Positions are `[x, y]` pairs. Node types are
 `terminal`, `step`, `decision`, and `note`. Add blocks before connecting them.

@@ -228,6 +228,23 @@
                     "type": "object",
                     "properties": {
                       "op": {
+                        "const": "delete_node"
+                      },
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z][\\w-]*$"
+                      }
+                    },
+                    "required": [
+                      "op",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "op": {
                         "const": "move_node"
                       },
                       "id": {
@@ -327,6 +344,7 @@
         },
         "effects": "Apply one undoable batch to the current tab if its revision matches."
       }
-    }
+    },
+    "liveSession": "A private #live= invite joins the host board. Wait for get_board to succeed before editing. A successful edit is acknowledged by the host."
   }
 }

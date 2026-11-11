@@ -21,6 +21,7 @@ export const editSchema = {
       type: 'array', minItems: 1, maxItems: 100,
       items: { oneOf: [
         operation('rename_node', { id: idSchema, label: labelSchema }),
+        operation('delete_node', { id: idSchema }),
         operation('move_node', { id: idSchema, position: positionSchema }),
         operation('add_node', { id: idSchema, type: { enum: nodeTypes }, label: labelSchema, position: positionSchema }),
         operation('add_arrow', { from: idSchema, to: idSchema, label: labelSchema }, ['label'])
@@ -43,6 +44,23 @@ function applyEdits(project, edits, library) {
         if (!node || typeof edit.label !== 'string') throw new Error('Rename requires an existing node and a label.');
         node.label = edit.label;
         break;
+      case 'delete_node': {
+        if (!node) throw new Error('Delete requires an existing node.');
+        const oldEdges = graph.edges;
+        graph.edges = oldEdges.filter(edge => edge.from !== edit.id && edge.to !== edit.id);
+        graph.nodes = graph.nodes.filter(item => item !== node);
+        nodes.delete(edit.id);
+        delete positions[edit.id];
+        for (const note of graph.nodes) {
+          if (Number.isInteger(note.target)) {
+            const index = graph.edges.indexOf(oldEdges[note.target]);
+            note.target = index < 0 ? undefined : index;
+          } else if (note.target === edit.id) {
+            delete note.target;
+          }
+        }
+        break;
+      }
       case 'move_node':
         if (!node) throw new Error('Move requires an existing node.');
         setPosition(edit);
@@ -94,12 +112,13 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
     return { tabId, revision: tabId + ':' + revision, project };
   }
 
+  const notReady = { ok: false, reason: 'live_not_ready', message: 'The live board is not ready. Wait for the host and try again.' };
   await context.registerTool({
     name: 'get_board',
     description: 'Read the Mini Flow diagram in this tab. Returns its tab ID, revision, and project, including node positions and Mermaid metadata for notes and bends. Read before applying edits.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true },
-    execute: async () => readBoard()
+    execute: async () => options.isReady?.() === false ? notReady : readBoard()
   });
 
   await context.registerTool({
@@ -107,6 +126,7 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
     description: 'Edit the Mini Flow diagram in this tab. Use the revision from get_board on this same tab. Applies the full batch as one Undo step and highlights changes. A revision conflict leaves the board untouched.',
     inputSchema: editSchema,
     execute: async ({ revision, edits, message } = {}) => {
+      if (options.isReady?.() === false) return notReady;
       const board = readBoard();
       if (revision !== board.revision) {
         return { ok: false, reason: 'revision_conflict', message: 'Read the current board again before editing.' };
@@ -120,7 +140,12 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
       } catch (error) {
         return { ok: false, reason: 'invalid_edit', message: error.message };
       }
-      editor.setProject(project, { message });
+      if (options.commitProject) {
+        const result = await options.commitProject(project, message);
+        if (!result.ok) return result;
+      } else {
+        editor.setProject(project, { message });
+      }
       return { ok: true, ...readBoard() };
     }
   });

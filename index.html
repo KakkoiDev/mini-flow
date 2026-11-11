@@ -22,7 +22,10 @@ header .header-actions{display:contents}
 header .view-actions{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
 header button{display:inline-flex;align-items:center;gap:7px;font:inherit;border:1px solid transparent;background:transparent;color:inherit;border-radius:8px;padding:7px 10px;min-height:38px;cursor:pointer}
 header button:hover:not(:disabled){background:#f0ece6}
-header button[hidden]{display:none}
+header button[hidden],#live-session [hidden]{display:none}
+#live-toggle[data-active]{color:#087f71}
+#live-invite{display:block;width:100%;box-sizing:border-box;margin:6px 0 12px;font:inherit;padding:8px}
+#live-session form{flex-wrap:wrap}
 header button:disabled{opacity:.45;cursor:default}
 header #blank{border-color:#ded9d2}
 header [data-panel]{background:#e4f4ee;border-color:#c9e8df}
@@ -53,6 +56,20 @@ dialog button:disabled{opacity:.5;cursor:default}
   <header><h1><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M3 19a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" /><path d="M19 7a2 2 0 1 0 0 -4a2 2 0 0 0 0 4" /><path d="M11 19h5.5a3.5 3.5 0 0 0 0 -7h-8a3.5 3.5 0 0 1 0 -7h4.5" /></svg>Mini Flow</h1><button id="blank"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M12 5l0 14" /><path d="M5 12l14 0" /></svg><span>Start blank</span></button><button id="share"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M9 15l6 -6" /><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464" /><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463" /></svg><span>Copy link</span></button><span id="save-status" role="status"></span></header>
   <div id="editor"></div>
 </main>
+<dialog id="live-session" aria-labelledby="live-title">
+  <h2 id="live-title">Live session</h2>
+  <p id="live-status" role="status">Invite one agent to edit this board with you.</p>
+  <div id="live-invite-row" hidden>
+    <label for="live-invite">Private invite link</label>
+    <input id="live-invite" readonly>
+    <button id="live-copy" type="button">Copy invite</button>
+  </div>
+  <form method="dialog">
+    <button id="live-start" type="button">Start live session</button>
+    <button id="live-end" type="button" hidden>End session</button>
+    <button>Close</button>
+  </form>
+</dialog>
 <dialog id="edit-proposal" aria-labelledby="proposal-title">
   <h2 id="proposal-title">Apply diagram edit?</h2>
   <p id="proposal-message"></p>
@@ -64,7 +81,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=mcp-feedback"></script>
+<script src="./mini-flow.js?v=live-session"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -95,7 +112,9 @@ const examplePositions = {
 const key = 'mini-flow-edit-v1';
 const prefix = '#flow=';
 const proposalPrefix = '#apply=';
-const sharedSession = (location.hash.startsWith(prefix) || location.hash.startsWith(proposalPrefix)) &&
+const joiningLive = location.hash.startsWith('#live=');
+let liveBoard;
+const sharedSession = (joiningLive || location.hash.startsWith(prefix) || location.hash.startsWith(proposalPrefix)) &&
   !history.state?.miniFlowLocal;
 const message = document.querySelector('#save-status');
 const tabId = Array.from(crypto.getRandomValues(new Uint8Array(8)),
@@ -166,9 +185,16 @@ function save(source, positions) {
   }
 }
 const initialProposal = readProposal();
-const saved = initialProposal?.base ?? restore();
+const saved = joiningLive ? { source: 'flowchart TD', positions: {} } : initialProposal?.base ?? restore();
+const guestFeatures = joiningLive ? {
+  create: false, edit: false, move: false, connect: false, delete: false,
+  bend: false, reconnect: false, history: false, source: false, project: false, autoLayout: false
+} : {};
 const editor = MiniFlow.mount(document.querySelector('#editor'), saved?.source ?? example,
-  saved?.positions ?? examplePositions, { onChange: save, header: document.querySelector('header'), layout: 'dock', dagre: window.dagre, settingsKey: 'mini-flow-preferences',
+  saved?.positions ?? examplePositions, { onChange(source, positions) {
+      if (!joiningLive) save(source, positions);
+      liveBoard?.changed();
+    }, features: guestFeatures, header: document.querySelector('header'), layout: 'dock', dagre: window.dagre, settingsKey: 'mini-flow-preferences',
     colors: { canvas: '#faf8f5', grid: '#ded9d2', text: '#242b29', surface: '#fffdfb',
       stroke: '#464d49', accent: '#087f71', terminal: '#d4f2e5', step: '#e0edf8', decision: '#fff0cd' } });
 window.miniFlowEditor = editor;
@@ -183,7 +209,12 @@ const headerActions = document.querySelector('header .header-actions');
 const panelButton = headerActions.querySelector('[data-panel]');
 const viewActions = headerActions.querySelector('.view-actions');
 headerActions.append(viewActions, document.querySelector('#share'));
-headerActions.append(panelButton);
+const liveToggle = document.createElement('button');
+liveToggle.id = 'live-toggle';
+liveToggle.textContent = 'Live session';
+liveToggle.setAttribute('aria-haspopup', 'dialog');
+headerActions.append(liveToggle, panelButton);
+document.querySelector('#blank').hidden = joiningLive;
 const proposalDialog = document.querySelector('#edit-proposal');
 const applyButton = document.querySelector('#apply-proposal');
 const proposalStatus = document.querySelector('#proposal-status');
@@ -280,9 +311,11 @@ document.querySelector('#blank').onclick = () => editor.setMermaid('flowchart TD
 let copyTimer;
 document.querySelector('#share').onclick = async () => {
   const { source, positions } = editor.getProject();
-  if (!location.hash.startsWith(prefix)) save(source, positions);
+  if (!joiningLive && !location.hash.startsWith(prefix)) save(source, positions);
+  const address = new URL(location.href);
+  if (joiningLive) address.hash = prefix + encodeURIComponent(JSON.stringify({ source, positions }));
   try {
-    await navigator.clipboard.writeText(location.href);
+    await navigator.clipboard.writeText(address.href);
     clearTimeout(copyTimer);
     message.textContent = 'Link copied.';
     copyTimer = setTimeout(() => {
@@ -290,13 +323,103 @@ document.querySelector('#share').onclick = async () => {
     }, 3000);
   } catch {
     clearTimeout(copyTimer);
-    message.textContent = 'Copy the link from your address bar.';
+    message.textContent = joiningLive ? 'Could not copy the board link.' : 'Copy the link from your address bar.';
   }
 };
 </script>
 <script type="module">
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=tab-id';
-registerMiniFlowTools(window.miniFlowEditor, undefined, undefined, { tabId })
-  .catch(error => console.error('Mini Flow site tools:', error));
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=live-session';
+import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=1';
+
+const liveDialog = document.querySelector('#live-session');
+const liveStatus = document.querySelector('#live-status');
+const startSession = document.querySelector('#live-start');
+const endSession = document.querySelector('#live-end');
+const inviteRow = document.querySelector('#live-invite-row');
+const inviteInput = document.querySelector('#live-invite');
+const copyInvite = document.querySelector('#live-copy');
+let connectionTimer;
+let copiedTimer;
+
+function showStatus(text) {
+  liveStatus.textContent = text;
+  liveToggle.title = text;
+  liveToggle.textContent = text === 'Live · Connected' ? 'Live · Connected' : 'Live session';
+  if (text === 'Live · Connected') clearTimeout(connectionTimer);
+}
+function ended() {
+  liveBoard = undefined;
+  clearTimeout(connectionTimer);
+  clearTimeout(copiedTimer);
+  copyInvite.textContent = 'Copy invite';
+  endSession.hidden = true;
+  inviteRow.hidden = true;
+  delete liveToggle.dataset.active;
+  showStatus('Session ended.');
+  if (!joiningLive) startSession.hidden = false;
+}
+async function startLive(invite, host) {
+  startSession.disabled = true;
+  showStatus('Connecting…');
+  try {
+    liveBoard = await connectLiveBoard(invite, host, {
+      getProject: editor.getProject, setProject: editor.setProject, normalize: normalizeProject,
+      canAccept: () => !editor.isInteracting(), onStatus: showStatus, onEnd: ended
+    });
+    liveToggle.dataset.active = '';
+    endSession.hidden = false;
+    endSession.textContent = host ? 'End session' : 'Leave session';
+    startSession.hidden = true;
+    if (host) {
+      const address = new URL(location.pathname, location.origin);
+      address.hash = 'live=' + invite.room + '.' + invite.password;
+      inviteInput.value = address.href;
+      inviteRow.hidden = false;
+    }
+    connectionTimer = setTimeout(() => {
+      if (liveStatus.textContent.startsWith('Waiting') || liveStatus.textContent.startsWith('Receiving')) {
+        showStatus(host ? 'Waiting for an editor. Keep this tab open and share the invite.'
+          : 'Still waiting for the host. Check that the host tab is open.');
+      }
+    }, 12000);
+  } catch (error) {
+    showStatus('Could not start the live connection. ' + error.message);
+  } finally {
+    startSession.disabled = false;
+  }
+}
+liveToggle.onclick = () => liveDialog.showModal();
+startSession.onclick = () => startLive(newLiveInvite(), true);
+endSession.onclick = () => liveBoard?.stop();
+copyInvite.onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(inviteInput.value);
+    copyInvite.textContent = 'Copied';
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => { copyInvite.textContent = 'Copy invite'; }, 2000);
+  } catch {
+    inviteInput.select();
+  }
+};
+if (joiningLive) {
+  startSession.hidden = true;
+  const invite = readLiveInvite(location.hash);
+  if (invite) startLive(invite, false);
+  else showStatus('This live invite is invalid.');
+}
+
+registerMiniFlowTools(editor, undefined, undefined, {
+  tabId,
+  isReady: () => !joiningLive || Boolean(liveBoard?.ready()),
+  commitProject(project, message) {
+    if (joiningLive) return liveBoard?.submit(project, message) ??
+      { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' };
+    if (editor.isInteracting()) {
+      return { ok: false, reason: 'host_editing', message: 'The editor is busy. Read the board before retrying.' };
+    }
+    editor.setProject(project, { message });
+    return { ok: true };
+  }
+}).catch(error => console.error('Mini Flow site tools:', error));
 </script>
 </html>
