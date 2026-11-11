@@ -206,7 +206,7 @@ board. See the [Site tools guide](./agent-guide.md#webmcp-site-tools).
 Open the board you want to edit, then choose **Live session → Start live session**
 and share the same **Copy invite** link with your collaborators. Keep the
 host tab open. Up to eight guests can join, including humans and agents.
-The regular **Copy link** shares a snapshot. **Copy AI invite** includes
+The regular **Copy link** shares a snapshot. **AI guests → Copy AI invite** includes
 instructions for both AI join methods and indicates whether the room has a
 curl bridge.
 
@@ -255,13 +255,12 @@ node bridge/server.mjs
 python3 -m http.server 8080 --bind 127.0.0.1
 ```
 
-1. Open http://localhost:8080 and add a note to the board.
-2. Open **Live session → AI guests via curl** and enter
-   `http://127.0.0.1:8787` as the AI bridge URL.
-3. Click **Start live session**, then **Copy curl command**. Keep the host tab
-   open. Paste the command into a terminal and run it. It joins the room
-   and streams events until you press Ctrl+C.
-4. Once the terminal prints `event: ready`, select the note and click
+1. Open [Mini Flow with the local bridge](http://localhost:8080/?ai-bridge=http%3A%2F%2F127.0.0.1%3A8787)
+   and add a note to the board.
+2. Click **Live session → Start live session**, then open **AI guests** and
+   click **Copy curl command**. Keep the host tab open. Paste the command into
+   a terminal and run it. It joins the room and streams events until you press Ctrl+C.
+3. Once the terminal prints `event: ready`, select the note and click
    **Ask AI**. Look for `event: ask_ai` and the note ID.
 
 Use **Copy AI invite** to send join instructions to an agent. The invite text
@@ -272,7 +271,7 @@ contains prose and a URL. Use **Copy curl command** for a terminal.
 For a terminal session that also exposes the tool URLs for claiming requests and
 editing the board, use the manual setup below. When prompted, paste only the
 final URL from **Copy AI invite**, starting with `http`. Set `BRIDGE` to the
-address you entered in the host dialog.
+address in the host page’s `ai-bridge` query parameter.
 
 ```sh
 BRIDGE=http://127.0.0.1:8787
@@ -336,8 +335,10 @@ guest connection. Keep invite links and bearer tokens private.
 
 ### Use the bridge with GitHub Pages
 
-Run `node bridge/server.mjs` on a reachable host behind HTTPS and enter that
-public URL in Mini Flow. Allow streaming responses through the proxy without
+Run `node bridge/server.mjs` on a reachable host behind HTTPS. Open the editor
+with the URL-encoded bridge address in the `ai-bridge` query parameter before
+starting the session. For example, use
+`https://mini-flow.kakkoi.dev/?ai-bridge=https%3A%2F%2Fbridge.example`. Allow streaming responses through the proxy without
 buffering. The service listens on `127.0.0.1:8787` by default. Override
 `HOST` and `PORT` as needed. `MINI_FLOW_ORIGINS` accepts a comma-separated
 list of editor origins. The defaults allow `https://mini-flow.kakkoi.dev`

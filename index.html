@@ -45,8 +45,10 @@ header button[hidden],#live-session [hidden]{display:none}
 #live-toggle[data-active] svg{color:#087f71}
 .live-state{display:none;width:7px;height:7px;border-radius:50%;background:#087f71}
 #live-toggle[data-active] .live-state{display:block}
-#live-invite,#live-bridge{display:block;width:100%;box-sizing:border-box;margin:6px 0 12px;font:inherit;padding:8px}
+#live-invite{display:block;width:100%;box-sizing:border-box;margin:6px 0 12px;font:inherit;padding:8px}
 #live-session form{flex-wrap:wrap}
+#live-ai-options{margin-top:12px}
+#live-ai-options summary{cursor:pointer;margin-bottom:8px}
 header button:disabled{opacity:.45;cursor:default}
 header #blank{border-color:#ded9d2}
 header :is([data-panel],#open-saved-projects)[aria-expanded=true]{background:#e4f4ee;border-color:#c9e8df;color:#175b50}
@@ -81,19 +83,15 @@ dialog button:disabled{opacity:.5;cursor:default}
 <dialog id="live-session" aria-labelledby="live-title">
   <h2 id="live-title">Live session</h2>
   <p id="live-status" role="status">Invite people or agents to edit this board with you.</p>
-  <details id="live-bridge-settings">
-    <summary>AI guests via curl</summary>
-    <p>Optional. Set a bridge URL to let terminal guests join. Browser guests can join directly.</p>
-    <label for="live-bridge">AI bridge URL (optional)</label>
-    <input id="live-bridge" type="url" placeholder="https://your-bridge.example">
-    <p><a href="https://github.com/KakkoiDev/mini-flow#join-as-an-ai-guest-with-curl" target="_blank" rel="noopener">Set up and test the bridge</a></p>
-  </details>
   <div id="live-invite-row" hidden>
     <label for="live-invite">Private invite link</label>
     <input id="live-invite" readonly>
     <button id="live-copy" type="button">Copy invite</button>
-    <button id="live-copy-ai" type="button" hidden>Copy AI invite</button>
-    <button id="live-copy-curl" type="button" hidden>Copy curl command</button>
+    <details id="live-ai-options">
+      <summary>AI guests</summary>
+      <button id="live-copy-ai" type="button">Copy AI invite</button>
+      <button id="live-copy-curl" type="button" hidden>Copy curl command</button>
+    </details>
   </div>
   <form method="dialog">
     <button id="live-start" type="button">Start live session</button>
@@ -648,8 +646,8 @@ const inviteInput = document.querySelector('#live-invite');
 const copyInvite = document.querySelector('#live-copy');
 const copyAIInvite = document.querySelector('#live-copy-ai');
 const copyCurl = document.querySelector('#live-copy-curl');
-const bridgeSettings = document.querySelector('#live-bridge-settings');
-const bridgeInput = document.querySelector('#live-bridge');
+const aiOptions = document.querySelector('#live-ai-options');
+const configuredBridge = new URLSearchParams(location.search).get('ai-bridge');
 let aiInvite;
 let connectionTimer;
 let copiedTimer;
@@ -668,11 +666,10 @@ function ended() {
   clearTimeout(copiedTimer);
   copyInvite.textContent = 'Copy invite';
   copyAIInvite.textContent = 'Copy AI invite';
-  copyAIInvite.hidden = true;
+  aiOptions.open = false;
   copyCurl.hidden = true;
   copyCurl.textContent = 'Copy curl command';
   aiInvite = undefined;
-  bridgeSettings.hidden = false;
   endSession.hidden = true;
   inviteRow.hidden = true;
   delete liveToggle.dataset.active;
@@ -695,7 +692,7 @@ async function startLive(invite, host) {
   if (host) liveNotice.textContent = '';
   showStatus('Connecting…');
   try {
-    const bridge = host && bridgeInput.value.trim() ? bridgeAddress(bridgeInput.value.trim()) : undefined;
+    const bridge = host && configuredBridge ? bridgeAddress(configuredBridge) : undefined;
     liveBoard = await connectLiveBoard(invite, host, {
       getProject: editor.getProject, setProject: editor.setProject, normalize: normalizeProject,
       canAccept: () => !editor.isInteracting(), onStatus: showStatus, onEnd: ended,
@@ -718,7 +715,6 @@ async function startLive(invite, host) {
           : typeof note.target === 'string' ? { type: 'node', id: note.target } : null };
       }
     }, bridge);
-    bridgeSettings.hidden = true;
     liveToggle.dataset.active = '';
     liveToggle.setAttribute('aria-label', 'Live session, active');
     endSession.hidden = false;
@@ -729,7 +725,6 @@ async function startLive(invite, host) {
       address.hash = 'live=' + invite.room + '.' + invite.password;
       inviteInput.value = address.href;
       inviteRow.hidden = false;
-      copyAIInvite.hidden = false;
       if (bridge) {
         address.searchParams.set('bridge', bridge);
         aiInvite = address.href;
@@ -804,7 +799,6 @@ copyCurl.onclick = async () => {
   }
 };
 if (joiningLive) {
-  bridgeSettings.hidden = true;
   startSession.hidden = true;
   const invite = readLiveInvite(location.hash);
   if (invite) startLive(invite, false);
