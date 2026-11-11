@@ -199,17 +199,15 @@ board. See the [Site tools guide](./agent-guide.md#webmcp-site-tools).
 ## Live session with an agent
 
 Open the board you want to edit, then choose **Live session → Start live session**
-and share **Copy invite** with one agent. Keep the host tab open. The invite
+and share **Copy invite** with a person or agent. Keep the host tab open. The invite
 grants that peer live access to the board until the session ends. The regular
 **Copy link** still shares a snapshot.
 
-The agent opens the invite in its own WebMCP-capable browser and waits for
-**Live · Connected**. It reads the board with `get_board` and commits through
-`apply_board_edit`. Your canvas shows accepted edits in one Undo step. Your
-changes and Undo actions also appear in the agent's tab. If the host changes
-the board before an edit arrives, the agent must read the latest revision.
-The joined canvas is a preview for the agent and editing there goes through
-WebMCP.
+The invitee can edit directly on the canvas. Both people can see each other's
+cursor and selected block. An agent can also use `get_board` and
+`apply_board_edit` in a WebMCP-capable browser. The host owns Undo and Redo,
+and those changes sync to the invitee. If edits conflict, the invitee sees the
+current board and can retry. Each session connects one host and one invitee.
 
 Live sessions load the pinned p2p-core browser module and use its online
 transport. Sessions require both tabs to stay connected and end when the host

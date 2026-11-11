@@ -35,8 +35,8 @@ header #blank{border-color:#ded9d2}
 header [data-panel]{background:#e4f4ee;border-color:#c9e8df}
 header [data-panel][aria-expanded=true]{background:#cdebe1}
 header button:focus-visible{outline:2px solid #087f71;outline-offset:2px}
-#save-status:empty{display:none}
-#save-status{order:1;flex-basis:100%;font-size:12px;color:#4c6660}
+#save-status:empty,#live-notice:empty{display:none}
+#save-status,#live-notice{order:1;flex-basis:100%;font-size:12px;color:#4c6660}
 #editor{flex:1;min-height:0;--mini-flow-height:100%}
 #editor > div{height:100%}
 @media(max-width:550px){header{gap:3px;padding:5px 8px}h1{font-size:18px}
@@ -62,7 +62,7 @@ dialog button:disabled{opacity:.5;cursor:default}
 </main>
 <dialog id="live-session" aria-labelledby="live-title">
   <h2 id="live-title">Live session</h2>
-  <p id="live-status" role="status">Invite one agent to edit this board with you.</p>
+  <p id="live-status" role="status">Invite a person or an agent to edit this board with you.</p>
   <div id="live-invite-row" hidden>
     <label for="live-invite">Private invite link</label>
     <input id="live-invite" readonly>
@@ -85,7 +85,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=layout-reset"></script>
+<script src="./mini-flow.js?v=live-collaboration"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -190,15 +190,13 @@ function save(source, positions) {
 }
 const initialProposal = readProposal();
 const saved = joiningLive ? { source: 'flowchart TD', positions: {} } : initialProposal?.base ?? restore();
-const guestFeatures = joiningLive ? {
-  create: false, edit: false, move: false, connect: false, delete: false,
-  bend: false, reconnect: false, history: false, source: false, project: false, autoLayout: false
-} : {};
-const editor = MiniFlow.mount(document.querySelector('#editor'), saved?.source ?? example,
+const editorHost = document.querySelector('#editor');
+const editor = MiniFlow.mount(editorHost, saved?.source ?? example,
   saved?.positions ?? examplePositions, { onChange(source, positions) {
       if (!joiningLive) save(source, positions);
       liveBoard?.changed();
-    }, features: guestFeatures, header: document.querySelector('header'), layout: 'dock', dagre: window.dagre, settingsKey: 'mini-flow-preferences',
+    }, onPresence: presence => liveBoard?.updatePresence(presence),
+    features: { history: !joiningLive }, header: document.querySelector('header'), layout: 'dock', dagre: window.dagre, settingsKey: 'mini-flow-preferences',
     colors: { canvas: '#faf8f5', grid: '#ded9d2', text: '#242b29', surface: '#fffdfb',
       stroke: '#464d49', accent: '#087f71', terminal: '#d4f2e5', step: '#e0edf8', decision: '#fff0cd' } });
 window.miniFlowEditor = editor;
@@ -219,7 +217,18 @@ liveToggle.innerHTML = '<svg aria-hidden="true" focusable="false" xmlns="http://
 const liveToggleState = liveToggle.querySelector('.live-state');
 liveToggle.setAttribute('aria-haspopup', 'dialog');
 headerActions.append(liveToggle, panelButton);
-document.querySelector('#blank').hidden = joiningLive;
+const liveNotice = document.createElement('span');
+liveNotice.id = 'live-notice';
+liveNotice.setAttribute('role', 'status');
+liveToggle.closest('header').append(liveNotice);
+function setGuestAvailability(available) {
+  if (!joiningLive) return;
+  editorHost.inert = !available;
+  for (const control of [document.querySelector('#blank'), viewActions.querySelector('[data-layout]'), panelButton]) {
+    if (control) control.inert = !available;
+  }
+}
+setGuestAvailability(false);
 const proposalDialog = document.querySelector('#edit-proposal');
 const applyButton = document.querySelector('#apply-proposal');
 const proposalStatus = document.querySelector('#proposal-status');
@@ -334,7 +343,7 @@ document.querySelector('#share').onclick = async () => {
 </script>
 <script type="module">
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=ai-core';
-import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=1';
+import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=2';
 
 const liveDialog = document.querySelector('#live-session');
 const liveStatus = document.querySelector('#live-status');
@@ -349,7 +358,7 @@ let copiedTimer;
 function showStatus(text) {
   liveStatus.textContent = text;
   liveToggle.title = text;
-
+  if (joiningLive && text !== 'Sending edit…') liveNotice.textContent = text === 'Live · Connected' ? '' : text;
   if (text === 'Live · Connected') clearTimeout(connectionTimer);
 }
 function ended() {
@@ -370,7 +379,8 @@ async function startLive(invite, host) {
   try {
     liveBoard = await connectLiveBoard(invite, host, {
       getProject: editor.getProject, setProject: editor.setProject, normalize: normalizeProject,
-      canAccept: () => !editor.isInteracting(), onStatus: showStatus, onEnd: ended
+      canAccept: () => !editor.isInteracting(), onStatus: showStatus, onEnd: ended,
+      onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence
     });
     liveToggle.dataset.active = '';
     liveToggleState.textContent = 'On';

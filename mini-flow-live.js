@@ -1,4 +1,4 @@
-const kinds = ['read', 'state', 'edit', 'end'];
+const kinds = ['read', 'state', 'edit', 'end', 'presence'];
 const invitePattern = /^#live=([a-f0-9]{32})\.([a-f0-9]{32})$/;
 const id = () => crypto.randomUUID().replaceAll('-', '');
 
@@ -7,12 +7,22 @@ export function readLiveInvite(hash) {
   return match && { room: match[1], password: match[2] };
 }
 
-export function createLiveSession({ room, host, getProject, setProject, normalize, canAccept, onStatus, onEnd }) {
+export function createLiveSession({ room, host, getProject, setProject, normalize, canAccept, onStatus, onEnd,
+  onAvailability = () => {}, onPresence = () => {} }) {
   let peer;
   let closed = false;
   let applying = false;
   let pending;
   let state = host ? { revision: 0, project: getProject() } : undefined;
+  let localDirty = false;
+  let deferredState;
+  let flushTimer;
+  let presenceTimer;
+  let presence;
+
+  function available() {
+    onAvailability(!closed && (host || Boolean(peer && state && !pending)));
+  }
 
   function send(kind, data, to = peer) {
     return Promise.resolve().then(() => room.send(kind, data, to));
@@ -46,6 +56,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     pending = undefined;
     clearTimeout(request.timer);
     if (state) install(state.project);
+    available();
     onStatus(result.ok ? 'Live · Connected' : result.message);
     request.resolve(result);
   }
@@ -60,11 +71,33 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
         if (peer) send('read', null).catch(() => {});
       }, 10000);
       pending = request;
+      available();
       onStatus('Sending edit…');
       send('edit', { id: request.id, revision: state.revision, project, message }).catch(() => {
         if (pending === request) finish(failure('live_send_failed', 'Could not send the edit.'));
       });
     });
+  }
+
+  function flushGuest() {
+    if (flushTimer || closed) return;
+    // Shape creation is followed by inline label editing. Publish the finished gesture as one change.
+    flushTimer = setTimeout(() => {
+      flushTimer = undefined;
+      if (!canAccept()) { flushGuest(); return; }
+      if (localDirty) {
+        localDirty = false;
+        const project = getProject();
+        if (peer && state && !pending && JSON.stringify(project) !== JSON.stringify(state.project)) {
+          submit(project, 'Collaborator updated the diagram.');
+        }
+      }
+      if (deferredState) {
+        const data = deferredState;
+        deferredState = undefined;
+        receiveState(data);
+      }
+    }, 32);
   }
 
   room.onPeerJoin((from) => {
@@ -83,6 +116,10 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     peer = undefined;
     finish(failure('live_disconnected', 'The other tab disconnected.'));
     if (!host) state = undefined;
+    deferredState = undefined;
+    localDirty = false;
+    available();
+    onPresence(null);
     onStatus(host ? 'Waiting for an editor…' : 'Waiting for the host to reconnect…');
   });
   room.onMessage('read', (_, from) => {
@@ -109,9 +146,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       publish({ id: data.id, ...failure('invalid_edit', 'The host rejected an invalid board.') });
     }
   });
-  room.onMessage('state', (data, from) => {
-    if (host || from !== peer || closed || !Number.isSafeInteger(data?.revision) || data.revision < 0) return;
-    if (!state || data.revision >= state.revision) {
+  function receiveState(data) {
+    if (!state || data.revision > state.revision) {
       try {
         const project = normalize(data.project);
         install(project, data.ok === false ? undefined : data.message);
@@ -123,6 +159,22 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     }
     if (pending && data.id === pending.id) finish(data.ok ? { ok: true } : failure(data.reason, data.message));
     else if (!pending) onStatus('Live · Connected');
+    available();
+  }
+  room.onMessage('state', (data, from) => {
+    if (host || from !== peer || closed || !Number.isSafeInteger(data?.revision) || data.revision < 0) return;
+    if (!pending && (localDirty || !canAccept())) {
+      if (!deferredState || data.revision >= deferredState.revision) deferredState = data;
+      flushGuest();
+      return;
+    }
+    receiveState(data);
+  });
+  room.onMessage('presence', (data, from) => {
+    if (from !== peer || closed || !data || typeof data !== 'object') return;
+    const point = Array.isArray(data.point) && data.point.length === 2 && data.point.every(Number.isFinite) ? data.point : null;
+    const focus = typeof data.focus === 'string' && data.focus.length <= 128 ? data.focus : null;
+    onPresence({ point, focus, label: host ? 'Collaborator' : 'Host' });
   });
   room.onMessage('end', (_, from) => {
     if (!host && from === peer && !closed) stop(false);
@@ -131,18 +183,38 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   function stop(notify = true) {
     if (closed) return;
     closed = true;
+    clearTimeout(flushTimer);
+    clearTimeout(presenceTimer);
     const departure = host && peer && notify ? send('end', null).catch(() => {}) : Promise.resolve();
     departure.finally(() => room.leave());
     finish(failure('live_disconnected', 'The live session ended.'));
+    available();
+    onPresence(null);
     onEnd();
   }
 
   onStatus(host ? 'Waiting for an editor…' : 'Waiting for the host…');
+  available();
   return {
     host,
-    ready: () => !closed && (host || Boolean(peer && state && !pending)),
+    ready: () => !closed && (host || Boolean(peer && state && !pending && !localDirty && canAccept())),
     changed() {
-      if (host && !closed && !applying && refresh()) publish();
+      if (closed || applying) return;
+      if (host) {
+        if (refresh()) publish();
+      } else if (peer && state && !pending) {
+        localDirty = true;
+        flushGuest();
+      }
+    },
+    updatePresence(next) {
+      if (!peer || closed) return;
+      presence = next;
+      if (presenceTimer) return;
+      presenceTimer = setTimeout(() => {
+        presenceTimer = undefined;
+        if (peer) send('presence', presence).catch(() => {});
+      }, 40);
     },
     submit,
     stop

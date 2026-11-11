@@ -90,7 +90,7 @@ SOFTWARE.
     ), ...metadata].join('\n');
   }
 
-  function mount(host, source = 'flowchart TD', positions = {}, { onChange, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic', settingsKey, snapToGrid = false, dagre } = {}) {
+  function mount(host, source = 'flowchart TD', positions = {}, { onChange, onPresence, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic', settingsKey, snapToGrid = false, dagre } = {}) {
     const enabled = name => features[name] !== false;
     const palette = { canvas: '#f7faff', grid: '#c5d4e4', text: '#203044', surface: '#fff',
       stroke: '#536982', accent: '#3965be', terminal: '#dcf4e9', step: '#e4edff', decision: '#fff0c7', ...colors };
@@ -157,6 +157,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .panel {position:absolute;inset:auto 12px 50px auto;width:min(350px,calc(100% - 24px));max-height:65%;overflow:auto;background:var(--mf-surface);border:1px solid #d9e2ec;border-radius:14px;box-shadow:0 4px 24px #20304424;z-index:1}
         .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);min-width:48px;min-height:1.2em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.2;color:var(--mf-text);outline:none;background:transparent}
         .status:empty {display:none}
+        .peer-cursor, .peer-focus {position:absolute;pointer-events:none;z-index:2}
+        .peer-cursor {padding:3px 7px;margin:12px 0 0 12px;border-radius:6px;background:#185d78;color:#fff;font-size:12px;white-space:nowrap}
+        .peer-cursor::before {content:'';position:absolute;left:-10px;top:-10px;width:14px;height:18px;background:inherit;clip-path:polygon(0 0,100% 60%,53% 64%,35% 100%)}
+        .peer-focus {border:2px dashed #185d78;border-radius:8px;box-sizing:border-box}
         .status {position:absolute;inset:auto 12px 8px;pointer-events:none;border-radius:10px;margin:0;padding:8px 12px;background:var(--mf-surface);border-top:1px solid #d9e2ec;min-height:38px}
         .panel > .repo-link {display:block;margin:0 14px;padding:12px 0;color:var(--mf-stroke);
           font-size:12px;text-decoration:none;border-top:1px solid #e7e2dc;width:fit-content}
@@ -274,6 +278,43 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       </section>`;
     const get = selector => shadow.querySelector(selector);
     const svg = get('.scroll > svg'), area = get('.panel textarea'), viewport = get('.scroll');
+    const peerCursor = document.createElement('span'), peerFocus = document.createElement('span');
+    peerCursor.className = 'peer-cursor';
+    peerFocus.className = 'peer-focus';
+    peerCursor.hidden = peerFocus.hidden = true;
+    peerCursor.setAttribute('aria-hidden', 'true');
+    peerFocus.setAttribute('aria-hidden', 'true');
+    viewport.append(peerFocus, peerCursor);
+    let peerPresence, pointerPosition = null;
+    function publishPresence() {
+      onPresence?.({ point: pointerPosition, focus: selected?.type ? selected.id : null });
+    }
+    function renderPresence() {
+      const point = peerPresence?.point;
+      peerCursor.hidden = !point;
+      if (point) {
+        peerCursor.style.left = (point[0] - cameraX) * zoom + 'px';
+        peerCursor.style.top = (point[1] - cameraY) * zoom + 'px';
+        peerCursor.textContent = peerPresence.label;
+      }
+      const node = peerPresence?.focus && graph.nodes.find(item => item.id === peerPresence.focus);
+      peerFocus.hidden = !node;
+      if (node) {
+        const w = radius(node), h = height(node);
+        peerFocus.style.left = (node.x - w - cameraX) * zoom - 5 + 'px';
+        peerFocus.style.top = (node.y - h - cameraY) * zoom - 5 + 'px';
+        peerFocus.style.width = 2 * w * zoom + 10 + 'px';
+        peerFocus.style.height = 2 * h * zoom + 10 + 'px';
+      }
+    }
+    function setPeerPresence(presence) {
+      peerPresence = presence;
+      renderPresence();
+    }
+    if (onPresence) {
+      svg.addEventListener('pointermove', event => { pointerPosition = world(event); publishPresence(); });
+      svg.addEventListener('pointerleave', () => { pointerPosition = null; publishPresence(); });
+    }
     const panel = get('.panel'), layoutButton = get('[data-layout]');
     layoutButton.hidden = !dagre || !enabled('autoLayout');
     layoutButton.disabled = !graph.nodes.length;
@@ -299,6 +340,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       viewport.style.backgroundPosition = (-cameraX * zoom) + 'px ' + (-cameraY * zoom) + 'px';
       positionEditor();
       positionBendControls();
+      renderPresence();
     }
     function fit() {
       const box = svg.getBBox();
@@ -701,6 +743,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     function select(item) {
       selected = item;
       remove.disabled = !item;
+      publishPresence();
     }
     function render(focus) {
       svg.replaceChildren();
@@ -848,6 +891,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         if (focus === node) group.focus();
       }
       positionBendControls();
+      renderPresence();
     }
     let lastClick;
     function selectLabel(item) {
@@ -1392,7 +1436,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     status('Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
     render();
     fit();
-    return { getMermaid: sourceText, setMermaid, getProject, setProject, isInteracting: () => Boolean(drag || bendDrag || reconnect || editing), undo, redo, fit, autoLayout, exportSvg, exportPng, exportMarkdown, destroy: () => { clearTimeout(updateTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
+    return { getMermaid: sourceText, setMermaid, getProject, setProject, setPeerPresence, isInteracting: () => Boolean(drag || bendDrag || reconnect || editing), undo, redo, fit, autoLayout, exportSvg, exportPng, exportMarkdown, destroy: () => { clearTimeout(updateTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
   }
 
   globalThis.MiniFlow = { mount, parse, stringify };

@@ -9,12 +9,14 @@ test('a live board syncs both ways, rejects stale edits, and closes', async () =
   const network = createTestNetwork();
   const makeProject = label => ({ version: 1, source: `flowchart TD\n    A["${label}"]`, positions: { A: [0, 0] } });
   let hostEditing = false;
+  let guestEditing = false;
   function connect(host) {
     let project = makeProject(host ? 'Host board' : 'Waiting');
     let commits = 0;
     let ended = false;
+    let presence;
     const room = joinRoom({ app: 'mini-flow-live-test', room: 'room', password: 'private', network,
-      maxPeers: 1, kinds: ['read', 'state', 'edit', 'end'] });
+      maxPeers: 1, kinds: ['read', 'state', 'edit', 'end', 'presence'] });
     const getProject = () => structuredClone(project);
     const setProject = next => {
       project = structuredClone(next);
@@ -24,8 +26,9 @@ test('a live board syncs both ways, rejects stale edits, and closes', async () =
     const session = createLiveSession({ room, host, getProject, setProject, normalize: next => {
       if (next.version !== 1) throw new Error('Invalid project');
       return structuredClone(next);
-    }, canAccept: () => !hostEditing, onStatus() {}, onEnd() { ended = true; } });
-    return { session, getProject, setProject, commits: () => commits, ended: () => ended };
+    }, canAccept: () => host ? !hostEditing : !guestEditing, onStatus() {}, onEnd() { ended = true; },
+    onPresence(value) { presence = value; } });
+    return { session, getProject, setProject, commits: () => commits, ended: () => ended, presence: () => presence };
   }
 
   const host = connect(true);
@@ -48,6 +51,30 @@ test('a live board syncs both ways, rejects stale edits, and closes', async () =
     assert.deepEqual(host.getProject(), guest.getProject());
     assert.equal(host.commits(), 1);
 
+    guest.setProject(makeProject('Human guest edit'));
+    await new Promise(resolve => setTimeout(resolve, 40));
+    await network.settle();
+    assert.deepEqual(host.getProject(), makeProject('Human guest edit'));
+    assert.equal(host.commits(), 2);
+
+    guestEditing = true;
+    guest.setProject(makeProject('Unfinished guest edit'));
+    host.setProject(makeProject('Newer host edit'));
+    await network.settle();
+    assert.deepEqual(guest.getProject(), makeProject('Unfinished guest edit'));
+    guestEditing = false;
+    await new Promise(resolve => setTimeout(resolve, 40));
+    await network.settle();
+    assert.deepEqual(host.getProject(), makeProject('Newer host edit'));
+    assert.deepEqual(guest.getProject(), host.getProject());
+
+    host.session.updatePresence({ point: [25, -10], focus: 'A' });
+    guest.session.updatePresence({ point: [12, 34], focus: 'A' });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    await network.settle();
+    assert.deepEqual(guest.presence(), { point: [25, -10], focus: 'A', label: 'Host' });
+    assert.deepEqual(host.presence(), { point: [12, 34], focus: 'A', label: 'Collaborator' });
+
     const stale = guest.session.submit(makeProject('Stale edit'), 'Stale');
     host.setProject(makeProject('Host edit'));
     assert.equal((await stale).reason, 'revision_conflict');
@@ -64,6 +91,7 @@ test('a live board syncs both ways, rejects stale edits, and closes', async () =
     host.session.stop();
     await network.settle();
     assert.equal(guest.ended(), true);
+    assert.equal(guest.presence(), null);
     assert.equal((await getBoard()).reason, 'live_not_ready');
   } finally {
     host.session.stop();
