@@ -1,3 +1,27 @@
+/* Tabler Icons license
+MIT License
+
+Copyright (c) 2020-2026 Paweł Kuna
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
 /* Mini Flow — a dependency-free SVG editor for a small Mermaid subset. */
 (function () {
   const shapes = {
@@ -114,7 +138,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         button:disabled {opacity:.45;cursor:default}
         .frame {border:1px solid #bdcbd9;border-radius:12px;overflow:hidden}
         .scroll {position:absolute;inset:0;overflow:hidden;background:var(--mf-canvas) radial-gradient(var(--mf-grid) 1px,transparent 1px) 0 0/16px 16px}
-        svg {display:block;width:100%;height:100%;cursor:grab;touch-action:none;user-select:none}
+        .scroll > svg {display:block;width:100%;height:100%;cursor:grab;touch-action:none;user-select:none}
         g[role=button] {cursor:pointer}
         g:focus-visible {outline:2px solid var(--mf-accent)}
         text {fill:var(--mf-text);pointer-events:none}
@@ -135,13 +159,27 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .dock-layout .toolbar {inset:auto 8px var(--dock-bottom);max-width:calc(100% - 16px);
           justify-content:center;gap:6px;padding:8px;border:1px solid #ded9d2;border-radius:18px;
           box-shadow:0 3px 14px #332c2212}
-        .dock-layout .toolbar button {min-height:44px;padding:8px 11px;border-color:#e7e2dc;border-radius:10px;font-weight:550}
+        .toolbar button, .connection-actions button, .header-actions button {display:inline-flex;align-items:center;gap:7px}
+        .toolbar svg, .connection-actions svg, .header-actions svg {width:18px;height:18px;flex:none}
+        .dock-layout .toolbar {gap:8px;padding:10px;background:#fcfaf7;box-shadow:0 4px 12px #332c221c}
+        .dock-layout .toolbar button {min-height:44px;padding:8px 12px;border-color:#e7e2dc;border-radius:10px;font-weight:550}
+        .dock-layout .toolbar button svg {width:22px;height:22px;stroke-width:1.65}
+        .dock-layout .toolbar [data-delete]:disabled {display:none}
+        .dock-layout .scroll > svg text {font-weight:650}
+        .dock-layout .scroll > svg text[data-edge-label] {font-weight:550}
         .dock-layout .toolbar button:hover:not(:disabled) {background:#f5f1eb}
         .dock-layout .toolbar button[aria-pressed=true] {background:#dcf3ed;border-color:var(--mf-accent)}
         .dock-layout button:focus-visible {outline:2px solid var(--mf-accent);outline-offset:2px}
         .dock-layout kbd {background:#fff;color:#5e6562;border-color:#ded9d2}
         .dock-layout .toolbar label {display:flex;align-items:center;gap:7px;padding:0 9px;min-height:44px;
           border-inline-start:1px solid #e7e2dc;white-space:nowrap;font-size:13px}
+        .dock-layout .toolbar label input {order:1;appearance:none;position:relative;width:34px;height:20px;
+          border-radius:20px;padding:0;background:#d9d6d1;border:1px solid #aaa59e;cursor:pointer}
+        .dock-layout .toolbar label input:checked {background:var(--mf-accent);border-color:var(--mf-accent)}
+        .dock-layout .toolbar label input::after {content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;
+          background:white;border-radius:50%}
+        .dock-layout .toolbar label input:checked::after {left:16px}
+        .dock-layout .toolbar label input:focus-visible {outline:2px solid var(--mf-accent);outline-offset:2px}
         .dock-layout .toolbar input {accent-color:var(--mf-accent);width:17px;height:17px;margin:0}
         .dock-layout .scroll {bottom:calc(var(--dock-height) + var(--dock-bottom) + 8px)}
         .dock-layout .status {inset:8px auto auto 12px;min-height:0;max-width:calc(100% - 24px);
@@ -155,7 +193,9 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         }
         @media (max-width: 550px) {
           .dock-layout .toolbar {gap:4px;padding:5px}
-          .dock-layout .toolbar button {padding:6px 8px}
+          .dock-layout .toolbar button {padding:6px 8px;gap:4px}
+          .dock-layout .toolbar button svg {width:16px;height:16px}
+          .dock-layout .toolbar kbd {display:none}
           .dock-layout .status {font-size:11px}
         }
         .panel-actions {display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
@@ -165,22 +205,22 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       </style>
       <section class="frame" aria-label="Flowchart editor">
         <div class="toolbar">
-          <button aria-keyshortcuts="1" title="Shortcut: 1" data-shape="terminal">Start / End <kbd aria-hidden="true">1</kbd></button>
-          <button aria-keyshortcuts="2" title="Shortcut: 2" data-shape="step">Step <kbd aria-hidden="true">2</kbd></button>
-          <button aria-keyshortcuts="3" title="Shortcut: 3" data-shape="decision">Decision <kbd aria-hidden="true">3</kbd></button>
-          <button aria-keyshortcuts="4" title="Shortcut: 4" data-link aria-pressed="false">Connect <kbd aria-hidden="true">4</kbd></button>
-          <button aria-keyshortcuts="5" title="Shortcut: 5" data-shape="note">Note <kbd aria-hidden="true">5</kbd></button>
-          <label><input type="checkbox" data-snap> Snap to grid</label>
-          <button aria-keyshortcuts="Backspace" title="Shortcut: Backspace" data-delete disabled>Delete <kbd aria-hidden="true">⌫</kbd></button>
+          <button aria-keyshortcuts="1" title="Shortcut: 1" data-shape="terminal"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M6 9a6 6 0 0 1 6 -6a6 6 0 0 1 6 6v6a6 6 0 0 1 -6 6a6 6 0 0 1 -6 -6l0 -6" /></svg><span>Start / End</span> <kbd aria-hidden="true">1</kbd></button>
+          <button aria-keyshortcuts="2" title="Shortcut: 2" data-shape="step"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M3 7a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-10" /></svg><span>Step</span> <kbd aria-hidden="true">2</kbd></button>
+          <button aria-keyshortcuts="3" title="Shortcut: 3" data-shape="decision"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M6 5h12l3 5l-8.5 9.5a.7 .7 0 0 1 -1 0l-8.5 -9.5l3 -5" /><path d="M10 12l-2 -2.2l.6 -1" /></svg><span>Decision</span> <kbd aria-hidden="true">3</kbd></button>
+          <button aria-keyshortcuts="4" title="Shortcut: 4" data-link aria-pressed="false"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M5 12l14 0" /><path d="M13 18l6 -6" /><path d="M13 6l6 6" /></svg><span>Connect</span> <kbd aria-hidden="true">4</kbd></button>
+          <button aria-keyshortcuts="5" title="Shortcut: 5" data-shape="note"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M13 20l7 -7" /><path d="M13 20v-6a1 1 0 0 1 1 -1h6v-7a2 2 0 0 0 -2 -2h-12a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7" /></svg><span>Note</span> <kbd aria-hidden="true">5</kbd></button>
+          <label><input type="checkbox" data-snap> <svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M4 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M18 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M4 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M18 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M4 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M18 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /></svg><span>Snap to grid</span></label>
+          <button aria-keyshortcuts="Backspace" title="Shortcut: Backspace" data-delete disabled><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" /><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" /></svg><span>Delete</span> <kbd aria-hidden="true">⌫</kbd></button>
         </div>
         <div class="header-actions">
-          <button data-undo disabled><span aria-hidden="true">←</span> Undo</button><button data-redo disabled>Redo <span aria-hidden="true">→</span></button>
-          <button data-panel aria-expanded="false">Code &amp; export</button><button data-fit>Fit</button>
+          <button data-undo disabled><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M9 14l-4 -4l4 -4" /><path d="M5 10h11a4 4 0 1 1 0 8h-1" /></svg><span>Undo</span></button><button data-redo disabled><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M15 14l4 -4l-4 -4" /><path d="M19 10h-11a4 4 0 1 0 0 8h1" /></svg><span>Redo</span></button>
+          <button data-panel aria-expanded="false"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M7 8l-4 4l4 4" /><path d="M17 8l4 4l-4 4" /><path d="M14 4l-4 16" /></svg><span>Code &amp; export</span></button><button data-fit><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M4 8v-2a2 2 0 0 1 2 -2h2" /><path d="M4 16v2a2 2 0 0 0 2 2h2" /><path d="M16 4h2a2 2 0 0 1 2 2v2" /><path d="M16 20h2a2 2 0 0 0 2 -2v-2" /></svg><span>Fit</span></button>
           <button data-send hidden>Send to chat</button>
         </div>
         <div class="scroll"><svg aria-label="Flowchart canvas"></svg>
           <div class="connection-actions" role="group" aria-label="Connection actions" hidden>
-            <button data-bend>Add bend</button><button data-straight hidden>Reset bend</button>
+            <button data-bend><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M6 6v6a3 3 0 0 0 3 3h10l-4 -4m0 8l4 -4" /></svg><span>Add bend</span></button><button data-straight hidden>Reset bend</button>
           </div>
           <button class="bend-handle" aria-label="Move connection bend" title="Drag or use arrow keys" hidden></button>
         </div>
@@ -206,7 +246,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         </details></aside>
       </section>`;
     const get = selector => shadow.querySelector(selector);
-    const svg = get('svg'), area = get('.panel textarea'), viewport = get('.scroll');
+    const svg = get('.scroll > svg'), area = get('.panel textarea'), viewport = get('.scroll');
     const panel = get('.panel');
     get('[data-panel]').onclick = event => {
       panel.hidden = !panel.hidden;
@@ -522,7 +562,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         group.append(element('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': 22 }),
           element('path', { d, fill: 'none', stroke: active ? palette.accent : palette.stroke, 'stroke-width': 2,
             'marker-end': active ? 'url(#active)' : 'url(#arrow)' }),
-          labelText({ x, y, 'text-anchor': 'middle', 'font-size': 13, visibility: editing?.item === edge ? 'hidden' : 'visible', stroke: palette.canvas, 'stroke-width': 5, 'paint-order': 'stroke' }, edge.label));
+          labelText({ x, y, 'text-anchor': 'middle', 'font-size': 13, 'data-edge-label': '', visibility: editing?.item === edge ? 'hidden' : 'visible', stroke: dockLayout ? '#eee9e3' : palette.canvas, 'stroke-width': dockLayout ? 8 : 5, 'stroke-linejoin': 'round', 'paint-order': 'stroke' }, edge.label));
         svg.append(group);
         if (focus === edge) group.focus();
       }
@@ -945,6 +985,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       copy.setAttribute('viewBox', [box.x - 24, box.y - 24, width, height].join(' '));
       copy.setAttribute('font-family', 'system-ui, sans-serif');
       copy.setAttribute('font-size', '15');
+      if (dockLayout) copy.setAttribute('font-weight', '650');
       copy.setAttribute('fill', palette.text);
       for (const label of copy.querySelectorAll('text')) label.removeAttribute('visibility');
       for (const group of copy.querySelectorAll('[role="button"]')) {
