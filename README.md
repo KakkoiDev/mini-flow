@@ -4,7 +4,7 @@ Open index.html in a browser. The demo and library work offline.
 To serve locally, run `python3 -m http.server 8765 --bind 127.0.0.1` in this directory and open http://127.0.0.1:8765/.
 
 - Scroll to zoom and drag empty canvas to pan. Use Fit to bring the diagram back into view.
-- Select a shape or arrow, then use Edit or double-click it. Enter saves and Shift+Enter adds a line break.
+- Double-click a shape or arrow to edit its label. Enter saves and Shift+Enter adds a line break.
 - Use Code & export to download or open a project JSON with editable labels and positions.
 - Scroll or pinch to zoom. Undo and Redo are available in the toolbar.
 - The demo saves each edit in browser storage and in the URL fragment. Copy link shares the current diagram and shape positions.
@@ -106,8 +106,9 @@ no pointer or keyboard simulation.
 Choose **Note**, click the canvas, and type. To attach a note, choose **Connect**,
 click the note, then click a block or arrow. Connecting again moves the attachment.
 Deleting the target leaves the note on the canvas. To route an arrow manually,
-select it, choose **Bend**, then click the canvas. **Reset bend** restores its
-normal path. Project files and share links retain notes, attachments, and bends
+select it and choose **Add bend** beside the arrow, then click or tap the canvas.
+Drag the handle to move the bend, or focus it and use the arrow keys. **Reset bend**
+restores the default path. Project files and share links retain notes, attachments, and bends
 in a Mini Flow Mermaid comment. Other Mermaid renderers ignore that comment.
 
 Embeds can pass a `header` element to receive the editor action buttons, and
