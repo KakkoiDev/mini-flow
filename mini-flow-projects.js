@@ -52,14 +52,15 @@ function writeProject(name, project, active) {
   });
 }
 
-export function setupSavedProjects({ dialog, trigger, editor, normalize, getActive, setActive }) {
-  const form = dialog.querySelector('#saved-project-form');
+export function setupSavedProjects({ panel, editor, normalize, getActive, setActive }) {
+  const form = panel.querySelector('#saved-project-form');
   const nameField = form.elements.name;
-  const saveButton = dialog.querySelector('#save-project');
-  const list = dialog.querySelector('#saved-project-list');
-  const message = dialog.querySelector('#saved-project-status');
+  const saveButton = panel.querySelector('#save-project');
+  const list = panel.querySelector('#saved-project-list');
+  const message = panel.querySelector('#saved-project-status');
   const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   let busy = false;
+  let refreshRevision = 0;
 
   function updateSaveButton() {
     const name = nameField.value.trim();
@@ -68,7 +69,14 @@ export function setupSavedProjects({ dialog, trigger, editor, normalize, getActi
   }
 
   async function refresh() {
-    const records = await readProjects();
+    const revision = ++refreshRevision;
+    let records;
+    try { records = await readProjects(); }
+    catch {
+      if (revision === refreshRevision) message.textContent = 'Could not read saved projects in this browser.';
+      return;
+    }
+    if (revision !== refreshRevision) return;
     list.replaceChildren();
     if (!records.length) {
       const empty = document.createElement('li');
@@ -81,6 +89,7 @@ export function setupSavedProjects({ dialog, trigger, editor, normalize, getActi
       const details = document.createElement('div');
       const name = document.createElement('strong');
       name.textContent = record.name;
+      name.dataset.projectName = record.name;
       const date = document.createElement('small');
       date.textContent = dateFormat.format(record.updatedAt);
       details.append(name, date);
@@ -93,7 +102,8 @@ export function setupSavedProjects({ dialog, trigger, editor, normalize, getActi
         try {
           editor.setProject(normalize(record.project), { message: 'Opened ' + record.name + '.' });
           setActive(record);
-          dialog.close();
+          message.textContent = '';
+          open.focus({ preventScroll: true });
         } catch (error) {
           message.textContent = 'Could not open project. ' + error.message;
         }
@@ -101,17 +111,22 @@ export function setupSavedProjects({ dialog, trigger, editor, normalize, getActi
       row.append(details, open);
       list.append(row);
     }
+    markCurrentProject();
   }
 
-  trigger.onclick = async () => {
+  function markCurrentProject() {
+    for (const name of list.querySelectorAll('[data-project-name]')) {
+      if (name.dataset.projectName === getActive()?.name) name.setAttribute('aria-current', 'true');
+      else name.removeAttribute('aria-current');
+    }
+  }
+
+  function syncActive() {
     nameField.value = getActive()?.name ?? '';
-    message.textContent = '';
-    list.replaceChildren();
+    markCurrentProject();
     updateSaveButton();
-    dialog.showModal();
-    try { await refresh(); }
-    catch { message.textContent = 'Could not read saved projects in this browser.'; }
-  };
+  }
+  syncActive();
   nameField.addEventListener('input', updateSaveButton);
   form.onsubmit = async event => {
     event.preventDefault();
@@ -121,8 +136,11 @@ export function setupSavedProjects({ dialog, trigger, editor, normalize, getActi
     nameField.readOnly = true;
     updateSaveButton();
     try {
-      const record = await writeProject(name, normalize(editor.getProject()), getActive());
-      setActive(record);
+      const active = getActive();
+      const project = normalize(editor.getProject());
+      const record = await writeProject(name, project, active);
+      if (getActive() === active && (active?.name === name ||
+          JSON.stringify(normalize(editor.getProject())) === JSON.stringify(project))) setActive(record);
       message.textContent = 'Project saved.';
       await refresh();
     } catch (error) {
@@ -133,4 +151,5 @@ export function setupSavedProjects({ dialog, trigger, editor, normalize, getActi
       updateSaveButton();
     }
   };
+  return { refresh, syncActive };
 }
