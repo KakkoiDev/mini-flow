@@ -1,4 +1,5 @@
 const kinds = ['read', 'state', 'edit', 'end', 'presence'];
+const maxGuests = 8;
 const invitePattern = /^#live=([a-f0-9]{32})\.([a-f0-9]{32})$/;
 const id = () => crypto.randomUUID().replaceAll('-', '');
 
@@ -9,7 +10,8 @@ export function readLiveInvite(hash) {
 
 export function createLiveSession({ room, host, getProject, setProject, normalize, canAccept, onStatus, onEnd,
   onAvailability = () => {}, onPresence = () => {} }) {
-  let peer;
+  let hostPeer;
+  const guests = new Map();
   let closed = false;
   let applying = false;
   let pending;
@@ -18,13 +20,14 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   let deferredState;
   let flushTimer;
   let presenceTimer;
-  let presence;
+  let presenceRevision = 0;
+  let presence = { point: null, focus: null };
 
   function available() {
-    onAvailability(!closed && (host || Boolean(peer && state && !pending)));
+    onAvailability(!closed && (host || Boolean(hostPeer && state && !pending)));
   }
 
-  function send(kind, data, to = peer) {
+  function send(kind, data, to = hostPeer) {
     return Promise.resolve().then(() => room.send(kind, data, to));
   }
 
@@ -45,8 +48,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     return true;
   }
 
-  function publish(extra = {}, to = peer) {
-    if (!to) return;
+  function publish(extra = {}, to = [...guests.keys()]) {
+    if (Array.isArray(to) && !to.length) return;
     send('state', { ...state, ...extra }, to).catch(() => onStatus('Could not send the board.'));
   }
 
@@ -62,13 +65,13 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   }
 
   function submit(project, message) {
-    if (!peer || !state || closed) return Promise.resolve(failure('live_not_ready', 'The host is not connected.'));
+    if (!hostPeer || !state || closed) return Promise.resolve(failure('live_not_ready', 'The host is not connected.'));
     if (pending) return Promise.resolve(failure('edit_pending', 'Wait for the current edit to finish.'));
     return new Promise(resolve => {
       const request = { id: id(), resolve };
       request.timer = setTimeout(() => {
         finish(failure('live_timeout', 'The host did not acknowledge the edit. Check the board before retrying.'));
-        if (peer) send('read', null).catch(() => {});
+        if (hostPeer) send('read', null).catch(() => {});
       }, 10000);
       pending = request;
       available();
@@ -88,7 +91,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       if (localDirty) {
         localDirty = false;
         const project = getProject();
-        if (peer && state && !pending && JSON.stringify(project) !== JSON.stringify(state.project)) {
+        if (hostPeer && state && !pending && JSON.stringify(project) !== JSON.stringify(state.project)) {
           submit(project, 'Collaborator updated the diagram.');
         }
       }
@@ -100,50 +103,98 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     }, 32);
   }
 
-  room.onPeerJoin((from) => {
-    if (closed || peer) return;
-    peer = from;
+  function reportGuestCount() {
+    const count = guests.size;
+    onStatus(count ? `Live · ${count} ${count === 1 ? 'guest' : 'guests'} connected` : 'Waiting for guests…');
+  }
+
+  function presenceSnapshot() {
+    return [{ id: room.selfId, label: 'Host', ...presence },
+      ...Array.from(guests, ([id, guest]) => ({ id, label: guest.label, ...guest.presence }))];
+  }
+
+  function publishPresence() {
+    if (!host || !guests.size) return;
+    const snapshot = presenceSnapshot();
+    onPresence(snapshot.filter(item => item.id !== room.selfId));
+    send('presence', { revision: ++presenceRevision, peers: snapshot }, [...guests.keys()]).catch(() => {});
+  }
+
+  function schedulePresence() {
+    if (presenceTimer || closed) return;
+    presenceTimer = setTimeout(() => {
+      presenceTimer = undefined;
+      if (host) publishPresence();
+      else if (hostPeer) send('presence', presence).catch(() => {});
+    }, 50);
+  }
+
+  room.onPeerJoin(from => {
+    if (closed) return;
     if (host) {
-      publish();
-      onStatus('Live · Connected');
+      if (guests.has(from) || guests.size >= maxGuests) return;
+      const numbers = new Set(Array.from(guests.values(), guest => guest.number));
+      const number = Array.from({ length: maxGuests }, (_, i) => i + 1).find(i => !numbers.has(i));
+      guests.set(from, { number, label: `Guest ${number}`, presence: { point: null, focus: null } });
+      publish({}, from);
+      reportGuestCount();
+      schedulePresence();
     } else {
+      if (hostPeer) return;
+      hostPeer = from;
       onStatus('Receiving the board…');
       send('read', null).catch(() => onStatus('Could not request the board.'));
     }
   });
   room.onPeerLeave(from => {
-    if (from !== peer) return;
-    peer = undefined;
+    if (closed) return;
+    if (host) {
+      if (!guests.delete(from)) return;
+      reportGuestCount();
+      if (guests.size) publishPresence();
+      else onPresence([]);
+      return;
+    }
+    if (from !== hostPeer) return;
+    hostPeer = undefined;
     finish(failure('live_disconnected', 'The other tab disconnected.'));
-    if (!host) state = undefined;
+    state = undefined;
+    presenceRevision = 0;
     deferredState = undefined;
     localDirty = false;
     available();
-    onPresence(null);
-    onStatus(host ? 'Waiting for an editor…' : 'Waiting for the host to reconnect…');
+    onPresence([]);
+    onStatus('Waiting for the host to reconnect…');
+  });
+  room.onRefused?.((_, reason) => {
+    if (host || hostPeer || closed) return;
+    if (reason === 'they-refused:version' || reason === 'version') {
+      onStatus('Reload Mini Flow in both browsers to join this session.');
+    }
   });
   room.onMessage('read', (_, from) => {
-    if (!host || from !== peer || closed) return;
-    publish();
+    if (!host || !guests.has(from) || closed) return;
+    publish({}, from);
   });
   room.onMessage('edit', (data, from) => {
-    if (!host || from !== peer || closed || typeof data?.id !== 'string') return;
+    if (!host || !guests.has(from) || closed || typeof data?.id !== 'string') return;
     if (data.revision !== state.revision) {
-      publish({ id: data.id, ...failure('revision_conflict', 'The host changed the board. Read it again before retrying.') });
+      publish({ id: data.id, ...failure('revision_conflict', 'The board changed. Review the latest version before retrying.') }, from);
       return;
     }
     if (!canAccept()) {
-      publish({ id: data.id, ...failure('host_editing', 'The host is editing. Read the board again before retrying.') });
+      publish({ id: data.id, ...failure('host_editing', 'The host is editing. Read the board again before retrying.') }, from);
       return;
     }
     const message = typeof data.message === 'string' && data.message.trim()
       ? data.message.trim().slice(0, 200) : 'Live edit applied.';
     try {
       install(normalize(data.project), message);
-      refresh();
-      publish({ id: data.id, ok: true, message });
+      const changed = refresh();
+      publish({ id: data.id, ok: true, message }, from);
+      if (changed) publish({ message }, [...guests.keys()].filter(id => id !== from));
     } catch {
-      publish({ id: data.id, ...failure('invalid_edit', 'The host rejected an invalid board.') });
+      publish({ id: data.id, ...failure('invalid_edit', 'The host rejected an invalid board.') }, from);
     }
   });
   function receiveState(data) {
@@ -162,7 +213,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     available();
   }
   room.onMessage('state', (data, from) => {
-    if (host || from !== peer || closed || !Number.isSafeInteger(data?.revision) || data.revision < 0) return;
+    if (host || from !== hostPeer || closed || !Number.isSafeInteger(data?.revision) || data.revision < 0) return;
     if (!pending && (localDirty || !canAccept())) {
       if (!deferredState || data.revision >= deferredState.revision) deferredState = data;
       flushGuest();
@@ -171,13 +222,23 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     receiveState(data);
   });
   room.onMessage('presence', (data, from) => {
-    if (from !== peer || closed || !data || typeof data !== 'object') return;
-    const point = Array.isArray(data.point) && data.point.length === 2 && data.point.every(Number.isFinite) ? data.point : null;
-    const focus = typeof data.focus === 'string' && data.focus.length <= 128 ? data.focus : null;
-    onPresence({ point, focus, label: host ? 'Collaborator' : 'Host' });
+    if (closed) return;
+    if (host) {
+      const guest = guests.get(from);
+      if (!guest) return;
+      guest.presence = readPresence(data);
+      schedulePresence();
+    } else if (from === hostPeer && Array.isArray(data?.peers) &&
+      Number.isSafeInteger(data.revision) && data.revision > presenceRevision) {
+      presenceRevision = data.revision;
+      onPresence(data.peers.slice(0, maxGuests + 1).filter(item => typeof item?.id === 'string' &&
+        item.id !== room.selfId && typeof item.label === 'string').map(item => ({
+        id: item.id, label: item.label.slice(0, 32), ...readPresence(item)
+      })));
+    }
   });
   room.onMessage('end', (_, from) => {
-    if (!host && from === peer && !closed) stop(false);
+    if (!host && from === hostPeer && !closed) stop(false);
   });
 
   function stop(notify = true) {
@@ -185,40 +246,42 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     closed = true;
     clearTimeout(flushTimer);
     clearTimeout(presenceTimer);
-    const departure = host && peer && notify ? send('end', null).catch(() => {}) : Promise.resolve();
+    const departure = host && guests.size && notify ? send('end', null, [...guests.keys()]).catch(() => {}) : Promise.resolve();
     departure.finally(() => room.leave());
     finish(failure('live_disconnected', 'The live session ended.'));
     available();
-    onPresence(null);
+    onPresence([]);
     onEnd();
   }
 
-  onStatus(host ? 'Waiting for an editor…' : 'Waiting for the host…');
+  onStatus(host ? 'Waiting for guests…' : 'Waiting for the host…');
   available();
   return {
     host,
-    ready: () => !closed && (host || Boolean(peer && state && !pending && !localDirty && canAccept())),
+    ready: () => !closed && (host || Boolean(hostPeer && state && !pending && !localDirty && canAccept())),
     changed() {
       if (closed || applying) return;
       if (host) {
         if (refresh()) publish();
-      } else if (peer && state && !pending) {
+      } else if (hostPeer && state && !pending) {
         localDirty = true;
         flushGuest();
       }
     },
     updatePresence(next) {
-      if (!peer || closed) return;
-      presence = next;
-      if (presenceTimer) return;
-      presenceTimer = setTimeout(() => {
-        presenceTimer = undefined;
-        if (peer) send('presence', presence).catch(() => {});
-      }, 40);
+      if (closed) return;
+      presence = readPresence(next);
+      schedulePresence();
     },
     submit,
     stop
   };
+}
+
+function readPresence(data) {
+  const point = Array.isArray(data?.point) && data.point.length === 2 && data.point.every(Number.isFinite) ? data.point : null;
+  const focus = typeof data?.focus === 'string' && data.focus.length <= 128 ? data.focus : null;
+  return { point, focus };
 }
 
 function failure(reason, message) {
@@ -228,8 +291,8 @@ function failure(reason, message) {
 export async function connectLiveBoard(invite, host, handlers) {
   const { joinRoom } = await import('./vendor/p2p-core/p2p-core.js');
   const role = host ? 'host' : 'editor';
-  const room = joinRoom({ app: 'mini-flow-live', ...invite, mode: 'online', protocol: 1, maxPeers: 1,
-    maxMessageBytes: 256 * 1024, kinds, profile: { role },
+  const room = joinRoom({ app: 'mini-flow-live', ...invite, mode: 'online', protocol: 2, maxPeers: host ? maxGuests : 1,
+    maxMessageBytes: 256 * 1024, rateLimit: 60, kinds, profile: { role },
     acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host') });
   return createLiveSession({ ...handlers, room, host });
 }

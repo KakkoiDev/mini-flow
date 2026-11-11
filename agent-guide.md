@@ -105,20 +105,12 @@ editing link, so keep it within the session.
 
 ## WebMCP site tools
 
-In ChatGPT Desktop, open the desired board in the built-in browser, select
-its tab, and ask ChatGPT to use its Site tools. You can attach the tab when
-the composer offers a tab picker, or use **Copy link** in that tab and paste
-the link into your request.
+Use a live invite to join the user's existing board from a separate browser.
+For direct tab control, attach the exact tab through the browser picker.
+A regular board link opens a snapshot.
 
-For links with `?tab=…`, match the link's origin, pathname, and `tab` value
-against tabs already open in the user's connected browser. The diagram
-fragment may change as the user edits. If there's no match and the user
-asked to edit their open tab, ask for a fresh link or a tab attachment.
-Opening or reloading the link creates a fresh tab ID and loads the shared
-diagram. The ID is a locator for the browser's open tabs.
-
-- `get_board` returns `{ tabId, revision, project }` for the board in that tab.
-  Confirm `tabId` matches the current link before applying edits.
+- `get_board` returns `{ tabId, revision, project }` for the current browser
+  instance. Use its revision for the edit on that same instance.
 - `apply_board_edit` validates and applies a batch as one undoable update.
 
 ```json
@@ -140,3 +132,4 @@ has changed or the revision belongs to another tab, the tool returns
 
 The static module `mini-flow-webmcp.js` registers tools on the page that owns
 the editor. Browsers without WebMCP can use Apply edit links.
+

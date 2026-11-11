@@ -158,9 +158,9 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);min-width:48px;min-height:1.2em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.2;color:var(--mf-text);outline:none;background:transparent}
         .status:empty {display:none}
         .peer-cursor, .peer-focus {position:absolute;pointer-events:none;z-index:2}
-        .peer-cursor {padding:3px 7px;margin:12px 0 0 12px;border-radius:6px;background:#185d78;color:#fff;font-size:12px;white-space:nowrap}
+        .peer-cursor {padding:3px 7px;margin:12px 0 0 12px;border-radius:6px;background:var(--peer-color,#185d78);color:#fff;font-size:12px;white-space:nowrap}
         .peer-cursor::before {content:'';position:absolute;left:-10px;top:-10px;width:14px;height:18px;background:inherit;clip-path:polygon(0 0,100% 60%,53% 64%,35% 100%)}
-        .peer-focus {border:2px dashed #185d78;border-radius:8px;box-sizing:border-box}
+        .peer-focus {border:2px dashed var(--peer-color,#185d78);border-radius:8px;box-sizing:border-box}
         .status {position:absolute;inset:auto 12px 8px;pointer-events:none;border-radius:10px;margin:0;padding:8px 12px;background:var(--mf-surface);border-top:1px solid #d9e2ec;min-height:38px}
         .panel > .repo-link {display:block;margin:0 14px;padding:12px 0;color:var(--mf-stroke);
           font-size:12px;text-decoration:none;border-top:1px solid #e7e2dc;width:fit-content}
@@ -278,37 +278,56 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       </section>`;
     const get = selector => shadow.querySelector(selector);
     const svg = get('.scroll > svg'), area = get('.panel textarea'), viewport = get('.scroll');
-    const peerCursor = document.createElement('span'), peerFocus = document.createElement('span');
-    peerCursor.className = 'peer-cursor';
-    peerFocus.className = 'peer-focus';
-    peerCursor.hidden = peerFocus.hidden = true;
-    peerCursor.setAttribute('aria-hidden', 'true');
-    peerFocus.setAttribute('aria-hidden', 'true');
-    viewport.append(peerFocus, peerCursor);
-    let peerPresence, pointerPosition = null;
+    const peerOverlays = new Map();
+    const peerColors = ['#6d3c83', '#9b422d', '#316849', '#28549a', '#8a3462', '#426037', '#644b28', '#375c73'];
+    let peerPresence = [], pointerPosition = null;
     function publishPresence() {
       onPresence?.({ point: pointerPosition, focus: selected?.type ? selected.id : null });
     }
     function renderPresence() {
-      const point = peerPresence?.point;
-      peerCursor.hidden = !point;
-      if (point) {
-        peerCursor.style.left = (point[0] - cameraX) * zoom + 'px';
-        peerCursor.style.top = (point[1] - cameraY) * zoom + 'px';
-        peerCursor.textContent = peerPresence.label;
-      }
-      const node = peerPresence?.focus && graph.nodes.find(item => item.id === peerPresence.focus);
-      peerFocus.hidden = !node;
-      if (node) {
-        const w = radius(node), h = height(node);
-        peerFocus.style.left = (node.x - w - cameraX) * zoom - 5 + 'px';
-        peerFocus.style.top = (node.y - h - cameraY) * zoom - 5 + 'px';
-        peerFocus.style.width = 2 * w * zoom + 10 + 'px';
-        peerFocus.style.height = 2 * h * zoom + 10 + 'px';
+      for (const { id, label, point, focus } of peerPresence) {
+        let overlay = peerOverlays.get(id);
+        if (!overlay) {
+          const cursor = document.createElement('span'), outline = document.createElement('span');
+          cursor.className = 'peer-cursor';
+          outline.className = 'peer-focus';
+          const guestNumber = Number(/^Guest (\d+)$/.exec(label)?.[1]);
+          const color = peerColors[(guestNumber - 1) % peerColors.length] ?? '#185d78';
+          for (const element of [outline, cursor]) {
+            element.setAttribute('aria-hidden', 'true');
+            element.style.setProperty('--peer-color', color);
+            viewport.append(element);
+          }
+          overlay = { cursor, outline };
+          peerOverlays.set(id, overlay);
+        }
+        const { cursor, outline } = overlay;
+        cursor.hidden = !point;
+        if (point) {
+          cursor.style.left = (point[0] - cameraX) * zoom + 'px';
+          cursor.style.top = (point[1] - cameraY) * zoom + 'px';
+          cursor.textContent = label;
+        }
+        const node = focus && graph.nodes.find(item => item.id === focus);
+        outline.hidden = !node;
+        if (node) {
+          const w = radius(node), h = height(node);
+          outline.style.left = (node.x - w - cameraX) * zoom - 5 + 'px';
+          outline.style.top = (node.y - h - cameraY) * zoom - 5 + 'px';
+          outline.style.width = 2 * w * zoom + 10 + 'px';
+          outline.style.height = 2 * h * zoom + 10 + 'px';
+        }
       }
     }
     function setPeerPresence(presence) {
-      peerPresence = presence;
+      peerPresence = Array.isArray(presence) ? presence : presence ? [{ id: 'peer', ...presence }] : [];
+      const presentIds = new Set(peerPresence.map(peer => peer.id));
+      for (const [id, { cursor, outline }] of peerOverlays) {
+        if (presentIds.has(id)) continue;
+        cursor.remove();
+        outline.remove();
+        peerOverlays.delete(id);
+      }
       renderPresence();
     }
     if (onPresence) {

@@ -14,7 +14,7 @@ To serve locally, run `python3 -m http.server 8765 --bind 127.0.0.1` in this dir
 - Double-click a shape or arrow to edit its label. Enter saves and Shift+Enter adds a line break.
 - Use Code & export to download or open a project JSON with editable labels and positions.
 - Scroll or pinch to zoom. Undo and Redo are available in the toolbar.
-- The demo saves each edit in browser storage and in the URL fragment. Copy link shares the current diagram and shape positions. It also includes a tab ID so an agent with access to your browser can find the open board. A colleague who opens the link gets their own tab ID and can copy a fresh link from that tab.
+- The demo saves each edit in browser storage and in the URL fragment. Copy link shares the current diagram and shape positions.
 - Pick a terminal, step, or decision, then click the canvas to place it. Drag shapes to arrange them.
 - Enable Snap to grid to align placed and dragged shapes to the 16 px grid.
 - Click Connect, then choose the source and destination.
@@ -199,15 +199,15 @@ board. See the [Site tools guide](./agent-guide.md#webmcp-site-tools).
 ## Live session with an agent
 
 Open the board you want to edit, then choose **Live session → Start live session**
-and share **Copy invite** with a person or agent. Keep the host tab open. The invite
-grants that peer live access to the board until the session ends. The regular
-**Copy link** still shares a snapshot.
+and share the same **Copy invite** link with your collaborators. Keep the
+host tab open. Up to eight guests can join, including humans and agents.
+The regular **Copy link** still shares a snapshot.
 
-The invitee can edit directly on the canvas. Both people can see each other's
-cursor and selected block. An agent can also use `get_board` and
-`apply_board_edit` in a WebMCP-capable browser. The host owns Undo and Redo,
-and those changes sync to the invitee. If edits conflict, the invitee sees the
-current board and can retry. Each session connects one host and one invitee.
+Guests can edit directly on the canvas and see the other participants' cursors
+and selected blocks. Agents can also use `get_board` and `apply_board_edit`
+in a WebMCP-capable browser. The host owns Undo and Redo, and accepted edits
+and Undo or Redo sync to everyone. If edits conflict, the guest sees the current
+board and can retry.
 
 Live sessions load the pinned p2p-core browser module and use its online
 transport. Sessions require both tabs to stay connected and end when the host
