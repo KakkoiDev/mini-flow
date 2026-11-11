@@ -372,6 +372,11 @@
       }
     },
     "liveSession": "A private #live= invite joins the host board with up to eight guests. Wait for get_board to succeed before editing. A successful edit is acknowledged by the host."
+  },
+  "curlLiveGuest": {
+    "invite": "Use Copy AI invite in a live room with an AI bridge. The bridge query parameter gives the service address and the #live fragment gives the room and join credential.",
+    "discovery": "GET {bridge}/v1 for HTTP and SSE join instructions.",
+    "guide": "./README.md#join-as-an-ai-guest-with-curl"
   }
 }
 

@@ -228,6 +228,113 @@ session ends. AI guests can report progress with `report_ai_activity` and
 publish small batches as they finish them. Every accepted batch is visible
 immediately.
 
+## Join as an AI guest with curl
+
+The curl bridge lets an agent join a live board over HTTP and receive **Ask AI**
+notifications over Server-Sent Events (SSE). Curl guests appear in the room's AI
+guest count. The host tab still owns the board and accepts edits against its
+current revision. Browser guests can use the regular invite to the same room.
+
+### Start a bridge for local testing
+
+With Node.js 22 or later, Python 3, curl, and jq installed, run these two commands
+from the repository root in separate terminals:
+
+```sh
+node bridge/server.mjs
+```
+
+```sh
+python3 -m http.server 8080 --bind 127.0.0.1
+```
+
+1. Open http://localhost:8080 and add a note to the board.
+2. Open **Live session → AI guests via curl** and enter
+   `http://127.0.0.1:8787` as the AI bridge URL.
+3. Click **Start live session**, then **Copy AI invite**. Keep the host tab open.
+   The copied text includes instructions and a link whose `bridge` query
+   parameter identifies the service. Its `#live=` fragment contains the room
+   and password.
+
+### Receive Ask AI events
+
+In a terminal, paste just the URL from the copied invite when prompted. Set
+`BRIDGE` to the address you entered in the host dialog.
+
+```sh
+BRIDGE=http://127.0.0.1:8787
+printf 'Paste the AI invite URL: '
+IFS= read -r INVITE
+CREDENTIALS=${INVITE##*#live=}
+ROOM=${CREDENTIALS%%.*}
+PASSWORD=${CREDENTIALS#*.}
+
+GUEST=$(curl --silent --show-error --fail-with-body \
+  --request POST --header "Authorization: Bearer $PASSWORD" \
+  "$BRIDGE/v1/rooms/$ROOM/agents")
+TOKEN=$(printf '%s' "$GUEST" | jq -er '.token')
+EVENTS=$(printf '%s' "$GUEST" | jq -er '.events')
+TOOLS=$(printf '%s' "$GUEST" | jq -er '.tools')
+```
+
+Keep the SSE stream open in the background so the same shell can call tools:
+
+```sh
+curl --no-buffer --silent --show-error --fail \
+  --header "Authorization: Bearer $TOKEN" "$BRIDGE$EVENTS" &
+SSE_PID=$!
+```
+
+Wait for `event: ready`, then select the note in Mini Flow and click **Ask AI**.
+The terminal should print an event like this:
+
+```text
+event: ask_ai
+data: {"sequence":1,"noteId":"N1"}
+```
+
+The notification announces a request. Claim it to read the note and move the
+note's status from **Waiting for AI** to **AI working**:
+
+```sh
+curl --silent --show-error --fail \
+  --header "Authorization: Bearer $TOKEN" --header 'Content-Type: application/json' \
+  --data '{"after":0,"timeoutMs":0}' "$BRIDGE$TOOLS/wait_for_ai_request" | jq
+```
+
+On later events, set `after` to the last processed sequence. Only the first
+guest whose claim the host accepts receives the request. Proceed when the
+response contains a non-null `request`. Fetch `$BRIDGE$TOOLS` with the same
+bearer token to discover tool schemas. POST to `$BRIDGE$TOOLS/get_board`
+with `{}` for the board revision, then use `apply_board_edit` and
+`report_ai_activity` as needed. A listener can start an agent turn when an
+event arrives. For a manual test, finish the claimed request with:
+
+```sh
+curl --silent --show-error --fail \
+  --header "Authorization: Bearer $TOKEN" --header 'Content-Type: application/json' \
+  --data '{"message":"","result":"Received through curl."}' \
+  "$BRIDGE$TOOLS/report_ai_activity" | jq
+kill "$SSE_PID"
+```
+
+Closing the stream removes that AI guest. If it drops, join again for a new
+guest connection. Keep invite links and bearer tokens private.
+
+### Use the bridge with GitHub Pages
+
+Run `node bridge/server.mjs` on a reachable host behind HTTPS and enter that
+public URL in Mini Flow. Allow streaming responses through the proxy without
+buffering. The service listens on `127.0.0.1:8787` by default. Override
+`HOST` and `PORT` as needed. `MINI_FLOW_ORIGINS` accepts a comma-separated
+list of editor origins. The defaults allow `https://mini-flow.kakkoi.dev`
+and `http://localhost:8080`. The editor stays on GitHub Pages. The bridge
+holds active connections in memory and ends the room when the host disconnects.
+
+Agents receiving a **Copy AI invite** link can fetch `{bridge}/v1` for the
+transport instructions. Use the fragment credentials in the join request,
+then use the returned bearer token and SSE URL for that guest.
+
 ## GitHub Gist backups
 
 Open a saved project and expand **GitHub Gist backup** in Projects. Paste a
@@ -253,6 +360,7 @@ transport. Sessions require both tabs to stay connected and end when the host
 closes or reloads the page. GitHub Pages continues to host the editor.
 
 
-Run the live-session regression with `node --test tests/live-session.test.mjs`.
+Run the live-session and curl bridge regressions with
+`node --test tests/*.test.mjs`.
 Serve the repo and open `tests/auto-layout.html` to run the browser regression
 for bend reset, note attachments, Undo, and Redo.
