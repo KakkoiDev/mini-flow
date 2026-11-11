@@ -187,3 +187,6 @@ chat delivery.
 Agents can also send an **Apply edit** link containing a base board, proposed
 board, and summary. Mini Flow reviews the proposal before applying it as one
 Undo step. See [Apply edit links](./agent-guide.md#apply-edit-links).
+
+WebMCP-capable browsers can use `get_board` and `apply_board_edit` on the open
+board. See the [Site tools guide](./agent-guide.md#webmcp-site-tools).

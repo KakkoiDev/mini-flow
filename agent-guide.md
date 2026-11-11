@@ -60,7 +60,7 @@ its mounted instance and must expose that instance or its own bridge if agents
 need access. The public demo explicitly exposes `window.miniFlowEditor`.
 
 This discovery layer requires browser tooling that permits page JavaScript
-execution. It advertises capabilities and does not register WebMCP tools.
+execution. The page also offers WebMCP tools in compatible browsers.
 The host's optional `onSend({ project, selection })` callback can connect a
 Send to chat button to its chat system. The public demo has no chat backend.
 
@@ -93,3 +93,33 @@ inspect the Mermaid source before applying. Apply highlights the changes and
 creates one Undo step. Mini Flow checks the base again on Apply and blocks
 the edit if the board in that tab has changed. A new tab works on the shared
 copy encoded in the link.
+
+## WebMCP site tools
+
+In ChatGPT Desktop, open the desired board in the built-in browser, select
+its tab, and ask ChatGPT to use its Site tools. If several diagrams are open,
+attach the intended tab when the composer offers a tab picker, or specify its
+full share URL.
+
+- `get_board` returns `{ revision, project }` for the board in that tab.
+- `apply_board_edit` validates and applies a batch as one undoable update.
+
+```json
+{
+  "revision": "<from get_board>",
+  "edits": [{ "op": "rename_node", "id": "N3", "label": "Read database" }],
+  "message": "Renamed the database step."
+}
+```
+
+The supported operations are `rename_node` (ID and label), `move_node` (ID and
+position), `add_node` (ID, type, label, and position), and `add_arrow` (from and to
+IDs, plus an optional label). Positions are `[x, y]` pairs. Node types are
+`terminal`, `step`, `decision`, and `note`. Add blocks before connecting them.
+
+A successful response includes the updated project and revision. If the board
+has changed or the revision belongs to another tab, the tool returns
+`revision_conflict`. Read the intended board again before retrying.
+
+The static module `mini-flow-webmcp.js` registers tools on the page that owns
+the editor. Browsers without WebMCP can use Apply edit links.

@@ -160,5 +160,159 @@
       }
     },
     "effects": "Open a review dialog. Apply updates the board with SDK feedback and Undo if it matches the base project."
+  },
+  "webmcp": {
+    "module": "./mini-flow-webmcp.js",
+    "tools": {
+      "get_board": {
+        "readOnly": true,
+        "returns": {
+          "revision": "Tab-scoped revision",
+          "project": {
+            "$ref": "#/projectSchema"
+          }
+        }
+      },
+      "apply_board_edit": {
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "revision": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "edits": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "op": {
+                        "const": "rename_node"
+                      },
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z][\\w-]*$"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "op",
+                      "id",
+                      "label"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "op": {
+                        "const": "move_node"
+                      },
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z][\\w-]*$"
+                      },
+                      "position": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 2,
+                        "maxItems": 2
+                      }
+                    },
+                    "required": [
+                      "op",
+                      "id",
+                      "position"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "op": {
+                        "const": "add_node"
+                      },
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z][\\w-]*$"
+                      },
+                      "type": {
+                        "enum": [
+                          "terminal",
+                          "step",
+                          "decision",
+                          "note"
+                        ]
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "position": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 2,
+                        "maxItems": 2
+                      }
+                    },
+                    "required": [
+                      "op",
+                      "id",
+                      "type",
+                      "label",
+                      "position"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "op": {
+                        "const": "add_arrow"
+                      },
+                      "from": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z][\\w-]*$"
+                      },
+                      "to": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z][\\w-]*$"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "op",
+                      "from",
+                      "to"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            }
+          },
+          "required": [
+            "revision",
+            "edits",
+            "message"
+          ],
+          "additionalProperties": false
+        },
+        "effects": "Apply one undoable batch to the current tab if its revision matches."
+      }
+    }
   }
 }

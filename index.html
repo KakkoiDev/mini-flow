@@ -243,4 +243,8 @@ document.querySelector('#share').onclick = async () => {
   }
 };
 </script>
+<script type="module">
+import { registerMiniFlowTools } from './mini-flow-webmcp.js';
+registerMiniFlowTools(window.miniFlowEditor).catch(error => console.error('Mini Flow site tools:', error));
+</script>
 </html>
