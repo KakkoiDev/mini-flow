@@ -306,6 +306,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       const box = svg.getBoundingClientRect();
       return [cameraX + (event.clientX - box.left) / zoom, cameraY + (event.clientY - box.top) / zoom];
     }
+    const boardPositions = () => Object.fromEntries(graph.nodes.map(node => [node.id, [node.x, node.y]]));
+    const layoutPrefix = '%% mini-flow-layout ';
+    const sourceWithLayout = () => sourceText() + '\n    ' + layoutPrefix + JSON.stringify(boardPositions());
+
     function changed(record = true) {
       const next = snapshot();
       if (enabled('history') && record && next !== current) {
@@ -316,8 +320,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       current = next;
       undoButton.disabled = !undoStack.length;
       redoButton.disabled = !redoStack.length;
-      area.value = sourceText();
-      onChange?.(area.value, Object.fromEntries(graph.nodes.map(n => [n.id, [n.x, n.y]])));
+      area.value = sourceWithLayout();
+      onChange?.(sourceText(), boardPositions());
     }
     function positionEditor() {
       if (!editing) return;
@@ -344,7 +348,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       positionEditor();
       function updateLabel() {
         item.label = (field.childElementCount ? field.innerText : field.textContent).replace(/\r/g, '');
-        area.value = sourceText();
+        area.value = sourceWithLayout();
         render();
         positionEditor();
       }
@@ -614,10 +618,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     const radius = node => Math.max(66, ...node.label.split('\n').map(line => line.length * 5 + 25));
     const height = node => (node.type === 'decision' ? 39 : 25) + (node.label.split('\n').length - 1) * 11;
     function labelText(attrs, value) {
-      const label = element('text', { 'dominant-baseline': 'central', ...attrs });
+      const label = element('text', attrs);
       const lines = value.split('\n');
       lines.forEach((line, index) => label.append(element('tspan', {
-        x: attrs.x ?? 0, y: (attrs.y ?? 0) + (index - (lines.length - 1) / 2) * 18
+        x: attrs.x ?? 0, y: (attrs.y ?? 0) + (index - (lines.length - 1) / 2) * 18, dy: '.35em'
       }, line)));
       return label;
     }
@@ -1088,11 +1092,20 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     };
     function setMermaid(value, options = {}) {
       const next = parseSource(value);
+      const layoutLine = value.split(/\r?\n/).map(line => line.trim()).find(line => line.startsWith(layoutPrefix));
+      const layout = layoutLine ? JSON.parse(layoutLine.slice(layoutPrefix.length)) : {};
+      if (!layout || typeof layout !== 'object' || Array.isArray(layout)) throw new Error('Invalid canvas layout.');
       const previous = new Map(graph.nodes.map(node => [node.id, node]));
       let nextY = Math.max(-50, ...graph.nodes.map(node => node.y)) + 115;
       for (const node of next.nodes) {
         const existing = previous.get(node.id);
-        if (existing) {
+        if (Object.hasOwn(layout, node.id)) {
+          const position = layout[node.id];
+          if (!Array.isArray(position) || position.length !== 2 || !position.every(Number.isFinite)) {
+            throw new Error('Invalid position for ' + node.id);
+          }
+          [node.x, node.y] = position;
+        } else if (existing) {
           node.x = existing.x;
           node.y = existing.y;
         } else if (graph.nodes.length) {
@@ -1103,7 +1116,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       replaceGraph(next, options);
     }
     function getProject() {
-      return { version: 1, source: sourceText(), positions: Object.fromEntries(graph.nodes.map(n => [n.id, [n.x, n.y]])) };
+      return { version: 1, source: sourceText(), positions: boardPositions() };
     }
     function setProject(project, options = {}) {
       if (project?.version !== 1 || typeof project.source !== 'string' || !project.positions) {
@@ -1185,7 +1198,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       catch (error) { status(error.message); }
     };
     get('[data-export]').onclick = () => {
-      area.value = sourceText();
+      area.value = sourceWithLayout();
       area.focus();
       area.select();
       status('Mermaid source refreshed and selected.');
@@ -1212,7 +1225,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         shape.setAttribute('stroke-width', shape.localName === 'line' || shape.hasAttribute('marker-end') ? '2' : '1.5');
         if (shape.hasAttribute('marker-end')) shape.setAttribute('marker-end', 'url(#arrow)');
       }
-      copy.prepend(element('rect', { width: '100%', height: '100%', fill: palette.canvas }));
+      copy.prepend(element('rect', { x: box.x - 24, y: box.y - 24, width, height, fill: palette.canvas }));
       return new Blob([new XMLSerializer().serializeToString(copy)], { type: 'image/svg+xml;charset=utf-8' });
     }
     function download(blob, extension) {
@@ -1241,7 +1254,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       }
     }
     function exportMarkdown() {
-      const source = sourceText();
+      const source = sourceWithLayout();
       const runs = source.match(/`+/g) || [];
       const fence = '`'.repeat(Math.max(2, ...runs.map(run => run.length)) + 1);
       return fence + 'mermaid\n' + source + '\n' + fence + '\n';
@@ -1266,7 +1279,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           if (format === 'png') {
             await navigator.clipboard.write([new ClipboardItem({ 'image/png': exportPng() })]);
           } else {
-            const value = format === 'mermaid' ? sourceText()
+            const value = format === 'mermaid' ? sourceWithLayout()
               : format === 'svg' ? await exportSvg().text() : exportMarkdown();
             try {
               await navigator.clipboard.writeText(value);
@@ -1297,7 +1310,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     }
     host.append(root);
     if (dockLayout) frame.style.setProperty('--dock-height', toolbar.offsetHeight + 'px');
-    area.value = sourceText();
+    area.value = sourceWithLayout();
     status('Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
     render();
     fit();

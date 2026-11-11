@@ -37,8 +37,11 @@ dialog{width:min(560px,calc(100% - 32px));max-height:85dvh;padding:22px;border:1
 dialog::backdrop{background:#242b2959}
 dialog h2{margin:0;font-size:20px}
 dialog p{margin:12px 0;overflow-wrap:anywhere}
-dialog summary{cursor:pointer}
-dialog pre{padding:10px;max-height:150px;overflow:auto;background:#faf8f5;border:1px solid #e7e2dc;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}
+dialog .diff{margin:12px 0;max-height:42dvh;overflow:auto;border:1px solid #e7e2dc;border-radius:8px;font:13px/1.5 ui-monospace,monospace}
+dialog .diff-line{display:flex;gap:8px;padding:2px 9px;white-space:pre-wrap;overflow-wrap:anywhere}
+dialog .diff-line span{flex:0 0 1em;user-select:none}
+dialog .diff-add{background:#e3f6e8;color:#14532d}
+dialog .diff-remove{background:#ffe8e6;color:#8b1d19}
 dialog form{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
 dialog button{font:inherit;padding:8px 12px;min-height:44px;border:1px solid #ded9d2;border-radius:8px;background:#fffdfb;color:inherit;cursor:pointer}
 dialog #apply-proposal{background:#e4f4ee;border-color:#a7cfc4}
@@ -52,17 +55,13 @@ dialog button:disabled{opacity:.5;cursor:default}
   <h2 id="proposal-title">Apply diagram edit?</h2>
   <p id="proposal-message"></p>
   <p id="proposal-status" role="status"></p>
-  <details>
-    <summary>Review Mermaid source</summary>
-    <h3>Current</h3><pre id="proposal-before"></pre>
-    <h3>Proposed</h3><pre id="proposal-after"></pre>
-  </details>
+  <div id="proposal-diff" class="diff" role="region" aria-label="Diagram changes" tabindex="0"></div>
   <form method="dialog">
     <button value="cancel" autofocus>Cancel</button>
     <button id="apply-proposal" value="apply" type="button">Apply edit</button>
   </form>
 </dialog>
-<script src="./mini-flow.js?v=quiet-source-link"></script>
+<script src="./mini-flow.js?v=layout-and-labels"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -182,13 +181,55 @@ let pendingProposal;
 function isCurrent(base) {
   return JSON.stringify(normalizeProject(editor.getProject())) === JSON.stringify(base);
 }
+function renderProposalDiff(current, proposed) {
+  const before = current.source.split('\n');
+  const after = proposed.source.split('\n');
+  for (const id of new Set([...Object.keys(current.positions), ...Object.keys(proposed.positions)])) {
+    const from = current.positions[id], to = proposed.positions[id];
+    if (JSON.stringify(from) === JSON.stringify(to)) continue;
+    if (from) before.push('%% Position ' + id + ': ' + from.join(', '));
+    if (to) after.push('%% Position ' + id + ': ' + to.join(', '));
+  }
+  const fragment = document.createDocumentFragment();
+  function line(kind, value) {
+    const row = document.createElement('div');
+    row.className = 'diff-line diff-' + kind;
+    const marker = document.createElement('span');
+    marker.textContent = { add: '+', remove: '−', same: ' ' }[kind];
+    if (kind !== 'same') marker.setAttribute('aria-label', kind === 'add' ? 'Added' : 'Removed');
+    row.append(marker, document.createTextNode(value));
+    fragment.append(row);
+  }
+  if (before.length * after.length <= 250000) {
+    const lengths = Array.from({ length: before.length + 1 }, () => new Uint32Array(after.length + 1));
+    for (let i = before.length - 1; i >= 0; i--) {
+      for (let j = after.length - 1; j >= 0; j--) {
+        lengths[i][j] = before[i] === after[j] ? 1 + lengths[i + 1][j + 1]
+          : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
+      }
+    }
+    let i = 0, j = 0;
+    while (i < before.length || j < after.length) {
+      if (i < before.length && j < after.length && before[i] === after[j]) {
+        line('same', before[i++]);
+        j++;
+      } else if (i < before.length && (j === after.length || lengths[i + 1][j] >= lengths[i][j + 1])) {
+        line('remove', before[i++]);
+      } else {
+        line('add', after[j++]);
+      }
+    }
+  } else {
+    before.forEach(value => line('remove', value));
+    after.forEach(value => line('add', value));
+  }
+  document.querySelector('#proposal-diff').replaceChildren(fragment);
+}
 function reviewProposal(proposal) {
   if (!proposal) return;
   pendingProposal = proposal;
   document.querySelector('#proposal-message').textContent = proposal.message || 'Review the proposed diagram edit.';
-  document.querySelector('#proposal-before').textContent = editor.getProject().source;
-  document.querySelector('#proposal-after').textContent = proposal.project.source;
-  proposalDialog.querySelector('details').open = false;
+  renderProposalDiff(editor.getProject(), proposal.project);
   applyButton.disabled = !isCurrent(proposal.base);
   proposalStatus.textContent = applyButton.disabled ? 'This board has changed. Ask for an edit based on the current board.' : '';
   if (!proposalDialog.open) proposalDialog.showModal();

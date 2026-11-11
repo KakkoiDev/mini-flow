@@ -127,6 +127,8 @@ test('review and apply an edit link as one undo step', async ({ page }) => {
   const hash = '#apply=' + encodeURIComponent(JSON.stringify({ version: 1, base, project, message: 'Renamed the first step.' }));
   await page.goto('http://127.0.0.1:8765/' + hash);
   await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.locator('#proposal-diff .diff-remove')).toContainText('Prompt In');
+  await expect(page.locator('#proposal-diff .diff-add')).toContainText('Read prompt');
   expect(await page.evaluate(() => miniFlowEditor.getMermaid())).toContain('Prompt In');
   await page.getByRole('button', { name: 'Apply edit' }).click();
   await expect(page.getByRole('dialog')).toBeHidden();
@@ -138,4 +140,15 @@ test('review and apply an edit link as one undo step', async ({ page }) => {
   await page.evaluate(hash => { location.hash = hash; }, hash);
   await expect(page.getByRole('button', { name: 'Apply edit' })).toBeDisabled();
   expect(await page.evaluate(() => miniFlowEditor.getMermaid())).toContain('Newer edit');
+});
+
+test('Mermaid source restores the exact layout on a blank board', async ({ page }) => {
+  const before = await page.evaluate(() => miniFlowEditor.getProject());
+  await page.getByRole('button', { name: 'Code & export' }).click();
+  const source = page.getByRole('textbox', { name: 'Mermaid source' });
+  const copied = await source.inputValue();
+  await page.getByRole('button', { name: 'Start blank' }).click();
+  await source.fill(copied);
+  await page.getByRole('button', { name: 'Apply source' }).click();
+  expect(await page.evaluate(() => miniFlowEditor.getProject())).toEqual(before);
 });

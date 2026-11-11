@@ -21,7 +21,8 @@ To serve locally, run `python3 -m http.server 8765 --bind 127.0.0.1` in this dir
 - Select any shape or arrow and edit its label. Delete removes the selection
   and any arrows attached to a deleted shape.
 - In Mermaid source, use Refresh source to export and Apply source to import.
-  Paste the exported text into https://mermaid.live/ for Mermaid's own layout.
+  Mini Flow's copied source includes a layout comment so reimporting restores the canvas positions.
+  Mermaid Live ignores that comment and computes its own layout.
 
 Use the download buttons in the side panel’s Export section to save PNG or SVG with the current
 canvas layout, or Markdown with a fenced Mermaid block. The embedded editor
