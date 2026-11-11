@@ -83,6 +83,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   <p id="live-status" role="status">Invite people or agents to edit this board with you.</p>
   <details id="live-bridge-settings">
     <summary>AI guests via curl</summary>
+    <p>Optional. Set a bridge URL to let terminal guests join. Browser guests can join directly.</p>
     <label for="live-bridge">AI bridge URL (optional)</label>
     <input id="live-bridge" type="url" placeholder="https://your-bridge.example">
     <p><a href="https://github.com/KakkoiDev/mini-flow#join-as-an-ai-guest-with-curl" target="_blank" rel="noopener">Set up and test the bridge</a></p>
@@ -92,6 +93,7 @@ dialog button:disabled{opacity:.5;cursor:default}
     <input id="live-invite" readonly>
     <button id="live-copy" type="button">Copy invite</button>
     <button id="live-copy-ai" type="button" hidden>Copy AI invite</button>
+    <button id="live-copy-curl" type="button" hidden>Copy curl command</button>
   </div>
   <form method="dialog">
     <button id="live-start" type="button">Start live session</button>
@@ -645,6 +647,7 @@ const inviteRow = document.querySelector('#live-invite-row');
 const inviteInput = document.querySelector('#live-invite');
 const copyInvite = document.querySelector('#live-copy');
 const copyAIInvite = document.querySelector('#live-copy-ai');
+const copyCurl = document.querySelector('#live-copy-curl');
 const bridgeSettings = document.querySelector('#live-bridge-settings');
 const bridgeInput = document.querySelector('#live-bridge');
 let aiInvite;
@@ -666,6 +669,8 @@ function ended() {
   copyInvite.textContent = 'Copy invite';
   copyAIInvite.textContent = 'Copy AI invite';
   copyAIInvite.hidden = true;
+  copyCurl.hidden = true;
+  copyCurl.textContent = 'Copy curl command';
   aiInvite = undefined;
   bridgeSettings.hidden = false;
   endSession.hidden = true;
@@ -697,6 +702,7 @@ async function startLive(invite, host) {
       onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts,
       onBridgeDisconnect() {
         aiInvite = undefined;
+        copyCurl.hidden = true;
         showStatus('AI bridge disconnected. Browser guests can still join.');
       },
       onNoteColors: editor.setNoteColors,
@@ -727,6 +733,7 @@ async function startLive(invite, host) {
       if (bridge) {
         address.searchParams.set('bridge', bridge);
         aiInvite = address.href;
+        copyCurl.hidden = false;
       }
     }
     connectionTimer = setTimeout(() => {
@@ -771,6 +778,29 @@ copyAIInvite.onclick = async () => {
     copyAIInvite.textContent = 'AI invite copied';
   } catch {
     showStatus('Could not copy the AI invite.');
+  }
+};
+copyCurl.onclick = async () => {
+  if (!aiInvite) return;
+  const address = new URL(aiInvite);
+  const { room, password } = readLiveInvite(address.hash);
+  const quote = value => "'" + value.replaceAll("'", "'\"'\"'") + "'";
+  const command = [
+    '(',
+    '  command -v jq >/dev/null || { printf "%s\\n" "Install jq to use this command." >&2; exit 1; }',
+    '  BRIDGE=' + quote(address.searchParams.get('bridge')),
+    '  GUEST=$(curl --silent --show-error --fail --request POST --header ' +
+      quote('Authorization: Bearer ' + password) + ' "$BRIDGE/v1/rooms/' + room + '/agents") &&',
+    '  TOKEN=$(printf "%s" "$GUEST" | jq -er .token) &&',
+    '  EVENTS=$(printf "%s" "$GUEST" | jq -er .events) &&',
+    '  curl --no-buffer --silent --show-error --fail --header "Authorization: Bearer $TOKEN" "$BRIDGE$EVENTS"',
+    ')'
+  ].join('\n');
+  try {
+    await navigator.clipboard.writeText(command);
+    copyCurl.textContent = 'Curl command copied';
+  } catch {
+    showStatus('Could not copy the curl command.');
   }
 };
 if (joiningLive) {

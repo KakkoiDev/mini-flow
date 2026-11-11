@@ -258,15 +258,21 @@ python3 -m http.server 8080 --bind 127.0.0.1
 1. Open http://localhost:8080 and add a note to the board.
 2. Open **Live session → AI guests via curl** and enter
    `http://127.0.0.1:8787` as the AI bridge URL.
-3. Click **Start live session**, then **Copy AI invite**. Keep the host tab open.
-   The copied text includes instructions and a link whose `bridge` query
-   parameter identifies the service. Its `#live=` fragment contains the room
-   and password.
+3. Click **Start live session**, then **Copy curl command**. Keep the host tab
+   open. Paste the command into a terminal and run it. It joins the room
+   and streams events until you press Ctrl+C.
+4. Once the terminal prints `event: ready`, select the note and click
+   **Ask AI**. Look for `event: ask_ai` and the note ID.
+
+Use **Copy AI invite** to send join instructions to an agent. The invite text
+contains prose and a URL. Use **Copy curl command** for a terminal.
 
 ### Receive Ask AI events
 
-In a terminal, paste just the URL from the copied invite when prompted. Set
-`BRIDGE` to the address you entered in the host dialog.
+For a terminal session that also exposes the tool URLs for claiming requests and
+editing the board, use the manual setup below. When prompted, paste only the
+final URL from **Copy AI invite**, starting with `http`. Set `BRIDGE` to the
+address you entered in the host dialog.
 
 ```sh
 BRIDGE=http://127.0.0.1:8787
