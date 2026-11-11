@@ -157,6 +157,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .panel {position:absolute;inset:auto 12px 50px auto;width:min(350px,calc(100% - 24px));max-height:65%;overflow:auto;background:var(--mf-surface);border:1px solid #d9e2ec;border-radius:14px;box-shadow:0 4px 24px #20304424;z-index:1}
         .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);min-width:48px;min-height:1.2em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.2;color:var(--mf-text);outline:none;background:transparent}
         .status {position:absolute;inset:auto 12px 8px;pointer-events:none;border-radius:10px;margin:0;padding:8px 12px;background:var(--mf-surface);border-top:1px solid #d9e2ec;min-height:38px}
+        .panel > .repo-link {display:block;margin:0 14px;padding:12px 0;color:var(--mf-stroke);
+          font-size:12px;text-decoration:none;border-top:1px solid #e7e2dc;width:fit-content}
+        .panel > .repo-link:hover {color:var(--mf-accent);text-decoration:underline}
+        .panel > .repo-link:focus-visible {outline:2px solid var(--mf-accent);outline-offset:2px}
         .panel details {padding:14px;background:var(--mf-surface)}
         .panel details + details {border-top:1px solid #d9e2ec}
         .header-actions {position:absolute;z-index:2;inset:auto 12px 54px;display:flex;gap:6px;flex-wrap:wrap;pointer-events:none}

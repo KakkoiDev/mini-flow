@@ -12,9 +12,6 @@ body{margin:0;background:#faf8f5;color:#242b29;font:15px system-ui,sans-serif}
 main{height:100dvh;display:flex;flex-direction:column}
 header{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:9px clamp(10px,2vw,28px);background:#faf8f5;border-bottom:1px solid #e7e2dc}
 h1{display:flex;align-items:center;gap:9px;margin:0 auto 0 0;font-size:21px;font-weight:750;letter-spacing:-.035em}
-.repo-link{color:#626963;font-size:12px;text-decoration:none;padding:7px 4px;border-radius:5px}
-.repo-link:hover{text-decoration:underline;color:#087f71}
-.repo-link:focus-visible{outline:2px solid #087f71;outline-offset:2px}
 h1 svg{width:26px;height:26px;color:#087f71}
 header button svg{width:19px;height:19px;flex:none}
 header [data-fit] > svg{display:none}
@@ -37,10 +34,10 @@ header button:focus-visible{outline:2px solid #087f71;outline-offset:2px}
 header button{font-size:13px;padding:5px 7px;min-height:44px}}
 </style>
 <main>
-  <header><h1><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M3 19a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" /><path d="M19 7a2 2 0 1 0 0 -4a2 2 0 0 0 0 4" /><path d="M11 19h5.5a3.5 3.5 0 0 0 0 -7h-8a3.5 3.5 0 0 1 0 -7h4.5" /></svg>Mini Flow</h1><a class="repo-link" href="https://github.com/KakkoiDev/mini-flow" target="_blank" rel="noopener noreferrer" aria-label="Mini Flow source on GitHub">GitHub</a><button id="blank"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M12 5l0 14" /><path d="M5 12l14 0" /></svg><span>Start blank</span></button><button id="share"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M9 15l6 -6" /><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464" /><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463" /></svg><span>Copy link</span></button><span id="save-status" role="status"></span></header>
+  <header><h1><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M3 19a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" /><path d="M19 7a2 2 0 1 0 0 -4a2 2 0 0 0 0 4" /><path d="M11 19h5.5a3.5 3.5 0 0 0 0 -7h-8a3.5 3.5 0 0 1 0 -7h4.5" /></svg>Mini Flow</h1><button id="blank"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M12 5l0 14" /><path d="M5 12l14 0" /></svg><span>Start blank</span></button><button id="share"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M9 15l6 -6" /><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464" /><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463" /></svg><span>Copy link</span></button><span id="save-status" role="status"></span></header>
   <div id="editor"></div>
 </main>
-<script src="./mini-flow.js?v=reconnect-feedback"></script>
+<script src="./mini-flow.js?v=quiet-source-link"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -113,6 +110,13 @@ const editor = MiniFlow.mount(document.querySelector('#editor'), saved?.source ?
     colors: { canvas: '#faf8f5', grid: '#ded9d2', text: '#242b29', surface: '#fffdfb',
       stroke: '#464d49', accent: '#087f71', terminal: '#d4f2e5', step: '#e0edf8', decision: '#fff0cd' } });
 window.miniFlowEditor = editor;
+const repositoryLink = document.createElement('a');
+repositoryLink.className = 'repo-link';
+repositoryLink.href = 'https://github.com/KakkoiDev/mini-flow';
+repositoryLink.target = '_blank';
+repositoryLink.rel = 'noopener noreferrer';
+repositoryLink.textContent = 'Source on GitHub';
+document.querySelector('#editor > div').shadowRoot.querySelector('.panel').append(repositoryLink);
 const headerActions = document.querySelector('header .header-actions');
 const panelButton = headerActions.querySelector('[data-panel]');
 headerActions.append(headerActions.querySelector('[data-fit]'));
