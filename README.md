@@ -221,7 +221,9 @@ When an AI guest is connected, select a sticky note and click **Ask AI** on
 its corner. The note shows when it is waiting, which AI guest claimed it,
 and the result. You can ask again once the request finishes.
 Only the first AI guest to claim the request gets it from
-`wait_for_ai_request`. That call runs during an active agent turn.
+`wait_for_ai_request`. The AI invite asks the agent to repeat the call
+on timeouts and after each result until the session disconnects or you ask it
+to stop. Listening runs during an active agent turn.
 
 Participants see draft text, drag movement, and tool icons as they edit.
 Live guests get a separate note color, and notes return to yellow when the

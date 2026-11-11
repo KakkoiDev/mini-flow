@@ -191,7 +191,8 @@
             "timeoutMs": { "type": "integer", "minimum": 0, "maximum": 15000, "default": 12000 }
           }
         },
-        "returns": "{ ok, request } where only the winning guest receives the request with id, sequence, requester, and note. A null request means no claim was acquired."
+        "returns": "{ ok, request } where only the winning guest receives the request with id, sequence, requester, and note. A null request means no claim was acquired.",
+        "listening": "Repeat the call on a null request with the same after cursor. After each result, resume waiting with after set to the handled sequence. Stop when the live session disconnects or the user asks you to stop."
       },
       "report_ai_activity": {
         "availability": "A registered AI guest in a live session",

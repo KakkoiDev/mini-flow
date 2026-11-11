@@ -119,9 +119,11 @@ A regular board link opens a snapshot.
   acknowledges it. Repeat calls keep the same guest identity and count.
 - `wait_for_ai_request` waits for **Ask AI** on a selected note. The host
   grants the request to one AI guest. The result contains the sequence,
-  requester, note text, and optional target. Pass the last sequence as
-  `after`. A null request means this guest acquired no claim. Read the board
-  before acting, since the note may have changed.
+  requester, note text, and optional target. Start with `after: 0` and read
+  the board before acting, since the note may have changed. If the request
+  is null, wait again with the same cursor. After each result, immediately
+  wait again with `after` set to the handled sequence. Keep the turn active
+  until the live session disconnects or the user asks you to stop.
 - `report_ai_activity` takes `{ message }` and shows a short progress
   update on the board. When building a diagram in multiple steps, report
   activity, then call `apply_board_edit` for each coherent batch as it is

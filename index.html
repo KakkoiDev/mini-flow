@@ -525,7 +525,7 @@ document.querySelector('#share').onclick = async () => {
 };
 </script>
 <script type="module">
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=webmcp-only';
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=keep-listening';
 import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=webmcp-only';
 import { setupGistBackups } from './mini-flow-gist.js';
 import { setupSavedProjects } from './mini-flow-projects.js?v=7';
@@ -745,6 +745,7 @@ copyAIInvite.onclick = async () => {
     await navigator.clipboard.writeText([
       'Join this Mini Flow live session as an AI guest using WebMCP.',
       'Open the invite in a browser with WebMCP tool access. Wait for Live · Connected, call register_live_agent with {}, then use get_board and wait_for_ai_request.',
+      'Keep listening until the session disconnects or I ask you to stop. A null request is a timeout or an unclaimed request. Call wait_for_ai_request again using the last handled sequence as after (start at 0). After answering or applying an edit, report the result and immediately resume waiting instead of ending your turn.',
       inviteInput.value
     ].join('\n\n'));
     copyAIInvite.textContent = 'AI invite copied';
