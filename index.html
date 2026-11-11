@@ -83,7 +83,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   <p id="live-status" role="status">Invite people or agents to edit this board with you.</p>
   <details id="live-bridge-settings">
     <summary>AI guests via curl</summary>
-    <label for="live-bridge">AI bridge URL</label>
+    <label for="live-bridge">AI bridge URL (optional)</label>
     <input id="live-bridge" type="url" placeholder="https://your-bridge.example">
     <p><a href="https://github.com/KakkoiDev/mini-flow#join-as-an-ai-guest-with-curl" target="_blank" rel="noopener">Set up and test the bridge</a></p>
   </details>
@@ -197,7 +197,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=ai-results"></script>
+<script src="./mini-flow.js?v=ai-invite"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -526,7 +526,7 @@ document.querySelector('#share').onclick = async () => {
 };
 </script>
 <script type="module">
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=ai-results';
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=ai-invite';
 import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=curl';
 import { bridgeAddress } from './mini-flow-bridge.js';
 import { setupGistBackups } from './mini-flow-gist.js';
@@ -696,8 +696,8 @@ async function startLive(invite, host) {
       canAccept: () => !editor.isInteracting(), onStatus: showStatus, onEnd: ended,
       onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts,
       onBridgeDisconnect() {
-        copyAIInvite.hidden = true;
-        showStatus('AI bridge disconnected. Restart the live session to reconnect it.');
+        aiInvite = undefined;
+        showStatus('AI bridge disconnected. Browser guests can still join.');
       },
       onNoteColors: editor.setNoteColors,
       onAIRequests: editor.setAIRequests,
@@ -723,11 +723,10 @@ async function startLive(invite, host) {
       address.hash = 'live=' + invite.room + '.' + invite.password;
       inviteInput.value = address.href;
       inviteRow.hidden = false;
+      copyAIInvite.hidden = false;
       if (bridge) {
         address.searchParams.set('bridge', bridge);
-        address.searchParams.set('join', 'curl');
         aiInvite = address.href;
-        copyAIInvite.hidden = false;
       }
     }
     connectionTimer = setTimeout(() => {
@@ -760,11 +759,15 @@ copyInvite.onclick = async () => {
 };
 copyAIInvite.onclick = async () => {
   try {
-    await navigator.clipboard.writeText(
-      'Join this Mini Flow session as an AI guest using curl and SSE. Read the bridge URL from the bridge query parameter ' +
-      'and fetch its /v1 manifest. Read the room and password from the #live fragment. Keep the SSE connection open for Ask AI.\n' +
+    const instructions = [
+      'Join this Mini Flow live session as an AI guest. Choose one method based on your available tools.',
+      'Browser + WebMCP (no shell or Node bridge): Open the invite in a browser you control with WebMCP tool access. Wait for Live · Connected, call register_live_agent with {}, then use get_board and wait_for_ai_request.',
       aiInvite
-    );
+        ? 'curl + SSE: Read the bridge URL from the bridge query parameter and fetch its /v1 manifest. The #live fragment contains the room and join credential. Keep the SSE connection open for Ask AI.'
+        : 'curl + SSE is available in rooms where the host has configured a Node bridge. Use Browser + WebMCP for this room.',
+      aiInvite || inviteInput.value
+    ];
+    await navigator.clipboard.writeText(instructions.join('\n\n'));
     copyAIInvite.textContent = 'AI invite copied';
   } catch {
     showStatus('Could not copy the AI invite.');

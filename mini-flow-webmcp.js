@@ -114,7 +114,7 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
   if (typeof context?.registerTool === 'function' && options.registerAgent) {
     await context.registerTool({
       name: 'register_live_agent',
-      description: 'Identify this connected live-session guest as an AI agent. Call once after joining, before editing the live board.',
+      description: 'Identify this connected browser guest as an AI agent. Open the live invite in a browser with WebMCP access, wait for Live · Connected, then call this tool before editing. This path needs no shell or Node bridge. An invite with a bridge query parameter also supports joining through curl and SSE. Choose one path.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       annotations: { idempotentHint: true },
       execute: () => options.registerAgent()

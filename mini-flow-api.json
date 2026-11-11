@@ -371,10 +371,10 @@
         "effects": "Apply one undoable batch to the current tab if its revision matches."
       }
     },
-    "liveSession": "A private #live= invite joins the host board with up to eight guests. Wait for get_board to succeed before editing. A successful edit is acknowledged by the host."
+    "liveSession": "Open the private #live= invite in a browser with WebMCP access, wait for Live · Connected, then call register_live_agent. This method needs no shell or Node bridge. Choose curl and SSE instead if the invite includes a bridge query parameter and you have shell access."
   },
   "curlLiveGuest": {
-    "invite": "Use Copy AI invite in a live room with an AI bridge. The bridge query parameter gives the service address and the #live fragment gives the room and join credential.",
+    "invite": "Copy AI invite documents both methods. curl and SSE are available when the host configures a Node bridge. The bridge query parameter gives the service address and the #live fragment gives the room and join credential.",
     "discovery": "GET {bridge}/v1 for HTTP and SSE join instructions.",
     "guide": "./README.md#join-as-an-ai-guest-with-curl"
   }

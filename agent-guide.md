@@ -96,9 +96,19 @@ copy encoded in the link.
 
 ## Live session
 
-When the user shares a `#live=` invite, open it in a browser tab you control
-and wait for **Live · Connected**. Call `register_live_agent` with `{}` in that
-tab to identify yourself as an AI guest. The host accepts or
+When the user shares a `#live=` invite, choose one method based on the tools
+you have.
+
+- **Browser + WebMCP:** Open the invite in a browser tab you control, wait
+  for **Live · Connected**, and call `register_live_agent` with `{}`.
+  This works with WebMCP browser tools alone.
+- **curl + SSE:** If the invite includes a `bridge` query parameter, fetch
+  that bridge's `/v1` manifest. Join using the room and credential from
+  the fragment, then open the SSE stream for **Ask AI** events. This path
+  requires a Node bridge configured by the host. See the
+  [curl walkthrough](./README.md#join-as-an-ai-guest-with-curl).
+
+The host accepts or
 rejects edits against its current revision, and a successful response means the
 host acknowledged the edit. If the host is editing or its revision changed,
 read the board again before deciding whether to retry. The invite is a private

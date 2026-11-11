@@ -206,7 +206,14 @@ board. See the [Site tools guide](./agent-guide.md#webmcp-site-tools).
 Open the board you want to edit, then choose **Live session → Start live session**
 and share the same **Copy invite** link with your collaborators. Keep the
 host tab open. Up to eight guests can join, including humans and agents.
-The regular **Copy link** still shares a snapshot.
+The regular **Copy link** shares a snapshot. **Copy AI invite** includes
+instructions for both AI join methods and indicates whether the room has a
+curl bridge.
+
+- **Browser + WebMCP** works with a browser tool that can call the page's
+  WebMCP tools. It needs no shell or Node bridge.
+- **curl + SSE** works from a shell without opening a browser. The host needs
+  to configure a running Node bridge before starting the session.
 
 Guests can edit directly on the canvas and see the other participants' cursors
 and selected blocks. The canvas corner shows the number of connected human and

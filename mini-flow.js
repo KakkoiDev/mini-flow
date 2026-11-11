@@ -148,6 +148,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         button,input {background:var(--mf-surface);border:1px solid #bdcbd9;border-radius:8px;padding:8px}
         button {cursor:pointer} button[aria-pressed=true]{background:#e0eaff;border-color:#3965be}
         kbd {margin-inline-start:5px;padding:1px 4px;border:1px solid #bdcbd9;border-radius:4px;font:12px ui-monospace,monospace}
+        .toolbar [data-delete] kbd {font-size:18px;line-height:12px}
         button:disabled {opacity:.45;cursor:default}
         .frame {border:1px solid #bdcbd9;border-radius:12px;overflow:hidden}
         .scroll {position:absolute;inset:0;overflow:hidden;background:var(--mf-canvas) radial-gradient(var(--mf-grid) 1px,transparent 1px) 0 0/16px 16px}
