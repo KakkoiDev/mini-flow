@@ -1,5 +1,12 @@
 # Mini Flow
 
+Mini Flow is a small, dependency-free flowchart editor and reusable browser SDK.
+Build diagrams with start/end blocks, steps, decisions, labeled arrows, and linked
+sticky notes. Embed it in another application, customize its tools and colors,
+or let an AI agent inspect and update the board through the JavaScript API.
+
+[Try the live editor](https://mini-flow.kakkoi.dev/) · [Agent API guide](./agent-guide.md) · [API manifest](./mini-flow-api.json)
+
 Open index.html in a browser. The demo and library work offline.
 To serve locally, run `python3 -m http.server 8765 --bind 127.0.0.1` in this directory and open http://127.0.0.1:8765/.
 
@@ -50,8 +57,20 @@ Mini Flow uses an independent SVG canvas and has no runtime dependencies.
 Copy Mermaid in the source panel, or copy Markdown, SVG markup, or PNG in
 Export. PNG clipboard support depends on the browser.
 
-With focus in the editor, use 1 for Start / End, 2 for Step, 3 for Decision,
-4 for Connect, and Backspace to delete the selection.
+With focus in the editor, use these shortcuts. Label editors and the source
+textarea keep their normal text-editing behavior.
+
+| Key | Action |
+| --- | --- |
+| `1` | Start / End tool |
+| `2` | Step tool |
+| `3` | Decision tool |
+| `4` | Connect tool |
+| `5` | Note tool |
+| `Esc` | Cancel the active tool or connection placement |
+| `Backspace` | Delete the selected block, arrow, or note attachment |
+| `Enter` while editing a label | Save and close the label editor |
+| `Shift+Enter` while editing a label | Insert a line break |
 
 Use Ctrl+Z to undo and Ctrl+Y to redo diagram edits. Cmd+Z and Cmd+Shift+Z
 also work on Mac. Text fields keep their native undo behavior.
