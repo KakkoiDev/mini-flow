@@ -559,11 +559,22 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         edge.labelY = y;
         const active = selected === edge;
         const group = itemGroup(edge, 'Arrow from ' + a.label + ' to ' + b.label);
+        const visibility = editing?.item === edge ? 'hidden' : 'visible';
+        const label = labelText({ x, y, 'text-anchor': 'middle', 'font-size': 13, 'data-edge-label': '',
+          visibility, stroke: dockLayout ? 'none' : palette.canvas, 'stroke-width': 5,
+          'paint-order': 'stroke' }, edge.label);
         group.append(element('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': 22 }),
           element('path', { d, fill: 'none', stroke: active ? palette.accent : palette.stroke, 'stroke-width': 2,
             'marker-end': active ? 'url(#active)' : 'url(#arrow)' }),
-          labelText({ x, y, 'text-anchor': 'middle', 'font-size': 13, 'data-edge-label': '', visibility: editing?.item === edge ? 'hidden' : 'visible', stroke: dockLayout ? '#eee9e3' : palette.canvas, 'stroke-width': dockLayout ? 8 : 5, 'stroke-linejoin': 'round', 'paint-order': 'stroke' }, edge.label));
+          label);
         svg.append(group);
+        if (dockLayout && edge.label.trim()) {
+          const box = label.getBBox();
+          group.insertBefore(element('rect', {
+            x: box.x - 6, y: box.y - 3, width: box.width + 12, height: box.height + 6,
+            rx: 6, fill: '#eee9e3', visibility, 'data-edge-badge': ''
+          }), label);
+        }
         if (focus === edge) group.focus();
       }
       for (const note of graph.nodes.filter(node => node.type === 'note' && node.target !== undefined)) {
@@ -987,7 +998,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       copy.setAttribute('font-size', '15');
       if (dockLayout) copy.setAttribute('font-weight', '650');
       copy.setAttribute('fill', palette.text);
-      for (const label of copy.querySelectorAll('text')) label.removeAttribute('visibility');
+      for (const label of copy.querySelectorAll('text, [data-edge-badge]')) label.removeAttribute('visibility');
       for (const group of copy.querySelectorAll('[role="button"]')) {
         group.removeAttribute('tabindex');
         group.removeAttribute('role');
