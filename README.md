@@ -13,7 +13,7 @@ To serve locally, run `python3 -m http.server 8765 --bind 127.0.0.1` in this dir
 - Scroll to zoom and drag empty canvas to pan. Use Fit to bring the diagram back into view.
 - Double-click a shape or arrow to edit its label. Enter saves and Shift+Enter adds a line break.
 - Use Code & export to download or open a project JSON with editable labels and positions.
-- Open **Projects** in the header to name, save, and browse boards alongside the canvas. Open a saved project before choosing **Save changes** to update it. Download project JSON for a portable backup.
+- Open **Projects** in the header to name, save, and browse boards alongside the canvas. A named project saves automatically while open. Use **Rename** or **Delete** on its row. Projects are stored in this browser. Download project JSON for a portable backup.
 - Scroll or pinch to zoom. Undo and Redo are available in the toolbar.
 - The demo saves each edit in browser storage and in the URL fragment. Copy link shares the current diagram and shape positions.
 - Pick a terminal, step, or decision, then click the canvas to place it. Drag shapes to arrange them.
@@ -205,8 +205,10 @@ host tab open. Up to eight guests can join, including humans and agents.
 The regular **Copy link** still shares a snapshot.
 
 Guests can edit directly on the canvas and see the other participants' cursors
-and selected blocks. Agents can also use `get_board` and `apply_board_edit`
-in a WebMCP-capable browser. The host owns Undo and Redo, and accepted edits
+and selected blocks. The canvas corner shows the number of connected human and
+AI guests, excluding the host. Agents call `register_live_agent` after joining
+through a WebMCP-capable browser, then use `get_board` and `apply_board_edit`.
+The host owns Undo and Redo, and accepted edits
 and Undo or Redo sync to everyone. If edits conflict, the guest sees the current
 board and can retry.
 

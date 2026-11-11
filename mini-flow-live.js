@@ -1,4 +1,4 @@
-const kinds = ['read', 'state', 'edit', 'end', 'presence'];
+const kinds = ['read', 'state', 'edit', 'end', 'presence', 'agent'];
 const maxGuests = 8;
 const invitePattern = /^#live=([a-f0-9]{32})\.([a-f0-9]{32})$/;
 const id = () => crypto.randomUUID().replaceAll('-', '');
@@ -9,7 +9,7 @@ export function readLiveInvite(hash) {
 }
 
 export function createLiveSession({ room, host, getProject, setProject, normalize, canAccept, onStatus, onEnd,
-  onAvailability = () => {}, onPresence = () => {} }) {
+  onAvailability = () => {}, onPresence = () => {}, onGuestCounts = () => {} }) {
   let hostPeer;
   const guests = new Map();
   let closed = false;
@@ -22,6 +22,28 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   let presenceTimer;
   let presenceRevision = 0;
   let presence = { point: null, focus: null };
+  let agentRegistration;
+  let agentRegistered = false;
+
+  function finishAgentRegistration(ok) {
+    if (!agentRegistration) return;
+    const { resolve, timer } = agentRegistration;
+    agentRegistration = undefined;
+    clearTimeout(timer);
+    resolve(ok ? { ok: true } : failure('agent_registration_failed', 'The host did not confirm registration. Try again.'));
+  }
+
+  function registerAgent() {
+    if (host || closed || !hostPeer || !state) {
+      return Promise.resolve(failure('live_not_ready', 'Join a live session as a guest before registering.'));
+    }
+    if (agentRegistration) return agentRegistration.promise;
+    let resolve;
+    const promise = new Promise(done => { resolve = done; });
+    agentRegistration = { promise, resolve, timer: setTimeout(() => finishAgentRegistration(false), 5000) };
+    send('agent', true).catch(() => finishAgentRegistration(false));
+    return promise;
+  }
 
   function available() {
     onAvailability(!closed && (host || Boolean(hostPeer && state && !pending)));
@@ -106,6 +128,12 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   function reportGuestCount() {
     const count = guests.size;
     onStatus(count ? `Live · ${count} ${count === 1 ? 'guest' : 'guests'} connected` : 'Waiting for guests…');
+    onGuestCounts(guestCounts());
+  }
+
+  function guestCounts() {
+    const ai = Array.from(guests.values()).filter(guest => guest.agent).length;
+    return { human: guests.size - ai, ai };
   }
 
   function presenceSnapshot() {
@@ -117,7 +145,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (!host || !guests.size) return;
     const snapshot = presenceSnapshot();
     onPresence(snapshot.filter(item => item.id !== room.selfId));
-    send('presence', { revision: ++presenceRevision, peers: snapshot }, [...guests.keys()]).catch(() => {});
+    send('presence', { revision: ++presenceRevision, peers: snapshot, counts: guestCounts() }, [...guests.keys()]).catch(() => {});
   }
 
   function schedulePresence() {
@@ -142,6 +170,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     } else {
       if (hostPeer) return;
       hostPeer = from;
+      if (agentRegistered) send('agent', true).catch(() => {});
       onStatus('Receiving the board…');
       send('read', null).catch(() => onStatus('Could not request the board.'));
     }
@@ -157,6 +186,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     }
     if (from !== hostPeer) return;
     hostPeer = undefined;
+    finishAgentRegistration(false);
     finish(failure('live_disconnected', 'The other tab disconnected.'));
     state = undefined;
     presenceRevision = 0;
@@ -164,6 +194,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     localDirty = false;
     available();
     onPresence([]);
+    onGuestCounts(null);
     onStatus('Host disconnected. You can wait or choose Leave session to keep editing a copy.');
   });
   room.onRefused?.((_, reason) => {
@@ -231,10 +262,28 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     } else if (from === hostPeer && Array.isArray(data?.peers) &&
       Number.isSafeInteger(data.revision) && data.revision > presenceRevision) {
       presenceRevision = data.revision;
+      if ([data.counts?.human, data.counts?.ai].every(n => Number.isInteger(n) && n >= 0 && n <= maxGuests)) {
+        onGuestCounts(data.counts);
+      }
       onPresence(data.peers.slice(0, maxGuests + 1).filter(item => typeof item?.id === 'string' &&
         item.id !== room.selfId && typeof item.label === 'string').map(item => ({
         id: item.id, label: item.label.slice(0, 32), ...readPresence(item)
       })));
+    }
+  });
+  room.onMessage('agent', (data, from) => {
+    if (closed || data !== true) return;
+    if (host) {
+      const guest = guests.get(from);
+      if (!guest) return;
+      guest.agent = true;
+      guest.label = `AI ${guest.number}`;
+      onGuestCounts(guestCounts());
+      publishPresence();
+      send('agent', true, from).catch(() => {});
+    } else if (from === hostPeer) {
+      agentRegistered = true;
+      finishAgentRegistration(true);
     }
   });
   room.onMessage('end', (_, from) => {
@@ -252,12 +301,15 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     }
     Promise.resolve(departure).catch(() => {}).finally(() => room.leave());
     finish(failure('live_disconnected', 'The live session ended.'));
+    finishAgentRegistration(false);
     available();
     onPresence([]);
+    onGuestCounts(null);
     onEnd();
   }
 
   onStatus(host ? 'Waiting for guests…' : 'Waiting for the host…');
+  if (host) onGuestCounts(guestCounts());
   available();
   return {
     host,
@@ -277,6 +329,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       schedulePresence();
     },
     submit,
+    registerAgent,
     stop
   };
 }

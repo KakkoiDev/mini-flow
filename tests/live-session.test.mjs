@@ -15,10 +15,11 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     let commits = 0;
     let ended = false;
     let presence;
+    let counts;
     const room = joinRoom({ app: 'mini-flow-live-test', room: 'room', password: 'private', network,
       protocol: 2, maxPeers: host ? 8 : 1, profile: { role: host ? 'host' : 'editor' },
       acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host'),
-      kinds: ['read', 'state', 'edit', 'end', 'presence'] });
+      kinds: ['read', 'state', 'edit', 'end', 'presence', 'agent'] });
     const getProject = () => structuredClone(project);
     const setProject = next => {
       project = structuredClone(next);
@@ -29,8 +30,8 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
       if (next.version !== 1) throw new Error('Invalid project');
       return structuredClone(next);
     }, canAccept: () => host ? !hostEditing : !guestEditing, onStatus() {}, onEnd() { ended = true; },
-    onPresence(value) { presence = value; } });
-    return { id: room.selfId, session, getProject, setProject, commits: () => commits, ended: () => ended, presence: () => presence };
+    onPresence(value) { presence = value; }, onGuestCounts(value) { counts = value; } });
+    return { id: room.selfId, session, getProject, setProject, commits: () => commits, ended: () => ended, presence: () => presence, counts: () => counts };
   }
 
   const host = connect(true);
@@ -45,8 +46,13 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
 
     const tools = new Map();
     await registerMiniFlowTools(guest, MiniFlow, { registerTool: tool => tools.set(tool.name, tool.execute) }, {
-      tabId: 'guest', isReady: guest.session.ready, commitProject: guest.session.submit
+      tabId: 'guest', isReady: guest.session.ready, commitProject: guest.session.submit, registerAgent: guest.session.registerAgent
     });
+    assert.deepEqual(host.counts(), { human: 2, ai: 0 });
+    assert.deepEqual(await tools.get('register_live_agent')({}), { ok: true });
+    await network.settle();
+    assert.deepEqual(host.counts(), { human: 1, ai: 1 });
+    assert.deepEqual(secondGuest.counts(), host.counts());
     const getBoard = tools.get('get_board');
     const edit = tools.get('apply_board_edit');
     const { revision } = await getBoard();
@@ -98,6 +104,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     secondGuest.session.stop();
     await network.settle();
     assert.equal(guest.presence().some(peer => peer.id === secondGuest.id), false);
+    assert.deepEqual(host.counts(), { human: 0, ai: 1 });
 
     const stale = guest.session.submit(makeProject('Stale edit'), 'Stale');
     host.setProject(makeProject('Host edit'));

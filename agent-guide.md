@@ -97,7 +97,8 @@ copy encoded in the link.
 ## Live session
 
 When the user shares a `#live=` invite, open it in a browser tab you control
-and wait for **Live · Connected**. Use WebMCP on that tab. The host accepts or
+and wait for **Live · Connected**. Call `register_live_agent` with `{}` in that
+tab to identify yourself as an AI guest. The host accepts or
 rejects edits against its current revision, and a successful response means the
 host acknowledged the edit. If the host is editing or its revision changed,
 read the board again before deciding whether to retry. The invite is a private
@@ -112,6 +113,8 @@ A regular board link opens a snapshot.
 - `get_board` returns `{ tabId, revision, project }` for the current browser
   instance. Use its revision for the edit on that same instance.
 - `apply_board_edit` validates and applies a batch as one undoable update.
+- `register_live_agent` identifies the current guest as AI after the host
+  acknowledges it. Repeat calls keep the same guest identity and count.
 
 ```json
 {

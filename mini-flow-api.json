@@ -176,6 +176,11 @@
   "webmcp": {
     "module": "./mini-flow-webmcp.js",
     "tools": {
+      "register_live_agent": {
+        "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+        "availability": "A guest tab joined from a live session invite",
+        "effects": "Identify the current guest as AI after the host acknowledges the registration. Repeated calls count the same guest once."
+      },
       "get_board": {
         "readOnly": true,
         "returns": {

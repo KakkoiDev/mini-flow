@@ -100,7 +100,7 @@ function applyEdits(project, edits, library) {
 }
 
 export async function registerMiniFlowTools(editor, library = globalThis.MiniFlow, context = document.modelContext, options = {}) {
-  return registerRevisionedBoardTools({
+  await registerRevisionedBoardTools({
     context, editSchema, tabId: options.tabId, isReady: options.isReady,
     getProject: () => editor.getProject(),
     applyEdits: (project, edits) => applyEdits(project, edits, library),
@@ -111,5 +111,14 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
     readDescription: 'Read the Mini Flow diagram in this tab. Returns its tab ID, revision, and project, including node positions and Mermaid metadata for notes and bends. Read before applying edits.',
     editDescription: 'Edit the Mini Flow diagram in this tab. Use the revision from get_board on this same tab. Applies the full batch as one Undo step and highlights changes. A revision conflict leaves the board untouched.'
   });
+  if (typeof context?.registerTool === 'function' && options.registerAgent) {
+    await context.registerTool({
+      name: 'register_live_agent',
+      description: 'Identify this connected live-session guest as an AI agent. Call once after joining, before editing the live board.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      annotations: { idempotentHint: true },
+      execute: () => options.registerAgent()
+    });
+  }
 }
 

@@ -91,11 +91,18 @@ dialog button:disabled{opacity:.5;cursor:default}
     #saved-project-status:empty {display:none}
     #saved-project-list {margin:14px 0 0;padding:0;list-style:none}
     #saved-project-list li {display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 8px;
-      border-top:1px solid #e7e2dc;overflow-wrap:anywhere}
+      border-top:1px solid #e7e2dc;overflow-wrap:anywhere;flex-wrap:wrap}
     #saved-project-list li:has([aria-current=true]) {background:#eaf4ef;border-radius:8px}
     #saved-project-list li > div {min-width:0}
     #saved-project-list small {display:block;margin-top:2px;color:var(--mf-stroke);font-size:12px}
     #saved-project-list button {flex:none;min-height:36px;border-color:#ded9d2}
+    .project-row-actions {display:flex;gap:5px}
+    .project-row-actions button:not(:first-child) {background:transparent;border-color:transparent;font-size:13px}
+    .project-action-form {flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+    .project-action-form label {width:100%;font-size:13px}
+    .project-action-form input {display:block;width:100%;margin-top:4px}
+    .live-guest-counter {position:absolute;bottom:10px;right:12px;z-index:2;pointer-events:none;
+      padding:5px 9px;background:var(--mf-surface);border:1px solid #ded9d2;border-radius:8px;color:var(--mf-stroke);font-size:12px}
     @media (max-width:849px) {
       .dock-layout .workspace-panel {bottom:auto;max-height:56%;box-shadow:0 4px 16px #332c221c}
     }
@@ -133,7 +140,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=guest-copy"></script>
+<script src="./mini-flow.js?v=guest-counter"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -168,14 +175,15 @@ let joiningLive = location.hash.startsWith('#live=');
 let liveBoard;
 let activeSavedProject = joiningLive ? null : history.state?.miniFlowSavedProject;
 let syncSavedProjects;
-function setActiveSavedProject(record) {
-  activeSavedProject = record ? { name: record.name, revision: record.revision } : null;
-  if (record && !joiningLive) {
+let autosaveProject;
+function setActiveSavedProject(record, { reuse = false, silent = false } = {}) {
+  if (!reuse) activeSavedProject = record ? { name: record.name, revision: record.revision } : null;
+  if (record && !joiningLive && !silent) {
     const { source, positions } = editor.getProject();
     save(source, positions);
   }
   try { history.replaceState({ ...history.state, miniFlowSavedProject: activeSavedProject }, '', location.href); } catch {}
-  syncSavedProjects?.();
+  if (!silent) syncSavedProjects?.();
 }
 const sharedSession = joiningLive || ((location.hash.startsWith(prefix) || location.hash.startsWith(proposalPrefix)) &&
   !history.state?.miniFlowLocal);
@@ -254,6 +262,7 @@ const editor = MiniFlow.mount(editorHost, saved?.source ?? example,
       if (!joiningLive) {
         liveNotice.textContent = '';
         save(source, positions);
+        autosaveProject?.({ version: 1, source, positions });
       }
       liveBoard?.changed();
     }, onPresence: presence => liveBoard?.updatePresence(presence),
@@ -287,6 +296,7 @@ function setGuestAvailability(available) {
   for (const control of [document.querySelector('#blank'), document.querySelector('#open-saved-projects'), viewActions.querySelector('[data-layout]'), panelButton]) {
     if (control) control.inert = locked;
   }
+  if (joiningLive && available) autosaveProject?.(editor.getProject());
 }
 setGuestAvailability(false);
 const proposalDialog = document.querySelector('#edit-proposal');
@@ -406,9 +416,9 @@ document.querySelector('#share').onclick = async () => {
 };
 </script>
 <script type="module">
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=ai-core';
-import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=4';
-import { setupSavedProjects } from './mini-flow-projects.js?v=2';
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=agent-presence';
+import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=5';
+import { setupSavedProjects } from './mini-flow-projects.js?v=3';
 
 const projectsButton = document.createElement('button');
 projectsButton.id = 'open-saved-projects';
@@ -418,6 +428,18 @@ projectsButton.inert = joiningLive;
 panelButton.before(projectsButton);
 
 const editorRoot = editorHost.firstElementChild.shadowRoot;
+const guestCounter = document.createElement('div');
+guestCounter.className = 'live-guest-counter';
+guestCounter.hidden = true;
+guestCounter.setAttribute('role', 'status');
+guestCounter.title = 'Connected guests, excluding the host';
+editorRoot.querySelector('.scroll').append(guestCounter);
+function showGuestCounts(counts) {
+  guestCounter.hidden = !counts;
+  if (!counts) return;
+  const label = counts.human + ' human · ' + counts.ai + ' AI';
+  if (guestCounter.textContent !== label) guestCounter.textContent = label;
+}
 const codePanel = editorRoot.querySelector('.panel');
 const projectsPanel = document.querySelector('#projects-panel-template').content.firstElementChild.cloneNode(true);
 codePanel.after(projectsPanel);
@@ -429,8 +451,10 @@ const panels = [
   { button: panelButton, panel: codePanel, title: 'Code & export' }
 ];
 const savedProjects = setupSavedProjects({ panel: projectsPanel, editor,
-  normalize: normalizeProject, getActive: () => activeSavedProject, setActive: setActiveSavedProject });
+  normalize: normalizeProject, getActive: () => activeSavedProject, setActive: setActiveSavedProject,
+  onError: text => { message.textContent = text; } });
 syncSavedProjects = savedProjects.syncActive;
+autosaveProject = savedProjects.autosave;
 
 function showPanel(active) {
   for (const { button, panel } of panels) {
@@ -510,7 +534,7 @@ async function startLive(invite, host) {
     liveBoard = await connectLiveBoard(invite, host, {
       getProject: editor.getProject, setProject: editor.setProject, normalize: normalizeProject,
       canAccept: () => !editor.isInteracting(), onStatus: showStatus, onEnd: ended,
-      onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence
+      onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts
     });
     liveToggle.dataset.active = '';
     liveToggleState.textContent = 'On';
@@ -559,6 +583,7 @@ if (joiningLive) {
 }
 
 registerMiniFlowTools(editor, undefined, undefined, {
+  registerAgent: joiningLive ? () => liveBoard?.registerAgent() ?? { ok: false, reason: 'live_not_ready' } : undefined,
   isReady: () => !joiningLive || Boolean(liveBoard?.ready()),
   commitProject(project, message) {
     if (joiningLive) return liveBoard?.submit(project, message) ??

@@ -292,7 +292,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           const cursor = document.createElement('span'), outline = document.createElement('span');
           cursor.className = 'peer-cursor';
           outline.className = 'peer-focus';
-          const guestNumber = Number(/^Guest (\d+)$/.exec(label)?.[1]);
+          const guestNumber = Number(/^(?:Guest|AI) (\d+)$/.exec(label)?.[1]);
           const color = peerColors[(guestNumber - 1) % peerColors.length] ?? '#185d78';
           for (const element of [outline, cursor]) {
             element.setAttribute('aria-hidden', 'true');
