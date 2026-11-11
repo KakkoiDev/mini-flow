@@ -13,6 +13,7 @@ To serve locally, run `python3 -m http.server 8765 --bind 127.0.0.1` in this dir
 - Scroll to zoom and drag empty canvas to pan. Use Fit to bring the diagram back into view.
 - Double-click a shape or arrow to edit its label. Enter saves and Shift+Enter adds a line break.
 - Use Code & export to download or open a project JSON with editable labels and positions.
+- Use **Saved projects** in the header to name, save, and reopen boards in this browser. Open a saved project before choosing **Save changes** to update it. Download project JSON for a portable backup.
 - Scroll or pinch to zoom. Undo and Redo are available in the toolbar.
 - The demo saves each edit in browser storage and in the URL fragment. Copy link shares the current diagram and shape positions.
 - Pick a terminal, step, or decision, then click the canvas to place it. Drag shapes to arrange them.

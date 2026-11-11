@@ -55,6 +55,14 @@ dialog form{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
 dialog button{font:inherit;padding:8px 12px;min-height:44px;border:1px solid #ded9d2;border-radius:8px;background:#fffdfb;color:inherit;cursor:pointer}
 dialog #apply-proposal{background:#e4f4ee;border-color:#a7cfc4}
 dialog button:disabled{opacity:.5;cursor:default}
+#saved-project-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 8px;align-items:end;justify-content:stretch}
+#saved-project-form label{grid-column:1/-1;font-size:14px;font-weight:650}
+#saved-project-name{min-width:0;box-sizing:border-box;min-height:44px;padding:8px 10px;font:inherit;color:inherit;border:1px solid #ded9d2;border-radius:8px;background:white}
+#save-project{background:#e4f4ee;border-color:#a7cfc4}
+#saved-project-status:empty{display:none}
+#saved-project-list{margin:18px 0 0;padding:0;list-style:none}
+#saved-project-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid #e7e2dc;overflow-wrap:anywhere}
+#saved-project-list small{display:block;margin-top:2px;color:#4c6660}
 </style>
 <main>
   <header><h1><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M3 19a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" /><path d="M19 7a2 2 0 1 0 0 -4a2 2 0 0 0 0 4" /><path d="M11 19h5.5a3.5 3.5 0 0 0 0 -7h-8a3.5 3.5 0 0 1 0 -7h4.5" /></svg>Mini Flow</h1><button id="blank"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M12 5l0 14" /><path d="M5 12l14 0" /></svg><span>Start blank</span></button><button id="share"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M9 15l6 -6" /><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464" /><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463" /></svg><span>Copy link</span></button><span id="save-status" role="status"></span></header>
@@ -73,6 +81,17 @@ dialog button:disabled{opacity:.5;cursor:default}
     <button id="live-end" type="button" hidden>End session</button>
     <button>Close</button>
   </form>
+</dialog>
+<dialog id="saved-projects" aria-labelledby="saved-projects-title">
+  <h2 id="saved-projects-title">Saved projects</h2>
+  <form id="saved-project-form">
+    <label for="saved-project-name">Project name</label>
+    <input id="saved-project-name" name="name" maxlength="80" autocomplete="off" required>
+    <button id="save-project" type="submit">Save project</button>
+  </form>
+  <p id="saved-project-status" role="status"></p>
+  <ul id="saved-project-list" aria-label="Projects saved in this browser"></ul>
+  <form method="dialog"><button>Close</button></form>
 </dialog>
 <dialog id="edit-proposal" aria-labelledby="proposal-title">
   <h2 id="proposal-title">Apply diagram edit?</h2>
@@ -118,6 +137,15 @@ const prefix = '#flow=';
 const proposalPrefix = '#apply=';
 let joiningLive = location.hash.startsWith('#live=');
 let liveBoard;
+let activeSavedProject = joiningLive ? null : history.state?.miniFlowSavedProject;
+function setActiveSavedProject(record) {
+  activeSavedProject = record ? { name: record.name, revision: record.revision } : null;
+  if (record && !joiningLive) {
+    const { source, positions } = editor.getProject();
+    save(source, positions);
+  }
+  try { history.replaceState({ ...history.state, miniFlowSavedProject: activeSavedProject }, '', location.href); } catch {}
+}
 const sharedSession = joiningLive || ((location.hash.startsWith(prefix) || location.hash.startsWith(proposalPrefix)) &&
   !history.state?.miniFlowLocal);
 const message = document.querySelector('#save-status');
@@ -182,7 +210,7 @@ function save(source, positions) {
   }
   const hash = prefix + encodeURIComponent(raw);
   if (location.hash !== hash) {
-    try { history.replaceState({ miniFlowLocal: !sharedSession }, '', hash); }
+    try { history.replaceState({ ...history.state, miniFlowLocal: !sharedSession }, '', hash); }
     catch { message.textContent = 'Could not update the share link.'; }
   }
 }
@@ -225,7 +253,7 @@ liveToggle.closest('header').append(liveNotice);
 function setGuestAvailability(available) {
   const locked = joiningLive && !available;
   editorHost.inert = locked;
-  for (const control of [document.querySelector('#blank'), viewActions.querySelector('[data-layout]'), panelButton]) {
+  for (const control of [document.querySelector('#blank'), document.querySelector('#open-saved-projects'), viewActions.querySelector('[data-layout]'), panelButton]) {
     if (control) control.inert = locked;
   }
 }
@@ -309,7 +337,7 @@ proposalDialog.addEventListener('close', () => {
   if (location.hash.startsWith(proposalPrefix)) {
     const { source, positions } = editor.getProject();
     const hash = prefix + encodeURIComponent(JSON.stringify({ source, positions }));
-    history.replaceState({ miniFlowLocal: !sharedSession }, '', hash);
+    history.replaceState({ ...history.state, miniFlowLocal: !sharedSession }, '', hash);
   }
 });
 window.addEventListener('hashchange', () => {
@@ -322,7 +350,10 @@ window.addEventListener('hashchange', () => {
   else if (proposalDialog.open) proposalDialog.close();
 });
 reviewProposal(initialProposal);
-document.querySelector('#blank').onclick = () => editor.setMermaid('flowchart TD');
+document.querySelector('#blank').onclick = () => {
+  setActiveSavedProject(null);
+  editor.setMermaid('flowchart TD');
+};
 let copyTimer;
 document.querySelector('#share').onclick = async () => {
   const { source, positions } = editor.getProject();
@@ -346,6 +377,17 @@ document.querySelector('#share').onclick = async () => {
 <script type="module">
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=ai-core';
 import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=4';
+import { setupSavedProjects } from './mini-flow-projects.js?v=1';
+
+const savedProjectsButton = document.createElement('button');
+savedProjectsButton.id = 'open-saved-projects';
+savedProjectsButton.type = 'button';
+savedProjectsButton.textContent = 'Saved projects';
+savedProjectsButton.setAttribute('aria-haspopup', 'dialog');
+savedProjectsButton.inert = joiningLive;
+document.querySelector('#blank').before(savedProjectsButton);
+setupSavedProjects({ dialog: document.querySelector('#saved-projects'), trigger: savedProjectsButton, editor,
+  normalize: normalizeProject, getActive: () => activeSavedProject, setActive: setActiveSavedProject });
 
 const liveDialog = document.querySelector('#live-session');
 const liveStatus = document.querySelector('#live-status');
