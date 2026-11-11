@@ -216,10 +216,15 @@ The host owns Undo and Redo, and accepted edits
 and Undo or Redo sync to everyone. If edits conflict, the guest sees the current
 board and can retry.
 
-When an AI guest is connected, select a sticky note and click **Ask AI** in
-the toolbar. This sends the note and its attachment to the AI guests. Agents
-can receive requests during an active `wait_for_ai_request` call. The live
-share does not start a new chat turn on its own.
+When an AI guest is connected, select a sticky note and click **Ask AI** on
+its corner. The note shows when it is waiting and which AI guest claimed it.
+Only the first AI guest to claim the request gets it from
+`wait_for_ai_request`. That call runs during an active agent turn.
+
+Participants see draft text, drag movement, and tool icons as they edit.
+Live guests get a separate note color, and notes return to yellow when the
+session ends. AI guests can report progress with `report_ai_activity`, and
+new blocks and arrows appear in sequence after the host accepts an AI edit.
 
 When the host ends the session or a guest leaves, the guest can continue
 editing their own copy. Mini Flow switches the guest's URL to a snapshot and

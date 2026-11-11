@@ -182,7 +182,6 @@
         "effects": "Identify the current guest as AI after the host acknowledges the registration. Repeated calls count the same guest once."
       },
       "wait_for_ai_request": {
-        "readOnly": true,
         "availability": "A registered AI guest in a live session",
         "inputSchema": {
           "type": "object",
@@ -192,7 +191,17 @@
             "timeoutMs": { "type": "integer", "minimum": 0, "maximum": 15000, "default": 12000 }
           }
         },
-        "returns": "{ ok, request } where request has sequence, requester, and note with id, text, and target, or is null on timeout."
+        "returns": "{ ok, request } where only the winning guest receives the request with id, sequence, requester, and note. A null request means no claim was acquired."
+      },
+      "report_ai_activity": {
+        "availability": "A registered AI guest in a live session",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["message"],
+          "properties": { "message": { "type": "string", "maxLength": 200 } }
+        },
+        "effects": "Show progress to live participants. An empty message clears progress and completes the guest's claimed request."
       },
       "get_board": {
         "readOnly": true,

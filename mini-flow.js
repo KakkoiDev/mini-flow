@@ -163,6 +163,22 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);min-width:48px;min-height:1.2em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.2;color:var(--mf-text);outline:none;background:transparent}
         .status:empty {display:none}
         .peer-cursor, .peer-focus {position:absolute;pointer-events:none;z-index:2}
+        .peer-cursor svg {width:14px;height:14px;vertical-align:middle;margin-right:4px}
+        .peer-activity {position:absolute;z-index:1;bottom:calc(var(--dock-height, 55px) + var(--dock-bottom, 12px) + 10px);
+          left:12px;max-width:calc(100% - 24px);padding:6px 9px;border-radius:8px;background:var(--mf-surface);
+          border:1px solid #ded9d2;color:var(--mf-text);font-size:12px;pointer-events:none;overflow-wrap:anywhere}
+        .live-reveal {animation:live-reveal .24s ease-out backwards}
+        @keyframes live-reveal {from {opacity:0} to {opacity:1}}
+        @media (prefers-reduced-motion:reduce) {.live-reveal {animation:none}}
+        .note-action {position:absolute;z-index:2;display:flex;align-items:center;gap:5px;
+          min-height:34px;padding:4px 8px;white-space:nowrap;font-size:12px;font-weight:650;
+          background:var(--mf-surface);border-color:var(--mf-accent);box-shadow:0 2px 8px #332c2220}
+        .note-action svg {width:16px;height:16px}
+        .note-ai-mark {pointer-events:none}
+        .note-ai-spinner {fill:none;stroke:var(--mf-accent);stroke-width:2.2;stroke-dasharray:18 12;
+          transform-box:fill-box;transform-origin:center;animation:note-ai-spin .85s linear infinite}
+        @keyframes note-ai-spin {to {transform:rotate(360deg)}}
+        @media (prefers-reduced-motion:reduce) {.note-ai-spinner {animation:none}}
         .peer-cursor {padding:3px 7px;margin:12px 0 0 12px;border-radius:6px;background:var(--peer-color,#185d78);color:#fff;font-size:12px;white-space:nowrap}
         .peer-cursor::before {content:'';position:absolute;left:-10px;top:-10px;width:14px;height:18px;background:inherit;clip-path:polygon(0 0,100% 60%,53% 64%,35% 100%)}
         .peer-focus {border:2px dashed var(--peer-color,#185d78);border-radius:8px;box-sizing:border-box}
@@ -216,11 +232,11 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .dock-layout .toolbar input {accent-color:var(--mf-accent);width:17px;height:17px;margin:0}
         .dock-layout .status {inset:8px auto auto 12px;min-height:0;max-width:calc(100% - 24px);
           padding:6px 9px;border:0;background:var(--mf-canvas);color:var(--mf-stroke);font-size:12px}
-        .dock-layout .panel {inset:0 0 calc(var(--dock-height) + var(--dock-bottom) + 8px) auto;
-          max-height:none;border-radius:0;border-width:0 0 1px 1px;box-shadow:none;width:min(350px,100%)}
+        .dock-layout .panel {inset:12px 12px calc(var(--dock-height) + var(--dock-bottom) + 8px) auto;
+          max-height:none;border-radius:14px;border:1px solid #ded9d2;box-shadow:0 4px 16px #332c2220;
+          width:min(350px,calc(100% - 24px))}
         .dock-layout .connection-actions button {background:#e4f4ee;border-color:#a7cfc4}
         @media (min-width: 850px) {
-          .dock-layout:has(.panel:not([hidden])) .scroll {right:350px}
           .dock-layout:has(.panel:not([hidden])) .status {max-width:calc(100% - 374px)}
         }
         @media (max-width: 550px) {
@@ -370,12 +386,64 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     const peerOverlays = new Map();
     const peerColors = ['#6d3c83', '#9b422d', '#316849', '#28549a', '#8a3462', '#426037', '#644b28', '#375c73'];
     let peerPresence = [], pointerPosition = null;
+    let noteOwners = {}, aiRequests = {}, remoteDrafts = [], draftKey = '', noteAction;
+    const activityList = document.createElement('div');
+    activityList.className = 'peer-activity';
+    activityList.hidden = true;
+    viewport.append(activityList);
+    function noteFill(id) {
+      const color = noteOwners[id];
+      if (!Number.isSafeInteger(color) || color < 1) return palette.note ?? '#fff4ae';
+      const hues = [210, 140, 275, 15, 325, 175, 245, 88];
+      return `hsl(${hues[color - 1] ?? (color * 137.5) % 360} 65% 86%)`;
+    }
+    function setNoteColors(colors) {
+      noteOwners = colors;
+      for (const shape of svg.querySelectorAll('[data-note-fill]')) {
+        shape.setAttribute('fill', noteFill(shape.getAttribute('data-note-fill')));
+      }
+    }
+    function positionNoteAction() {
+      if (!noteAction) return;
+      const node = selected?.type === 'note' ? selected : null;
+      const active = node && Object.hasOwn(aiRequests, node.id);
+      noteAction.hidden = !node || !noteActionAvailable || Boolean(active) || Boolean(editing || drag);
+      if (noteAction.hidden) return;
+      const right = (node.x + radius(node) - cameraX) * zoom;
+      const upper = (node.y - height(node) - cameraY) * zoom;
+      if (right < 0 || upper > viewport.clientHeight || right - radius(node) * 2 * zoom > viewport.clientWidth ||
+          upper + height(node) * 2 * zoom < 0) {
+        noteAction.hidden = true;
+        return;
+      }
+      const left = right - 8;
+      const top = upper - noteAction.offsetHeight + 7;
+      noteAction.style.left = Math.max(4, Math.min(left, viewport.clientWidth - noteAction.offsetWidth - 4)) + 'px';
+      noteAction.style.top = Math.max(4, Math.min(top, viewport.clientHeight - noteAction.offsetHeight - 4)) + 'px';
+    }
+    let noteActionAvailable = false;
+    function setNoteAction(button, available) {
+      if (noteAction !== button) viewport.append(button);
+      noteAction = button;
+      noteActionAvailable = available;
+      positionNoteAction();
+    }
+    function setAIRequests(next) {
+      if (JSON.stringify(aiRequests) === JSON.stringify(next)) return;
+      aiRequests = next;
+      render();
+    }
     function publishPresence() {
+      const item = editing?.item ?? (drag?.moved ? drag.node : null);
+      const draft = item?.type ? { id: item.id, type: item.type, text: item.label, position: [item.x, item.y] }
+        : item ? { id: item.from, type: 'edge', to: item.to, index: graph.edges.indexOf(item), text: item.label } : null;
+      const tool = pendingShape?.dataset.shape ?? (laserActive ? 'laser' : bending ? 'bend'
+        : connect.getAttribute('aria-pressed') === 'true' ? 'connect' : null);
       onPresence?.({ point: pointerPosition, focus: selected?.type ? selected.id : null,
-        ...(laserPoints.length ? { laser: laserPoints } : {}) });
+        ...(laserPoints.length ? { laser: laserPoints } : {}), draft, tool });
     }
     function renderPresence() {
-      for (const { id, label, point, focus } of peerPresence) {
+      for (const { id, label, point, focus, tool, draft } of peerPresence) {
         let overlay = peerOverlays.get(id);
         if (!overlay) {
           const cursor = document.createElement('span'), outline = document.createElement('span');
@@ -396,14 +464,23 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         if (point) {
           cursor.style.left = (point[0] - cameraX) * zoom + 'px';
           cursor.style.top = (point[1] - cameraY) * zoom + 'px';
-          cursor.textContent = label;
+          if (overlay.tool !== tool || overlay.label !== label) {
+            const icon = [...shadow.querySelectorAll('[data-shape]')]
+              .find(button => button.dataset.shape === tool)?.querySelector('svg') ??
+              (tool === 'connect' ? connect.querySelector('svg') : tool === 'laser' ? laserButton.querySelector('svg')
+                : tool === 'bend' ? bendButton.querySelector('svg') : null);
+            cursor.replaceChildren(...(icon ? [icon.cloneNode(true)] : []), label);
+            overlay.tool = tool;
+            overlay.label = label;
+          }
         }
         const node = focus && graph.nodes.find(item => item.id === focus);
         outline.hidden = !node;
         if (node) {
           const w = radius(node), h = height(node);
-          outline.style.left = (node.x - w - cameraX) * zoom - 5 + 'px';
-          outline.style.top = (node.y - h - cameraY) * zoom - 5 + 'px';
+          const [x, y] = draft?.id === node.id && draft.position ? draft.position : [node.x, node.y];
+          outline.style.left = (x - w - cameraX) * zoom - 5 + 'px';
+          outline.style.top = (y - h - cameraY) * zoom - 5 + 'px';
           outline.style.width = 2 * w * zoom + 10 + 'px';
           outline.style.height = 2 * h * zoom + 10 + 'px';
         }
@@ -431,7 +508,16 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         outline.remove();
         peerOverlays.delete(id);
       }
-      renderPresence();
+      const activities = peerPresence.filter(peer => peer.activity).map(peer => peer.label + ' · ' + peer.activity);
+      activityList.hidden = !activities.length;
+      activityList.textContent = activities.join('  •  ');
+      const drafts = peerPresence.flatMap(peer => peer.draft ? [peer.draft] : []);
+      const key = JSON.stringify(drafts);
+      if (key !== draftKey) {
+        draftKey = key;
+        remoteDrafts = drafts;
+        render();
+      } else renderPresence();
     }
     if (onPresence) {
       svg.addEventListener('pointermove', event => { pointerPosition = world(event); publishPresence(); });
@@ -463,6 +549,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       viewport.style.backgroundPosition = (-cameraX * zoom) + 'px ' + (-cameraY * zoom) + 'px';
       positionEditor();
       positionBendControls();
+      positionNoteAction();
       renderPresence();
     }
     function fit() {
@@ -543,6 +630,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         syncSource();
         render();
         positionEditor();
+        publishPresence();
       }
       field.addEventListener('input', updateLabel);
       field.addEventListener('blur', () => {
@@ -550,6 +638,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         editing = undefined;
         field.remove();
         changed();
+        publishPresence();
         // Keep the current pointer target alive until its click has completed.
         requestAnimationFrame(() => { if (!drag && !pan) render(); });
       }, { once: true });
@@ -573,6 +662,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         }
       });
       render();
+      publishPresence();
       field.focus({ preventScroll: true });
       const range = document.createRange();
       range.selectNodeContents(field);
@@ -869,8 +959,15 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       onSelection?.(item?.type ? { id: item.id, type: item.type } : null);
       publishPresence();
     }
-    function render(focus) {
+    function render(focus, reveal = [], includeDrafts = true) {
       svg.replaceChildren();
+      const revealOrder = new Map(reveal.map((item, index) => [item, index]));
+      const revealStep = Math.min(65, 1100 / Math.max(1, reveal.length - 1));
+      function animate(group, item) {
+        if (!revealOrder.has(item)) return;
+        group.classList.add('live-reveal');
+        group.style.animationDelay = revealOrder.get(item) * revealStep + 'ms';
+      }
       const defs = element('defs', {});
       for (const [id, color] of [['arrow', palette.stroke], ['active', palette.accent]]) {
         const marker = element('marker', { id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto' });
@@ -878,8 +975,15 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         defs.append(marker);
       }
       svg.append(defs);
-      const byId = new Map(graph.nodes.map(node => [node.id, node]));
-      for (const edge of graph.edges) {
+      const drafts = includeDrafts ? remoteDrafts : [];
+      const nodeDrafts = new Map(drafts.filter(draft => draft.position).map(draft => [draft.id, draft]));
+      const edgeDrafts = new Map(drafts.filter(draft => draft.type === 'edge').map(draft => [draft.index, draft]));
+      const byId = new Map(graph.nodes.map(node => {
+        const draft = nodeDrafts.get(node.id);
+        return [node.id, draft && draft.type === node.type && editing?.item !== node && drag?.node !== node
+          ? { ...node, x: draft.position[0], y: draft.position[1], label: draft.text } : node];
+      }));
+      for (const [edgeIndex, edge] of graph.edges.entries()) {
         const a = byId.get(edge.from), b = byId.get(edge.to);
         let start, end, d, x, y;
         if (edge.bend) {
@@ -925,10 +1029,12 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         }
         const active = selected === edge || reconnect?.candidate === edge;
         const group = itemGroup(edge, 'Arrow from ' + a.label + ' to ' + b.label);
+        const draft = edgeDrafts.get(edgeIndex);
+        const text = draft?.id === edge.from && draft.to === edge.to && editing?.item !== edge ? draft.text : edge.label;
         const visibility = editing?.item === edge ? 'hidden' : 'visible';
         const label = labelText({ x, y, 'text-anchor': 'middle', 'font-size': 13, 'data-edge-label': '',
           visibility, stroke: dockLayout ? 'none' : palette.canvas, 'stroke-width': 5,
-          'paint-order': 'stroke' }, edge.label);
+          'paint-order': 'stroke' }, text);
         group.append(element('path', { d, fill: 'none', stroke: 'transparent', 'stroke-width': 22 }),
           element('path', { d, fill: 'none', stroke: active ? palette.accent : palette.stroke, 'stroke-width': 2,
             'marker-end': active ? 'url(#active)' : 'url(#arrow)' }),
@@ -937,9 +1043,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           group.prepend(element('path', { d, fill: 'none', stroke: palette.accent, 'stroke-width': 8,
             opacity: .25, 'pointer-events': 'none', 'data-update-highlight': '' }));
         }
+        animate(group, edge);
         svg.append(group);
         connectionGeometry.set(edge, { from: start, to: end, hitPath: group.querySelector('path[stroke="transparent"]') });
-        if (dockLayout && edge.label.trim()) {
+        if (dockLayout && text.trim()) {
           const box = label.getBBox();
           group.insertBefore(element('rect', {
             x: box.x - 6, y: box.y - 3, width: box.width + 12, height: box.height + 6,
@@ -949,11 +1056,12 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         if (focus === edge) group.focus();
       }
       for (const note of graph.nodes.filter(node => node.type === 'note' && node.target !== undefined)) {
+        const shown = byId.get(note.id);
         const target = typeof note.target === 'string' ? byId.get(note.target) : graph.edges[note.target];
         if (!target) continue;
         const [x, y] = target.type
-          ? point(target, note.x - target.x, note.y - target.y) : [target.labelX, target.labelY];
-        const [startX, startY] = point(note, x - note.x, y - note.y);
+          ? point(target, shown.x - target.x, shown.y - target.y) : [target.labelX, target.labelY];
+        const [startX, startY] = point(shown, x - shown.x, y - shown.y);
         const attachment = selected?.attachment === note ? selected : { attachment: note };
         const group = element('g', { role: 'button', tabindex: 0,
           'aria-label': 'Attachment for ' + note.label });
@@ -981,11 +1089,12 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         if (focus === attachment) group.focus({ preventScroll: true });
       }
       for (const node of graph.nodes) {
+        const shown = byId.get(node.id);
         const group = itemGroup(node, node.type + ': ' + node.label);
-        group.setAttribute('transform', 'translate(' + node.x + ' ' + node.y + ')');
-        const w = radius(node), h = height(node);
+        group.setAttribute('transform', 'translate(' + shown.x + ' ' + shown.y + ')');
+        const w = radius(shown), h = height(shown);
         const paint = {
-          fill: palette[node.type] ?? (node.type === 'note' ? '#fff4ae' : palette.step),
+          fill: node.type === 'note' ? noteFill(node.id) : palette[node.type] ?? palette.step,
           stroke: selected === node || origin === node || reconnect?.candidate === node ? palette.accent : palette.stroke,
           'stroke-width': selected === node || origin === node ? 3 : 1.5
         };
@@ -998,8 +1107,19 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         group.append(custom ? custom.draw({ element, node: { ...node }, width: w * 2, height: h * 2, paint })
           : node.type === 'decision'
           ? element('polygon', { points: '0,' + -h + ' ' + w + ',0 0,' + h + ' ' + -w + ',0', ...paint })
-          : element('rect', { x: -w, y: -h, width: 2*w, height: 2*h, rx: node.type === 'terminal' ? h : 4, ...paint }),
-          labelText({ 'text-anchor': 'middle', visibility: editing?.item === node ? 'hidden' : 'visible' }, node.label));
+          : element('rect', { x: -w, y: -h, width: 2*w, height: 2*h, rx: node.type === 'terminal' ? h : 4, ...paint,
+            ...(node.type === 'note' ? { 'data-note-fill': node.id } : {}) }),
+          labelText({ 'text-anchor': 'middle', visibility: editing?.item === node ? 'hidden' : 'visible' }, shown.label));
+        if (node.type === 'note' && Object.hasOwn(aiRequests, node.id)) {
+          const label = aiRequests[node.id] === 'Waiting for AI' ? 'Waiting for AI' : aiRequests[node.id] + ' working';
+          const badgeWidth = label.length * 7 + 30;
+          const badge = element('g', { class: 'note-ai-mark', transform: `translate(${w - badgeWidth + 8} ${-h - 13})`,
+            role: 'img', 'aria-label': label });
+          badge.append(element('rect', { width: badgeWidth, height: 26, rx: 9, fill: palette.surface, stroke: palette.accent }),
+            element('circle', { class: 'note-ai-spinner', cx: 13, cy: 13, r: 6 }),
+            element('text', { x: 24, y: 17, 'font-size': 12 }, label));
+          group.append(badge);
+        }
         if (connect.getAttribute('aria-pressed') === 'false') {
           group.addEventListener('pointerdown', event => {
             if (event.button !== 0 || pendingShape || bending || !enabled('move')) return;
@@ -1011,10 +1131,26 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
             group.focus({ preventScroll: true });
           });
         }
+        animate(group, node);
         svg.append(group);
         if (focus === node) group.focus();
       }
+      for (const draft of nodeDrafts.values()) {
+        if (byId.has(draft.id)) continue;
+        const [x, y] = draft.position;
+        const node = { type: draft.type, label: draft.text };
+        const w = radius(node), h = height(node);
+        const ghost = element('g', { transform: `translate(${x} ${y})`, opacity: .7, 'pointer-events': 'none' });
+        const paint = { fill: node.type === 'note' ? '#fff4ae' : palette[node.type] ?? palette.step,
+          stroke: palette.accent, 'stroke-dasharray': '4 4' };
+        ghost.append(node.type === 'decision'
+          ? element('polygon', { points: `0,${-h} ${w},0 0,${h} ${-w},0`, ...paint })
+          : element('rect', { x: -w, y: -h, width: w * 2, height: h * 2, rx: node.type === 'terminal' ? h : 4, ...paint }),
+        labelText({ 'text-anchor': 'middle' }, node.label));
+        svg.append(ghost);
+      }
       positionBendControls();
+      positionNoteAction();
       renderPresence();
     }
     let lastClick;
@@ -1152,6 +1288,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         drag.node.x = coordinate(drag.x + dx);
         drag.node.y = coordinate(drag.y + dy);
         render();
+        publishPresence();
       } else {
         cameraX = pan.x - dx;
         cameraY = pan.y - dy;
@@ -1163,6 +1300,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       if (pinched.has(event.pointerId)) return;
       const completed = drag;
       drag = pan = undefined;
+      publishPresence();
       if (!completed) { render(); return; }
       if (completed.moved) {
         changed();
@@ -1216,6 +1354,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       svg.classList.toggle('is-laser', active);
       status(active ? 'Drag on the canvas to point with the laser.' : '');
       render();
+      publishPresence();
     };
     for (const button of shapeButtons) {
       button.onclick = event => {
@@ -1229,6 +1368,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         chooseShape(next);
         status(next ? 'Click an empty spot to place the shape.' : 'Placement canceled.');
         render();
+        publishPresence();
       };
     }
     svg.addEventListener('click', event => {
@@ -1297,6 +1437,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       connect.setAttribute('aria-pressed', 'false');
       status('Tool canceled.');
       render();
+      publishPresence();
       root.focus({ preventScroll: true });
     }
     root.addEventListener('keydown', cancelTool);
@@ -1307,6 +1448,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       origin = undefined;
       status(enabled ? 'Choose the source shape.' : 'Connect mode off.');
       render();
+      publishPresence();
     };
     remove.onclick = () => {
       if (!selected) return;
@@ -1395,10 +1537,11 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         previousEdges.get(key).push(edge);
       }
       let added = 0, updated = 0;
+      const reveal = [];
       const moved = new Set();
       for (const node of next.nodes) {
         const previous = previousNodes.get(node.id);
-        if (!previous) { highlighted.add(node); added++; }
+        if (!previous) { highlighted.add(node); added++; reveal.push(node); }
         else if (['type', 'label', 'x', 'y', 'target'].some(key => previous[key] !== node[key])) {
           highlighted.add(node);
           updated++;
@@ -1409,7 +1552,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       let removed = graph.nodes.filter(node => !nodeIds.has(node.id)).length;
       for (const edge of next.edges) {
         const previous = previousEdges.get(JSON.stringify([edge.from, edge.to]))?.shift();
-        if (!previous) { highlighted.add(edge); added++; }
+        if (!previous) { highlighted.add(edge); added++; reveal.push(edge); }
         else if (previous.label !== edge.label || JSON.stringify(previous.bend) !== JSON.stringify(edge.bend) ||
             moved.has(edge.from) || moved.has(edge.to)) {
           highlighted.add(edge);
@@ -1424,7 +1567,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       connect.setAttribute('aria-pressed', 'false');
       select(undefined);
       changed();
-      render();
+      render(undefined, options.stream ? reveal : []);
       if (wasEmpty && graph.nodes.length) fit();
       root.focus({ preventScroll: true });
       const total = added + updated + removed;
@@ -1459,9 +1602,19 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       status('Source edits discarded.');
     };
     function exportSvg() {
+      if (remoteDrafts.length) render(undefined, [], false);
       const copy = svg.cloneNode(true);
       for (const highlight of copy.querySelectorAll('[data-update-highlight]')) highlight.remove();
+      for (const badge of copy.querySelectorAll('.note-ai-mark')) badge.remove();
       const box = svg.getBBox();
+      if (remoteDrafts.length) render();
+      for (const mark of copy.querySelectorAll('.live-reveal')) {
+        mark.classList.remove('live-reveal');
+        mark.style.removeProperty('animation-delay');
+      }
+      for (const shape of copy.querySelectorAll('[data-note-fill]')) {
+        shape.setAttribute('fill', palette.note ?? '#fff4ae');
+      }
       const width = Math.ceil(box.width + 48), height = Math.ceil(box.height + 48);
       copy.setAttribute('width', width);
       copy.setAttribute('height', height);
@@ -1573,7 +1726,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     status('Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
     render();
     fit();
-    return { getMermaid: sourceText, setMermaid, getProject, setProject, setPeerPresence, setHistoryEnabled, isInteracting: () => Boolean(drag || bendDrag || reconnect || editing), undo, redo, fit, autoLayout, exportSvg, exportPng, exportMarkdown, destroy: () => { clearTimeout(updateTimer); clearTimeout(laserTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
+    return { getMermaid: sourceText, setMermaid, getProject, setProject, setPeerPresence, setNoteColors, setNoteAction, setAIRequests, setHistoryEnabled, isInteracting: () => Boolean(drag || bendDrag || reconnect || editing), undo, redo, fit, autoLayout, exportSvg, exportPng, exportMarkdown, destroy: () => { clearTimeout(updateTimer); clearTimeout(laserTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
   }
 
   globalThis.MiniFlow = { mount, parse, stringify };

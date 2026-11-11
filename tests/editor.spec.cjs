@@ -127,11 +127,15 @@ test('snap preference survives reloads in both directions', async ({ page }) => 
 
 test('drag autosaves the open project and its title saves as you type', async ({ page }) => {
   await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  const saveAs = page.getByRole('button', { name: '+ Save as Project', exact: true });
+  await saveAs.click();
   await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Test diagram');
   await page.getByRole('button', { name: 'Save project', exact: true }).click();
   const row = page.getByRole('listitem').filter({ hasText: 'Test diagram' });
   const time = row.locator('time');
   await expect(time).toBeVisible();
+  await saveAs.click();
+  await expect(page.getByRole('textbox', { name: 'Project name', exact: true })).toHaveValue('');
   const initialTime = await time.getAttribute('datetime');
   const node = page.getByRole('button', { name: 'terminal: Prompt In', exact: true });
   const box = await node.boundingBox();
@@ -149,6 +153,7 @@ test('drag autosaves the open project and its title saves as you type', async ({
   const open = page.getByRole('button', { name: 'Open Renamed diagram', exact: true });
   await expect(open).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Project title' })).toBeFocused();
+  await expect(page.getByRole('textbox', { name: 'Project name', exact: true })).toHaveValue('');
   const restored = await page.context().newPage();
   await restored.goto('http://127.0.0.1:8765/');
   expect(await restored.evaluate(() => miniFlowEditor.getProject())).toEqual(moved);

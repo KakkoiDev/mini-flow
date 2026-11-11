@@ -106,6 +106,7 @@ dialog button:disabled{opacity:.5;cursor:default}
     #saved-project-form label {grid-column:1/-1;font-size:13px;font-weight:650}
     #saved-project-hint {margin:10px 0 0;font-size:12px;color:var(--mf-stroke)}
     #saved-project-name {min-width:0;min-height:40px;border-color:#ded9d2}
+    #show-save-project {min-height:38px;border-color:#ded9d2;margin-bottom:10px}
     #save-project {min-height:40px;background:#e4f4ee;border-color:#a7cfc4}
     #saved-project-status {margin:10px 0 0;font-size:13px;color:var(--mf-stroke);overflow-wrap:anywhere}
     #saved-project-status:empty {display:none}
@@ -144,7 +145,8 @@ dialog button:disabled{opacity:.5;cursor:default}
 <template id="projects-panel-template">
   <aside id="saved-projects" class="panel workspace-panel" aria-label="Projects" hidden>
     <div class="projects-body">
-      <form id="saved-project-form">
+      <button id="show-save-project" type="button">+ Save as Project</button>
+      <form id="saved-project-form" hidden>
         <label for="saved-project-name">Project name</label>
         <input id="saved-project-name" name="name" maxlength="80" autocomplete="off" required>
         <button id="save-project" type="submit">Save project</button>
@@ -166,7 +168,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=ask-ai"></script>
+<script src="./mini-flow.js?v=live-feedback"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -495,14 +497,14 @@ document.querySelector('#share').onclick = async () => {
 };
 </script>
 <script type="module">
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=ask-ai';
-import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=7';
-import { setupSavedProjects } from './mini-flow-projects.js?v=5';
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=live-feedback';
+import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=8';
+import { setupSavedProjects } from './mini-flow-projects.js?v=6';
 
 const projectsButton = document.createElement('button');
 projectsButton.id = 'open-saved-projects';
 projectsButton.type = 'button';
-projectsButton.textContent = 'Projects';
+projectsButton.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span>Projects</span>';
 projectsButton.inert = joiningLive;
 panelButton.before(projectsButton);
 
@@ -515,11 +517,11 @@ guestCounter.title = 'Connected guests, excluding the host';
 editorRoot.querySelector('.scroll').append(guestCounter);
 const askButton = document.createElement('button');
 askButton.type = 'button';
-askButton.textContent = 'Ask AI';
+askButton.className = 'note-action';
+askButton.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3v4M2 12v3m20-3v3m-13-3h.01m6 0h.01m-5 4h4"/></svg><span>Ask AI</span>';
 askButton.title = 'Send the selected note to the AI guests in this live share';
-editorRoot.querySelector('[data-delete]').before(askButton);
 let connectedAI = 0;
-refreshAskAI = () => { askButton.hidden = !selectedNoteId || connectedAI === 0; };
+refreshAskAI = () => editor.setNoteAction(askButton, connectedAI > 0);
 refreshAskAI();
 askButton.onclick = async () => {
   if (!liveBoard || !selectedNoteId || askButton.disabled) return;
@@ -544,6 +546,10 @@ function showGuestCounts(counts) {
 const codePanel = editorRoot.querySelector('.panel');
 const projectsPanel = document.querySelector('#projects-panel-template').content.firstElementChild.cloneNode(true);
 codePanel.after(projectsPanel);
+projectsPanel.querySelector('#show-save-project').onclick = () => {
+  projectsPanel.querySelector('#saved-project-form').hidden = false;
+  projectsPanel.querySelector('#saved-project-name').focus();
+};
 const panelTemplate = document.querySelector('#workspace-panel-template').content.cloneNode(true);
 const headingTemplate = panelTemplate.querySelector('.workspace-panel-heading');
 editorRoot.append(panelTemplate.querySelector('style'));
@@ -636,6 +642,9 @@ async function startLive(invite, host) {
       getProject: editor.getProject, setProject: editor.setProject, normalize: normalizeProject,
       canAccept: () => !editor.isInteracting(), onStatus: showStatus, onEnd: ended,
       onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts,
+      onNoteColors: editor.setNoteColors,
+      onAIRequests: editor.setAIRequests,
+      noteIds: project => MiniFlow.parse(project.source).nodes.filter(node => node.type === 'note').map(node => node.id),
       readNote(project, id) {
         const graph = MiniFlow.parse(project.source);
         const note = graph.nodes.find(node => node.type === 'note' && node.id === id);
@@ -696,10 +705,18 @@ registerMiniFlowTools(editor, undefined, undefined, {
   registerAgent: joiningLive ? () => liveBoard?.registerAgent() ?? { ok: false, reason: 'live_not_ready' } : undefined,
   waitForAIRequest: joiningLive ? (after, timeoutMs) => liveBoard?.waitForAIRequest(after, timeoutMs) ??
     { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' } : undefined,
+  reportAIActivity: joiningLive ? message => liveBoard?.reportAIActivity(message) ??
+    { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' } : undefined,
   isReady: () => !joiningLive || Boolean(liveBoard?.ready()),
   commitProject(project, message) {
-    if (joiningLive) return liveBoard?.submit(project, message) ??
-      { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' };
+    if (joiningLive) {
+      if (!liveBoard) return { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' };
+      liveBoard.reportAIActivity('Applying board edits…');
+      return liveBoard.submit(project, message).then(result => {
+        liveBoard?.reportAIActivity(result.ok ? '' : 'Edit needs a retry');
+        return result;
+      });
+    }
     if (editor.isInteracting()) {
       return { ok: false, reason: 'host_editing', message: 'The editor is busy. Read the board before retrying.' };
     }

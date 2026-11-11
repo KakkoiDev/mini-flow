@@ -99,7 +99,6 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
     const name = nameField.value.trim();
     const current = name && getActive()?.name === name;
     saveButton.disabled = busy || !name || Boolean(current);
-    saveButton.textContent = current ? 'Autosave on' : 'Save project';
   }
 
   function makeButton(label, action, name) {
@@ -316,7 +315,6 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
   }
 
   function syncActive() {
-    nameField.value = getActive()?.name ?? '';
     markCurrentProject();
     updateSaveButton();
   }
@@ -325,7 +323,7 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
   form.onsubmit = async event => {
     event.preventDefault();
     const name = nameField.value.trim();
-    if (!name || busy) return;
+    if (!name || busy || name === getActive()?.name) return;
     busy = true;
     nameField.readOnly = true;
     updateSaveButton();
@@ -335,6 +333,8 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
       const record = await enqueue(() => writeProject(name, project, active));
       if (getActive() === active && (active?.name === name ||
           JSON.stringify(normalize(editor.getProject())) === JSON.stringify(project))) setActive(record);
+      nameField.value = '';
+      form.hidden = true;
       message.textContent = 'Project saved.';
       await refresh();
     } catch (error) {

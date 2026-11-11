@@ -115,12 +115,14 @@ A regular board link opens a snapshot.
 - `apply_board_edit` validates and applies a batch as one undoable update.
 - `register_live_agent` identifies the current guest as AI after the host
   acknowledges it. Repeat calls keep the same guest identity and count.
-- `wait_for_ai_request` waits for **Ask AI** on a selected note while the AI
-  guest is connected. It returns `{ ok, request }` with the request sequence,
-  requester, note text, and optional node or arrow target. Pass the last
-  sequence as `after` to get the next request. A timeout returns a null
-  request. Read the board before acting, since the note may have changed.
-  The wait runs during an active tool call.
+- `wait_for_ai_request` waits for **Ask AI** on a selected note. The host
+  grants the request to one AI guest. The result contains the sequence,
+  requester, note text, and optional target. Pass the last sequence as
+  `after`. A null request means this guest acquired no claim. Read the board
+  before acting, since the note may have changed.
+- `report_ai_activity` takes `{ message }` and shows a short progress
+  update on the board. Send an empty message when finishing without a board
+  edit to clear the activity and close the claimed request.
 
 ```json
 {

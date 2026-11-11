@@ -16,8 +16,9 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     let ended = false;
     let presence;
     let counts;
+    let colors = {};
     const room = joinRoom({ app: 'mini-flow-live-test', room: 'room', password: 'private', network,
-      protocol: 2, maxPeers: host ? 8 : 1, profile: { role: host ? 'host' : 'editor' },
+      protocol: 3, maxPeers: host ? 8 : 1, profile: { role: host ? 'host' : 'editor' },
       acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host'),
       kinds: ['read', 'state', 'edit', 'end', 'presence', 'agent', 'ask'] });
     const getProject = () => structuredClone(project);
@@ -31,8 +32,11 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
       return structuredClone(next);
     }, canAccept: () => host ? !hostEditing : !guestEditing, onStatus() {}, onEnd() { ended = true; },
     onPresence(value) { presence = value; }, onGuestCounts(value) { counts = value; },
-    readNote: (_, id) => id === 'N1' ? { id, text: 'Review this step', target: { type: 'node', id: 'A' } } : null });
-    return { id: room.selfId, session, getProject, setProject, commits: () => commits, ended: () => ended, presence: () => presence, counts: () => counts };
+    readNote: (_, id) => id === 'N1' ? { id, text: 'Review this step', target: { type: 'node', id: 'A' } } : null,
+    noteIds: value => MiniFlow.parse(value.source).nodes.filter(node => node.type === 'note').map(node => node.id),
+    onNoteColors(value) { colors = value; } });
+    return { id: room.selfId, session, getProject, setProject, commits: () => commits, ended: () => ended,
+      presence: () => presence, counts: () => counts, colors: () => colors };
   }
 
   const host = connect(true);
@@ -62,11 +66,23 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.equal(first.request.requester, 'Host');
     assert.deepEqual(first.request.note, { id: 'N1', text: 'Review this step', target: { type: 'node', id: 'A' } });
     assert.equal((await secondGuest.session.waitForAIRequest()).reason, 'ai_not_connected');
+    assert.equal((await host.session.askAI('N1')).reason, 'already_requested');
+    guest.session.reportAIActivity('');
+    await network.settle();
     assert.deepEqual(await secondGuest.session.askAI('N1'), { ok: true });
     const next = await wait({ after: first.request.sequence, timeoutMs: 1000 });
     assert.equal(next.request.requester, 'Guest 2');
     assert.deepEqual(await wait({ after: next.request.sequence, timeoutMs: 0 }), { ok: true, request: null });
     assert.equal((await host.session.askAI('missing')).reason, 'note_missing');
+    guest.session.reportAIActivity('');
+    await network.settle();
+    assert.deepEqual(await secondGuest.session.registerAgent(), { ok: true });
+    const competing = [
+      wait({ after: next.request.sequence, timeoutMs: 1000 }),
+      secondGuest.session.waitForAIRequest(0, 1000)
+    ];
+    assert.deepEqual(await host.session.askAI('N1'), { ok: true });
+    assert.equal((await Promise.all(competing)).filter(result => result.request).length, 1);
     const getBoard = tools.get('get_board');
     const edit = tools.get('apply_board_edit');
     const { revision } = await getBoard();
@@ -135,12 +151,31 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     const deleted = await edit({ revision: beforeDelete.revision, edits: [{ op: 'delete_node', id: 'A' }], message: 'Delete A' });
     assert.equal(deleted.ok, true);
     assert.deepEqual(host.getProject().positions, {});
+    const beforeNotes = await getBoard();
+    const notes = await edit({ revision: beforeNotes.revision, edits: [
+      { op: 'add_node', id: 'AI_NOTE', type: 'note', label: 'AI note', position: [12, 34] }
+    ], message: 'Add note' });
+    assert.equal(notes.ok, true);
+    assert.equal(host.colors().AI_NOTE, 1);
+    assert.deepEqual(host.colors(), guest.colors());
+    guest.session.reportAIActivity('Drafting an example');
+    guest.session.updatePresence({ point: [12, 34], focus: 'AI_NOTE', tool: 'note',
+      draft: { id: 'AI_NOTE', type: 'note', text: 'Typing live', position: [14, 35] } });
+    await new Promise(resolve => setTimeout(resolve, 125));
+    await network.settle();
+    const preview = host.presence().find(peer => peer.id === guest.id);
+    assert.equal(preview.activity, 'Drafting an example');
+    assert.equal(preview.tool, 'note');
+    assert.equal(preview.draft.text, 'Typing live');
+    assert.deepEqual(host.getProject().positions.AI_NOTE, [12, 34]);
 
     const waitingWhenClosed = wait({ after: next.request.sequence, timeoutMs: 1000 });
     host.session.stop();
     await network.settle();
     assert.equal((await waitingWhenClosed).reason, 'live_disconnected');
     assert.equal(guest.ended(), true);
+    assert.deepEqual(host.colors(), {});
+    assert.deepEqual(guest.colors(), {});
     assert.deepEqual(guest.presence(), []);
     assert.equal((await getBoard()).reason, 'live_not_ready');
   } finally {

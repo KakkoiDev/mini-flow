@@ -123,7 +123,7 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
   if (typeof context?.registerTool === 'function' && options.waitForAIRequest) {
     await context.registerTool({
       name: 'wait_for_ai_request',
-      description: 'Wait for a collaborator to click Ask AI on a note in this live session. Pass the last received request sequence as after. Use get_board to verify the current note and target before editing. A null request means the wait timed out.',
+      description: 'Wait for Ask AI and claim the request exclusively. Only the first AI acknowledged by the host gets the task. Pass the last sequence as after and use get_board to verify the current target. A null request means no claim was acquired.',
       inputSchema: {
         type: 'object', additionalProperties: false,
         properties: {
@@ -131,8 +131,16 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
           timeoutMs: { type: 'integer', minimum: 0, maximum: 15000, default: 12000 }
         }
       },
-      annotations: { readOnlyHint: true },
       execute: ({ after, timeoutMs } = {}) => options.waitForAIRequest(after, timeoutMs)
+    });
+  }
+  if (typeof context?.registerTool === 'function' && options.reportAIActivity) {
+    await context.registerTool({
+      name: 'report_ai_activity',
+      description: 'Show a short progress update to everyone on the live board. Use an empty message to clear it. Share actions and status summaries.',
+      inputSchema: { type: 'object', additionalProperties: false, required: ['message'],
+        properties: { message: { type: 'string', maxLength: 200 } } },
+      execute: ({ message } = {}) => options.reportAIActivity(message)
     });
   }
 }

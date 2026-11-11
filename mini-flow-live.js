@@ -9,13 +9,16 @@ export function readLiveInvite(hash) {
 }
 
 export function createLiveSession({ room, host, getProject, setProject, normalize, canAccept, onStatus, onEnd,
-  onAvailability = () => {}, onPresence = () => {}, onGuestCounts = () => {}, readNote = () => null }) {
+  onAvailability = () => {}, onPresence = () => {}, onGuestCounts = () => {}, readNote = () => null,
+  noteIds = () => [], onNoteColors = () => {}, onAIRequests = () => {} }) {
   let hostPeer;
   const guests = new Map();
   let closed = false;
   let applying = false;
   let pending;
   let state = host ? { revision: 0, project: getProject() } : undefined;
+  const noteColors = new Map();
+  let nextColor = 0;
   let localDirty = false;
   let deferredState;
   let flushTimer;
@@ -28,7 +31,17 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   const requestWaiters = new Set();
   const pendingAsks = new Map();
   const pendingDeliveries = new Map();
+  const offers = new Map();
+  const pendingClaims = new Map();
   let requestSequence = 0;
+
+  function finishOffer(requestId) {
+    const offer = offers.get(requestId);
+    if (!offer) return;
+    clearTimeout(offer.timer);
+    offers.delete(requestId);
+    if (!closed) publishPresence();
+  }
 
   function waitForAIRequest(after = 0, timeoutMs = 12000) {
     if (host || closed || !hostPeer || !agentRegistered) {
@@ -38,7 +51,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       return Promise.resolve(failure('invalid_wait', 'Use a nonnegative cursor and a timeout of up to 15000 ms.'));
     }
     const request = requests.find(item => item.sequence > after);
-    if (request || !timeoutMs) return Promise.resolve({ ok: true, request: request ?? null });
+    if (request) return claimRequest(request);
+    if (!timeoutMs) return Promise.resolve({ ok: true, request: null });
     if (requestWaiters.size >= 8) return Promise.resolve(failure('too_many_waiters', 'Finish a pending request check first.'));
     return new Promise(resolve => {
       const waiter = { after, finish(result) {
@@ -51,11 +65,34 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     });
   }
 
+  function claimRequest(request) {
+    const existing = pendingClaims.get(request.id);
+    if (existing) return existing.promise;
+    let finish;
+    const promise = new Promise(resolve => {
+      finish = granted => {
+        clearTimeout(timer);
+        pendingClaims.delete(request.id);
+        const index = requests.indexOf(request);
+        if (index >= 0) requests.splice(index, 1);
+        resolve({ ok: true, request: granted ? request : null });
+      };
+      const timer = setTimeout(() => finish(false), 3000);
+    });
+    pendingClaims.set(request.id, { promise, finish });
+    send('ask', { type: 'claim', requestId: request.id }).catch(() => finish(false));
+    return promise;
+  }
+
   function clearAIRequests() {
     const result = failure('live_disconnected', 'The live connection ended.');
     for (const waiter of requestWaiters) waiter.finish(result);
     for (const finish of pendingAsks.values()) finish(result);
     for (const delivery of pendingDeliveries.values()) delivery.finish(result);
+    for (const claim of pendingClaims.values()) claim.finish(false);
+    for (const offer of offers.values()) clearTimeout(offer.timer);
+    offers.clear();
+    onAIRequests({});
     requests.length = 0;
   }
 
@@ -64,13 +101,20 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (!note) return failure('note_missing', 'The note is no longer on the board.');
     const agents = [...guests].filter(([peer, guest]) => guest.agent && peer !== from).map(([peer]) => peer);
     if (!agents.length) return failure('no_ai_guest', 'No other AI guest is connected.');
-    if (pendingDeliveries.size >= 32) return failure('too_many_requests', 'Wait for a pending request to finish.');
+    if ([...offers.values()].some(offer => offer.noteId === noteId)) {
+      return failure('already_requested', 'This note already has an active AI request.');
+    }
+    if (offers.size >= 32) return failure('too_many_requests', 'Wait for a pending request to finish.');
     const requestId = id();
+    const expire = () => finishOffer(requestId);
+    offers.set(requestId, { noteId, agents: new Set(agents), timer: setTimeout(expire, 90000) });
+    publishPresence();
     return new Promise(resolve => {
       const failed = failure('ask_failed', 'No AI guest confirmed receipt of the note.');
       const finish = result => {
         clearTimeout(timer);
         pendingDeliveries.delete(requestId);
+        if (!result.ok) finishOffer(requestId);
         resolve(result);
       };
       const timer = setTimeout(() => finish(failed), 3000);
@@ -128,26 +172,32 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     return Promise.resolve().then(() => room.send(kind, data, to));
   }
 
-  function install(project, message) {
+  function install(project, message, stream = false) {
     if (JSON.stringify(getProject()) === JSON.stringify(project)) return;
     applying = true;
     try {
-      setProject(project, { message, preserveView: Boolean(state) });
+      setProject(project, { message, preserveView: Boolean(state), stream });
     } finally {
       applying = false;
     }
   }
 
-  function refresh() {
+  function refresh(color = 0) {
     const project = getProject();
     if (JSON.stringify(project) === JSON.stringify(state.project)) return false;
+    const before = new Set(noteIds(state.project));
+    const after = new Set(noteIds(project));
+    for (const note of noteColors.keys()) if (!after.has(note)) noteColors.delete(note);
+    for (const note of after) if (!before.has(note) && color) noteColors.set(note, color);
+    onNoteColors(Object.fromEntries(noteColors));
     state = { revision: state.revision + 1, project };
     return true;
   }
 
   function publish(extra = {}, to = [...guests.keys()]) {
     if (Array.isArray(to) && !to.length) return;
-    send('state', { ...state, ...extra }, to).catch(() => onStatus('Could not send the board.'));
+    send('state', { ...state, noteColors: Object.fromEntries(noteColors), ...extra }, to)
+      .catch(() => onStatus('Could not send the board.'));
   }
 
   function finish(result) {
@@ -217,10 +267,15 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   }
 
   function publishPresence() {
-    if (!host || !guests.size) return;
+    if (!host) return;
+    const aiRequests = Object.fromEntries([...offers.values()].map(offer =>
+      [offer.noteId, offer.winner ? guests.get(offer.winner)?.label ?? 'AI' : 'Waiting for AI']));
+    onAIRequests(aiRequests);
+    if (!guests.size) return;
     const snapshot = presenceSnapshot();
     onPresence(snapshot.filter(item => item.id !== room.selfId));
-    send('presence', { revision: ++presenceRevision, peers: snapshot, counts: guestCounts() }, [...guests.keys()]).catch(() => {});
+    send('presence', { revision: ++presenceRevision, peers: snapshot, counts: guestCounts(), aiRequests },
+      [...guests.keys()]).catch(() => {});
   }
 
   function schedulePresence() {
@@ -238,7 +293,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       if (guests.has(from) || guests.size >= maxGuests) return;
       const numbers = new Set(Array.from(guests.values(), guest => guest.number));
       const number = Array.from({ length: maxGuests }, (_, i) => i + 1).find(i => !numbers.has(i));
-      guests.set(from, { number, label: `Guest ${number}`, presence: { point: null, focus: null } });
+      guests.set(from, { number, color: ++nextColor, label: `Guest ${number}`, presence: { point: null, focus: null } });
       publish({}, from);
       reportGuestCount();
       schedulePresence();
@@ -254,6 +309,10 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (closed) return;
     if (host) {
       if (!guests.delete(from)) return;
+      for (const [requestId, offer] of offers) {
+        offer.agents.delete(from);
+        if (offer.winner === from || !offer.agents.size) finishOffer(requestId);
+      }
       reportGuestCount();
       if (guests.size) publishPresence();
       else onPresence([]);
@@ -270,6 +329,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     available();
     onPresence([]);
     onGuestCounts(null);
+    onNoteColors({});
     clearAIRequests();
     onStatus('Host disconnected. You can wait or choose Leave session to keep editing a copy.');
   });
@@ -296,10 +356,15 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     const message = typeof data.message === 'string' && data.message.trim()
       ? data.message.trim().slice(0, 200) : 'Live edit applied.';
     try {
-      install(normalize(data.project), message);
-      const changed = refresh();
-      publish({ id: data.id, ok: true, message }, from);
-      if (changed) publish({ message }, [...guests.keys()].filter(id => id !== from));
+      const guest = guests.get(from);
+      const stream = guest.agent === true;
+      install(normalize(data.project), message, stream);
+      const changed = refresh(guest.color);
+      if (stream) for (const [requestId, offer] of offers) {
+        if (offer.winner === from) finishOffer(requestId);
+      }
+      publish({ id: data.id, ok: true, message, stream }, from);
+      if (changed) publish({ message, stream }, [...guests.keys()].filter(id => id !== from));
     } catch {
       publish({ id: data.id, ...failure('invalid_edit', 'The host rejected an invalid board.') }, from);
     }
@@ -308,7 +373,9 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (!state || data.revision > state.revision) {
       try {
         const project = normalize(data.project);
-        install(project, data.ok === false ? undefined : data.message);
+        onNoteColors(Object.fromEntries(Object.entries(data.noteColors ?? {}).filter(([id, color]) =>
+          Object.hasOwn(project.positions, id) && Number.isSafeInteger(color) && color > 0)));
+        install(project, data.ok === false ? undefined : data.message, data.stream === true);
         state = { revision: data.revision, project };
       } catch {
         onStatus('Could not read the live board.');
@@ -333,7 +400,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (host) {
       const guest = guests.get(from);
       if (!guest) return;
-      guest.presence = readPresence(data);
+      guest.presence = readPresence(data, guest.agent);
       schedulePresence();
     } else if (from === hostPeer && Array.isArray(data?.peers) &&
       Number.isSafeInteger(data.revision) && data.revision > presenceRevision) {
@@ -343,8 +410,10 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       }
       onPresence(data.peers.slice(0, maxGuests + 1).filter(item => typeof item?.id === 'string' &&
         item.id !== room.selfId && typeof item.label === 'string').map(item => ({
-        id: item.id, label: item.label.slice(0, 32), ...readPresence(item)
+        id: item.id, label: item.label.slice(0, 32), ...readPresence(item, /^AI \d+$/.test(item.label))
       })));
+      onAIRequests(Object.fromEntries(Object.entries(data.aiRequests ?? {}).slice(0, 32)
+        .filter(([id, label]) => id.length <= 128 && typeof label === 'string' && label.length <= 32)));
     }
   });
   room.onMessage('agent', (data, from) => {
@@ -365,6 +434,28 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   room.onMessage('ask', async (data, from) => {
     if (closed) return;
     if (host) {
+      if (data?.type === 'done' && guests.get(from)?.agent) {
+        for (const [requestId, offer] of offers) {
+          if (offer.winner === from) finishOffer(requestId);
+        }
+        return;
+      }
+      if (data?.type === 'claim') {
+        const offer = offers.get(data.requestId);
+        if (!guests.get(from)?.agent) return;
+        const busy = [...offers.values()].some(other => other !== offer && other.winner === from);
+        if (offer?.agents.has(from) && !offer.winner && !busy) {
+          offer.winner = from;
+          clearTimeout(offer.timer);
+          offer.timer = setTimeout(() => finishOffer(data.requestId), 300000);
+          const guest = guests.get(from);
+          guest.presence = { ...guest.presence, activity: 'Reviewing a note…' };
+          publishPresence();
+        }
+        await send('ask', { type: 'claim_result', requestId: data.requestId, granted: offer?.winner === from }, from)
+          .catch(() => {});
+        return;
+      }
       if (data?.type === 'received') {
         const delivery = pendingDeliveries.get(data.requestId);
         if (delivery?.agents.has(from)) delivery.finish({ ok: true });
@@ -377,12 +468,18 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       await send('ask', { type: 'result', requestId: data.requestId, result }, from).catch(() => {});
     } else if (from === hostPeer && data?.type === 'result') {
       pendingAsks.get(data.requestId)?.(data.result);
+    } else if (from === hostPeer && data?.type === 'claim_result') {
+      if (data.granted === true && pendingClaims.has(data.requestId)) {
+        presence = { ...presence, activity: 'Reviewing a note…' };
+        schedulePresence();
+      }
+      pendingClaims.get(data.requestId)?.finish(data.granted === true);
     } else if (from === hostPeer && agentRegistered && data?.type === 'delivery' && data.note) {
-      const request = { sequence: ++requestSequence, note: data.note, requester: data.requester };
+      const request = { id: data.requestId, sequence: ++requestSequence, note: data.note, requester: data.requester };
       requests.push(request);
       if (requests.length > 32) requests.shift();
       for (const waiter of requestWaiters) {
-        if (request.sequence > waiter.after) waiter.finish({ ok: true, request });
+        if (request.sequence > waiter.after) waiter.finish(claimRequest(request));
       }
       send('ask', { type: 'received', requestId: data.requestId }).catch(() => {});
     }
@@ -406,6 +503,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     available();
     onPresence([]);
     onGuestCounts(null);
+    onNoteColors({});
     clearAIRequests();
     onEnd();
   }
@@ -427,8 +525,16 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     },
     updatePresence(next) {
       if (closed) return;
-      presence = readPresence(next);
+      presence = readPresence({ ...next, activity: presence.activity }, agentRegistered);
       schedulePresence();
+    },
+    reportAIActivity(message) {
+      if (host || closed || !hostPeer || !agentRegistered) return failure('ai_not_connected', 'Register as a live AI guest first.');
+      if (typeof message !== 'string' || message.length > 200) return failure('invalid_activity', 'Use a status of up to 200 characters.');
+      presence = { ...presence, activity: message.trim() || undefined };
+      schedulePresence();
+      if (!presence.activity) send('ask', { type: 'done' }).catch(() => {});
+      return { ok: true };
     },
     submit,
     askAI,
@@ -438,13 +544,25 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   };
 }
 
-function readPresence(data) {
+const presenceTools = new Set(['terminal', 'step', 'decision', 'note', 'connect', 'laser', 'bend']);
+function readPresence(data, ai = false) {
   const point = Array.isArray(data?.point) && data.point.length === 2 && data.point.every(Number.isFinite) ? data.point : null;
   const focus = typeof data?.focus === 'string' && data.focus.length <= 128 ? data.focus : null;
   const laser = Array.isArray(data?.laser) ? data.laser.slice(-40).filter(sample =>
     Array.isArray(sample) && sample.length === 4 && Number.isSafeInteger(sample[0]) && sample[0] > 0 &&
     Number.isFinite(sample[1]) && Number.isFinite(sample[2]) && typeof sample[3] === 'boolean') : [];
-  return { point, focus, ...(laser.length ? { laser } : {}) };
+  const tool = presenceTools.has(data?.tool) ? data.tool : undefined;
+  const draft = data?.draft;
+  const validDraft = draft && typeof draft.id === 'string' && draft.id.length <= 128 &&
+    typeof draft.text === 'string' && (draft.type === 'edge'
+      ? Number.isSafeInteger(draft.index) && typeof draft.to === 'string' && draft.to.length <= 128
+      : presenceTools.has(draft.type) && Array.isArray(draft.position) &&
+        draft.position.length === 2 && draft.position.every(Number.isFinite));
+  const activity = ai && typeof data?.activity === 'string' ? data.activity.slice(0, 200) : undefined;
+  return { point, focus, ...(laser.length ? { laser } : {}), ...(tool ? { tool } : {}),
+    ...(validDraft ? { draft: { id: draft.id, type: draft.type, text: draft.text.slice(0, 4000),
+      ...(draft.type === 'edge' ? { index: draft.index, to: draft.to } : { position: draft.position }) } } : {}),
+    ...(activity ? { activity } : {}) };
 }
 
 function failure(reason, message) {
@@ -454,7 +572,7 @@ function failure(reason, message) {
 export async function connectLiveBoard(invite, host, handlers) {
   const { joinRoom } = await import('./vendor/p2p-core/p2p-core.js');
   const role = host ? 'host' : 'editor';
-  const room = joinRoom({ app: 'mini-flow-live', ...invite, mode: 'online', protocol: 2, maxPeers: host ? maxGuests : 1,
+  const room = joinRoom({ app: 'mini-flow-live', ...invite, mode: 'online', protocol: 3, maxPeers: host ? maxGuests : 1,
     maxMessageBytes: 256 * 1024, rateLimit: 60, kinds, profile: { role },
     acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host') });
   return createLiveSession({ ...handlers, room, host });
