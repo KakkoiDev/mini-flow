@@ -407,6 +407,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       bendHandle.focus({ preventScroll: true });
       bendDrag = { id: event.pointerId, edge: selected, start: selected.bend, pointer: world(event) };
       bendHandle.setPointerCapture(event.pointerId);
+      bendHandle.style.cursor = 'grabbing';
       positionBendControls();
     };
     bendHandle.onpointermove = event => {
@@ -418,13 +419,17 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     bendHandle.onlostpointercapture = event => {
       if (bendDrag?.id !== event.pointerId) return;
       bendDrag = undefined;
+      bendHandle.style.cursor = '';
       changed();
       render();
     };
     bendHandle.onpointercancel = event => {
       if (bendDrag?.id !== event.pointerId) return;
-      bendDrag.edge.bend = bendDrag.start;
+      if (bendDrag.original) bendDrag.edge.bend = bendDrag.original;
+      else if (bendDrag.created) delete bendDrag.edge.bend;
+      else bendDrag.edge.bend = bendDrag.start;
       bendDrag = undefined;
+      bendHandle.style.cursor = '';
       render();
     };
     bendHandle.onkeydown = event => {
@@ -695,6 +700,21 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         distance: Math.max(1, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)) };
     }
     svg.addEventListener('pointerdown', event => {
+      if (!bending || event.button !== 0) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const edge = bending;
+      const original = edge.bend;
+      edge.bend = world(event).map(coordinate);
+      chooseShape(undefined);
+      select(edge);
+      render();
+      bendHandle.onpointerdown(event);
+      bendDrag.original = original;
+      bendDrag.created = !original;
+      status('Drag to position the bend, then release to save.');
+    }, true);
+    svg.addEventListener('pointerdown', event => {
       if (event.pointerType !== 'touch' || !enabled('zoom')) return;
       pinched.delete(event.pointerId);
       touches.set(event.pointerId, event);
@@ -726,7 +746,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     svg.addEventListener('wheel', event => {
       if (!enabled('zoom')) return;
       event.preventDefault();
-      if (drag || pan) return;
+      if (drag || pan || bendDrag) return;
       const [x, y] = world(event);
       const oldZoom = zoom;
       const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 100 : 1);
@@ -822,15 +842,6 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       };
     }
     svg.addEventListener('click', event => {
-      if (bending) {
-        const edge = bending;
-        edge.bend = world(event).map(coordinate);
-        chooseShape(undefined);
-        select(edge);
-        changed();
-        render(edge);
-        return;
-      }
       if (!pendingShape || event.target !== svg) return;
       addShape(pendingShape, ...world(event));
     });
