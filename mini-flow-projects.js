@@ -33,8 +33,8 @@ function readProjects() {
   });
 }
 
-function writeProject(name, project, active) {
-  const record = { name, project, revision: crypto.randomUUID(), updatedAt: Date.now() };
+function writeProject(name, project, active, gist = active?.name === name ? active.gist : undefined) {
+  const record = { name, project, revision: crypto.randomUUID(), updatedAt: Date.now(), ...(gist ? { gist } : {}) };
   return projects('readwrite', (store, done, abort) => {
     const existing = store.get(name);
     existing.onsuccess = () => {
@@ -345,7 +345,15 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
       updateSaveButton();
     }
   };
-  return { refresh, syncActive, autosave(project) {
+  return { refresh, syncActive, async linkGist(gist, active) {
+    await enqueue(async () => {
+      if (!active || getActive() !== active || active.deleted) throw new Error('Open the project you want to connect.');
+      const record = await writeProject(active.name, normalize(editor.getProject()), active, gist);
+      Object.assign(active, { revision: record.revision, gist });
+      if (getActive() === active) setActive(record, { reuse: true });
+    });
+    await refresh();
+  }, autosave(project) {
     const active = getActive();
     if (opening || !active) return;
     const snapshot = JSON.stringify(project);

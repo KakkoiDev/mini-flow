@@ -162,6 +162,47 @@ test('drag autosaves the open project and its title saves as you type', async ({
     .toHaveAttribute('aria-current', 'true');
 });
 
+test('a saved project backs up to a Gist and opens on another tab', async ({ page }) => {
+  const id = '1234567890abcdef1234567890abcdef';
+  const files = { 'README.md': { content: 'Keep this file' } };
+  await page.context().route('https://api.github.com/gists/' + id, async route => {
+    const request = route.request();
+    if (request.method() === 'PATCH') {
+      expect(request.headers().authorization).toBe('Bearer test-token');
+      const patch = request.postDataJSON().files;
+      for (const name of Object.keys(patch)) expect(files[name]).toBeUndefined();
+      Object.assign(files, patch);
+    }
+    await route.fulfill({ json: { files }, headers: { 'access-control-allow-origin': '*' } });
+  });
+  const original = await page.evaluate(() => miniFlowEditor.getProject());
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await page.getByRole('button', { name: '+ Save as Project', exact: true }).click();
+  await page.getByLabel('Project name', { exact: true }).fill('Gist example');
+  await page.getByRole('button', { name: 'Save project', exact: true }).click();
+  await page.getByText('Project saved.', { exact: true }).waitFor();
+  await page.getByText('GitHub Gist backup', { exact: true }).click();
+  await page.getByLabel('Gist URL or ID').fill(id);
+  await page.getByLabel('GitHub token for backups').fill('test-token');
+  await page.getByRole('button', { name: 'Connect project', exact: true }).click();
+  await expect(page.getByText('Gist backup saved.', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('GitHub token for backups')).toHaveValue('');
+  await page.getByRole('button', { name: 'Back up now', exact: true }).click();
+  await expect(page.getByText('Gist backup is up to date.', { exact: true })).toBeVisible();
+  expect(Object.keys(files)).toHaveLength(2);
+  expect(files['README.md'].content).toBe('Keep this file');
+
+  const restored = await page.context().newPage();
+  await restored.goto('http://127.0.0.1:8765/#flow=' + encodeURIComponent(JSON.stringify({ source: 'flowchart TD', positions: {} })));
+  await restored.getByRole('button', { name: 'Projects', exact: true }).click();
+  await restored.getByText('GitHub Gist backup', { exact: true }).click();
+  await restored.getByLabel('Gist URL or ID').fill(id);
+  await restored.getByRole('button', { name: 'Find backups', exact: true }).click();
+  await restored.getByRole('button', { name: 'Open snapshot', exact: true }).click();
+  await expect(restored.getByText('Opened “Gist example” as a working copy.', { exact: true })).toBeVisible();
+  expect(await restored.evaluate(() => miniFlowEditor.getProject())).toEqual(original);
+});
+
 test('review and apply an edit link as one undo step', async ({ page }) => {
   const base = await page.evaluate(() => miniFlowEditor.getProject());
   const project = { ...base, source: base.source.replace('Prompt In', 'Read prompt') };

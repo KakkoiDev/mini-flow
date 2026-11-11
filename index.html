@@ -106,6 +106,13 @@ dialog button:disabled{opacity:.5;cursor:default}
     #saved-project-form label {grid-column:1/-1;font-size:13px;font-weight:650}
     #saved-project-hint {margin:10px 0 0;font-size:12px;color:var(--mf-stroke)}
     #saved-project-name {min-width:0;min-height:40px;border-color:#ded9d2}
+    [data-gist-backups] {margin:12px 0;padding:10px;border:1px solid #ded9d2;border-radius:8px}
+    [data-gist-backups] label {display:grid;gap:4px;margin-top:8px;font-size:13px}
+    [data-gist-backups] input,[data-gist-backups] select {width:100%;min-width:0}
+    [data-gist-backups] small {display:block;margin-top:8px}
+    .gist-actions {display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+    [data-gist-status] {margin:8px 0 0;font-size:12px}
+    [data-gist-status]:empty {display:none}
     #show-save-project {min-height:38px;border-color:#ded9d2;margin-bottom:10px}
     #save-project {min-height:40px;background:#e4f4ee;border-color:#a7cfc4}
     #saved-project-status {margin:10px 0 0;font-size:13px;color:var(--mf-stroke);overflow-wrap:anywhere}
@@ -153,6 +160,21 @@ dialog button:disabled{opacity:.5;cursor:default}
       </form>
       <p id="saved-project-status" role="status"></p>
       <p id="saved-project-hint" hidden>Open a project below to autosave edits to it.</p>
+      <details data-gist-backups>
+        <summary>GitHub Gist backup</summary>
+        <label>Gist URL or ID <input data-gist-id type="text" autocomplete="off"></label>
+        <label>GitHub token for backups <input data-gist-token type="password" autocomplete="off"></label>
+        <small>Anyone with the Gist link can read its backups. The token is kept in this tab until reload.</small>
+        <div class="gist-actions">
+          <button type="button" data-gist-connect>Connect project</button>
+          <button type="button" data-gist-sync>Back up now</button>
+          <button type="button" data-gist-open>Find backups</button>
+          <button type="button" data-gist-disconnect hidden>Disconnect</button>
+        </div>
+        <label data-gist-picker hidden>Snapshot <select data-gist-snapshot></select></label>
+        <button type="button" data-gist-load hidden>Open snapshot</button>
+        <p data-gist-status role="status"></p>
+      </details>
       <ul id="saved-project-list" aria-label="Projects saved in this browser"></ul>
     </div>
   </aside>
@@ -168,7 +190,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=live-feedback"></script>
+<script src="./mini-flow.js?v=instant-notes"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -205,7 +227,7 @@ let activeSavedProject = joiningLive ? null : history.state?.miniFlowSavedProjec
 let syncSavedProjects;
 let autosaveProject;
 function setActiveSavedProject(record, { reuse = false, silent = false } = {}) {
-  if (!reuse) activeSavedProject = record ? { name: record.name, revision: record.revision } : null;
+  if (!reuse) activeSavedProject = record ? { name: record.name, revision: record.revision, gist: record.gist } : null;
   if (record && !joiningLive) {
     const { source, positions } = editor.getProject();
     if (!silent) {
@@ -498,8 +520,9 @@ document.querySelector('#share').onclick = async () => {
 </script>
 <script type="module">
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=live-feedback';
-import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=8';
-import { setupSavedProjects } from './mini-flow-projects.js?v=6';
+import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=9';
+import { setupGistBackups } from './mini-flow-gist.js';
+import { setupSavedProjects } from './mini-flow-projects.js?v=7';
 
 const projectsButton = document.createElement('button');
 projectsButton.id = 'open-saved-projects';
@@ -560,7 +583,20 @@ const panels = [
 const savedProjects = setupSavedProjects({ panel: projectsPanel, editor,
   normalize: normalizeProject, getActive: () => activeSavedProject, setActive: setActiveSavedProject,
   onError: text => { message.textContent = text; } });
-syncSavedProjects = savedProjects.syncActive;
+const gistBackups = setupGistBackups({
+  panel: projectsPanel.querySelector('[data-gist-backups]'),
+  getActive: () => activeSavedProject,
+  getProject: () => normalizeProject(editor.getProject()),
+  canBackUp: () => !editor.isInteracting() && (!joiningLive || Boolean(liveBoard?.ready())),
+  link: savedProjects.linkGist,
+  openProject(project) {
+    if (liveBoard || editor.isInteracting()) throw new Error('End the live session or finish editing before opening a backup.');
+    const restored = normalizeProject(project);
+    setActiveSavedProject(null);
+    editor.setProject(restored, { message: 'Opened Gist backup.' });
+  }
+});
+syncSavedProjects = () => { savedProjects.syncActive(); gistBackups.refresh(); };
 autosaveProject = savedProjects.autosave;
 
 function showPanel(active) {
@@ -711,11 +747,7 @@ registerMiniFlowTools(editor, undefined, undefined, {
   commitProject(project, message) {
     if (joiningLive) {
       if (!liveBoard) return { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' };
-      liveBoard.reportAIActivity('Applying board edits…');
-      return liveBoard.submit(project, message).then(result => {
-        liveBoard?.reportAIActivity(result.ok ? '' : 'Edit needs a retry');
-        return result;
-      });
+      return liveBoard.submitAIEdit(project, message);
     }
     if (editor.isInteracting()) {
       return { ok: false, reason: 'host_editing', message: 'The editor is busy. Read the board before retrying.' };

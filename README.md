@@ -223,8 +223,24 @@ Only the first AI guest to claim the request gets it from
 
 Participants see draft text, drag movement, and tool icons as they edit.
 Live guests get a separate note color, and notes return to yellow when the
-session ends. AI guests can report progress with `report_ai_activity`, and
-new blocks and arrows appear in sequence after the host accepts an AI edit.
+session ends. AI guests can report progress with `report_ai_activity` and
+publish small batches as they finish them. Every accepted batch is visible
+immediately.
+
+## GitHub Gist backups
+
+Open a saved project and expand **GitHub Gist backup** in Projects. Paste a
+Gist URL or ID and a GitHub token with Gists write permission, then choose
+**Connect project**. While the tab is open, Mini Flow checks for changes every
+five minutes. **Back up now** saves a changed snapshot immediately. Each
+snapshot has its own file, so edits from different machines can be opened
+independently. The token is kept in memory until reload. **Disconnect** stops
+new backups from this project.
+
+On another machine, paste the Gist link and choose **Find backups**. Select a
+snapshot to open it as a working copy. Use **Save as Project** to give it a local
+name, then connect that project to the same Gist to continue backing up.
+Anyone with the Gist link can read its backups.
 
 When the host ends the session or a guest leaves, the guest can continue
 editing their own copy. Mini Flow switches the guest's URL to a snapshot and

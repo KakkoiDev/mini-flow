@@ -27,6 +27,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   let presence = { point: null, focus: null };
   let agentRegistration;
   let agentRegistered = false;
+  let reportedActivity = false;
   const requests = [];
   const requestWaiters = new Set();
   const pendingAsks = new Map();
@@ -172,11 +173,11 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     return Promise.resolve().then(() => room.send(kind, data, to));
   }
 
-  function install(project, message, stream = false) {
+  function install(project, message) {
     if (JSON.stringify(getProject()) === JSON.stringify(project)) return;
     applying = true;
     try {
-      setProject(project, { message, preserveView: Boolean(state), stream });
+      setProject(project, { message, preserveView: Boolean(state) });
     } finally {
       applying = false;
     }
@@ -211,7 +212,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     request.resolve(result);
   }
 
-  function submit(project, message) {
+  function submit(project, message, { keepClaim = false } = {}) {
     if (!hostPeer || !state || closed) return Promise.resolve(failure('live_not_ready', 'The host is not connected.'));
     if (pending) return Promise.resolve(failure('edit_pending', 'Wait for the current edit to finish.'));
     return new Promise(resolve => {
@@ -223,7 +224,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       pending = request;
       available();
       onStatus('Sending edit…');
-      send('edit', { id: request.id, revision: state.revision, project, message }).catch(() => {
+      send('edit', { id: request.id, revision: state.revision, project, message, keepClaim }).catch(() => {
         if (pending === request) finish(failure('live_send_failed', 'Could not send the edit.'));
       });
     });
@@ -357,14 +358,13 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       ? data.message.trim().slice(0, 200) : 'Live edit applied.';
     try {
       const guest = guests.get(from);
-      const stream = guest.agent === true;
-      install(normalize(data.project), message, stream);
+      install(normalize(data.project), message);
       const changed = refresh(guest.color);
-      if (stream) for (const [requestId, offer] of offers) {
+      if (guest.agent && data.keepClaim !== true) for (const [requestId, offer] of offers) {
         if (offer.winner === from) finishOffer(requestId);
       }
-      publish({ id: data.id, ok: true, message, stream }, from);
-      if (changed) publish({ message, stream }, [...guests.keys()].filter(id => id !== from));
+      publish({ id: data.id, ok: true, message }, from);
+      if (changed) publish({ message }, [...guests.keys()].filter(id => id !== from));
     } catch {
       publish({ id: data.id, ...failure('invalid_edit', 'The host rejected an invalid board.') }, from);
     }
@@ -375,7 +375,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
         const project = normalize(data.project);
         onNoteColors(Object.fromEntries(Object.entries(data.noteColors ?? {}).filter(([id, color]) =>
           Object.hasOwn(project.positions, id) && Number.isSafeInteger(color) && color > 0)));
-        install(project, data.ok === false ? undefined : data.message, data.stream === true);
+        install(project, data.ok === false ? undefined : data.message);
         state = { revision: data.revision, project };
       } catch {
         onStatus('Could not read the live board.');
@@ -531,12 +531,25 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     reportAIActivity(message) {
       if (host || closed || !hostPeer || !agentRegistered) return failure('ai_not_connected', 'Register as a live AI guest first.');
       if (typeof message !== 'string' || message.length > 200) return failure('invalid_activity', 'Use a status of up to 200 characters.');
+      reportedActivity = Boolean(message.trim());
       presence = { ...presence, activity: message.trim() || undefined };
       schedulePresence();
       if (!presence.activity) send('ask', { type: 'done' }).catch(() => {});
       return { ok: true };
     },
     submit,
+    submitAIEdit(project, message) {
+      if (!agentRegistered || reportedActivity) return submit(project, message, { keepClaim: reportedActivity });
+      presence = { ...presence, activity: 'Applying board edits…' };
+      schedulePresence();
+      return submit(project, message).then(result => {
+        if (!reportedActivity) {
+          presence = { ...presence, activity: result.ok ? undefined : 'Edit needs a retry' };
+          schedulePresence();
+        }
+        return result;
+      });
+    },
     askAI,
     waitForAIRequest,
     registerAgent,

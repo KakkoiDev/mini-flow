@@ -167,9 +167,6 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .peer-activity {position:absolute;z-index:1;bottom:calc(var(--dock-height, 55px) + var(--dock-bottom, 12px) + 10px);
           left:12px;max-width:calc(100% - 24px);padding:6px 9px;border-radius:8px;background:var(--mf-surface);
           border:1px solid #ded9d2;color:var(--mf-text);font-size:12px;pointer-events:none;overflow-wrap:anywhere}
-        .live-reveal {animation:live-reveal .24s ease-out backwards}
-        @keyframes live-reveal {from {opacity:0} to {opacity:1}}
-        @media (prefers-reduced-motion:reduce) {.live-reveal {animation:none}}
         .note-action {position:absolute;z-index:2;display:flex;align-items:center;gap:5px;
           min-height:34px;padding:4px 8px;white-space:nowrap;font-size:12px;font-weight:650;
           background:var(--mf-surface);border-color:var(--mf-accent);box-shadow:0 2px 8px #332c2220}
@@ -959,15 +956,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       onSelection?.(item?.type ? { id: item.id, type: item.type } : null);
       publishPresence();
     }
-    function render(focus, reveal = [], includeDrafts = true) {
+    function render(focus, includeDrafts = true) {
       svg.replaceChildren();
-      const revealOrder = new Map(reveal.map((item, index) => [item, index]));
-      const revealStep = Math.min(65, 1100 / Math.max(1, reveal.length - 1));
-      function animate(group, item) {
-        if (!revealOrder.has(item)) return;
-        group.classList.add('live-reveal');
-        group.style.animationDelay = revealOrder.get(item) * revealStep + 'ms';
-      }
       const defs = element('defs', {});
       for (const [id, color] of [['arrow', palette.stroke], ['active', palette.accent]]) {
         const marker = element('marker', { id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto' });
@@ -1043,7 +1033,6 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           group.prepend(element('path', { d, fill: 'none', stroke: palette.accent, 'stroke-width': 8,
             opacity: .25, 'pointer-events': 'none', 'data-update-highlight': '' }));
         }
-        animate(group, edge);
         svg.append(group);
         connectionGeometry.set(edge, { from: start, to: end, hitPath: group.querySelector('path[stroke="transparent"]') });
         if (dockLayout && text.trim()) {
@@ -1131,7 +1120,6 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
             group.focus({ preventScroll: true });
           });
         }
-        animate(group, node);
         svg.append(group);
         if (focus === node) group.focus();
       }
@@ -1537,11 +1525,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         previousEdges.get(key).push(edge);
       }
       let added = 0, updated = 0;
-      const reveal = [];
       const moved = new Set();
       for (const node of next.nodes) {
         const previous = previousNodes.get(node.id);
-        if (!previous) { highlighted.add(node); added++; reveal.push(node); }
+        if (!previous) { highlighted.add(node); added++; }
         else if (['type', 'label', 'x', 'y', 'target'].some(key => previous[key] !== node[key])) {
           highlighted.add(node);
           updated++;
@@ -1552,7 +1539,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       let removed = graph.nodes.filter(node => !nodeIds.has(node.id)).length;
       for (const edge of next.edges) {
         const previous = previousEdges.get(JSON.stringify([edge.from, edge.to]))?.shift();
-        if (!previous) { highlighted.add(edge); added++; reveal.push(edge); }
+        if (!previous) { highlighted.add(edge); added++; }
         else if (previous.label !== edge.label || JSON.stringify(previous.bend) !== JSON.stringify(edge.bend) ||
             moved.has(edge.from) || moved.has(edge.to)) {
           highlighted.add(edge);
@@ -1567,7 +1554,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       connect.setAttribute('aria-pressed', 'false');
       select(undefined);
       changed();
-      render(undefined, options.stream ? reveal : []);
+      render();
       if (wasEmpty && graph.nodes.length) fit();
       root.focus({ preventScroll: true });
       const total = added + updated + removed;
@@ -1602,16 +1589,12 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       status('Source edits discarded.');
     };
     function exportSvg() {
-      if (remoteDrafts.length) render(undefined, [], false);
+      if (remoteDrafts.length) render(undefined, false);
       const copy = svg.cloneNode(true);
       for (const highlight of copy.querySelectorAll('[data-update-highlight]')) highlight.remove();
       for (const badge of copy.querySelectorAll('.note-ai-mark')) badge.remove();
       const box = svg.getBBox();
       if (remoteDrafts.length) render();
-      for (const mark of copy.querySelectorAll('.live-reveal')) {
-        mark.classList.remove('live-reveal');
-        mark.style.removeProperty('animation-delay');
-      }
       for (const shape of copy.querySelectorAll('[data-note-fill]')) {
         shape.setAttribute('fill', palette.note ?? '#fff4ae');
       }

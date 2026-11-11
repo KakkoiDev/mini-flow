@@ -121,8 +121,11 @@ A regular board link opens a snapshot.
   `after`. A null request means this guest acquired no claim. Read the board
   before acting, since the note may have changed.
 - `report_ai_activity` takes `{ message }` and shows a short progress
-  update on the board. Send an empty message when finishing without a board
-  edit to clear the activity and close the claimed request.
+  update on the board. When building a diagram in multiple steps, report
+  activity, then call `apply_board_edit` for each coherent batch as it is
+  ready. Use the revision from each successful response for the next batch.
+  A reported activity keeps the claim open across batches. Send an empty
+  message when finished to clear the activity and close the claim.
 
 ```json
 {

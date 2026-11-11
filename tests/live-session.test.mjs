@@ -51,7 +51,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
 
     const tools = new Map();
     await registerMiniFlowTools(guest, MiniFlow, { registerTool: tool => tools.set(tool.name, tool.execute) }, {
-      tabId: 'guest', isReady: guest.session.ready, commitProject: guest.session.submit,
+      tabId: 'guest', isReady: guest.session.ready, commitProject: guest.session.submitAIEdit,
       registerAgent: guest.session.registerAgent, waitForAIRequest: guest.session.waitForAIRequest
     });
     assert.deepEqual(host.counts(), { human: 2, ai: 0 });
@@ -67,6 +67,13 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.deepEqual(first.request.note, { id: 'N1', text: 'Review this step', target: { type: 'node', id: 'A' } });
     assert.equal((await secondGuest.session.waitForAIRequest()).reason, 'ai_not_connected');
     assert.equal((await host.session.askAI('N1')).reason, 'already_requested');
+    assert.deepEqual(guest.session.reportAIActivity('Building in batches'), { ok: true });
+    assert.equal((await guest.session.submitAIEdit(makeProject('First batch'), 'First batch')).ok, true);
+    assert.deepEqual(host.getProject(), makeProject('First batch'));
+    assert.equal((await host.session.askAI('N1')).reason, 'already_requested');
+    assert.equal((await guest.session.submitAIEdit(makeProject('Second batch'), 'Second batch')).ok, true);
+    await network.settle();
+    assert.deepEqual(secondGuest.getProject(), makeProject('Second batch'));
     guest.session.reportAIActivity('');
     await network.settle();
     assert.deepEqual(await secondGuest.session.askAI('N1'), { ok: true });
@@ -85,6 +92,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.equal((await Promise.all(competing)).filter(result => result.request).length, 1);
     const getBoard = tools.get('get_board');
     const edit = tools.get('apply_board_edit');
+    const commitsBeforeEdit = host.commits();
     const { revision } = await getBoard();
     const result = await edit({ revision, edits: [{ op: 'rename_node', id: 'A', label: 'Agent edit' }], message: 'Rename A' });
     assert.equal(result.ok, true);
@@ -92,14 +100,14 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.deepEqual(host.getProject(), guest.getProject());
     await network.settle();
     assert.deepEqual(host.getProject(), secondGuest.getProject());
-    assert.equal(host.commits(), 1);
+    assert.equal(host.commits(), commitsBeforeEdit + 1);
 
     guest.setProject(makeProject('Human guest edit'));
     await new Promise(resolve => setTimeout(resolve, 40));
     await network.settle();
     assert.deepEqual(host.getProject(), makeProject('Human guest edit'));
     assert.deepEqual(secondGuest.getProject(), host.getProject());
-    assert.equal(host.commits(), 2);
+    assert.equal(host.commits(), commitsBeforeEdit + 2);
 
     const concurrent = await Promise.all([
       guest.session.submit(makeProject('First guest edit'), 'First'),
