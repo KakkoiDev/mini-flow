@@ -354,18 +354,25 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       field.className = 'inline';
       field.setAttribute('aria-label', 'Edit diagram label. Enter to save, Shift+Enter for a new line.');
       const originalLabel = item.label;
+      let cancelled = false;
       field.textContent = originalLabel;
       editing = { field, item };
       viewport.append(field);
       positionEditor();
+      function readLabel() {
+        const text = field.childElementCount ? field.innerText : field.textContent;
+        // Contenteditable can leave a trailing line break as a caret placeholder.
+        return text.replace(/\r/g, '').replace(/(?:\n[ \t\u00a0]*)+$/, '');
+      }
       function updateLabel() {
-        item.label = (field.childElementCount ? field.innerText : field.textContent).replace(/\r/g, '');
+        item.label = readLabel();
         syncSource();
         render();
         positionEditor();
       }
       field.addEventListener('input', updateLabel);
       field.addEventListener('blur', () => {
+        item.label = cancelled ? originalLabel : readLabel();
         editing = undefined;
         field.remove();
         changed();
@@ -386,7 +393,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         if (saveLabel || event.key === 'Escape' || (event.key === 'Enter' && (event.metaKey || event.ctrlKey))) {
           event.preventDefault();
           event.stopPropagation();
-          if (event.key === 'Escape') item.label = originalLabel;
+          cancelled = event.key === 'Escape';
           field.blur();
           root.focus({ preventScroll: true });
         }
