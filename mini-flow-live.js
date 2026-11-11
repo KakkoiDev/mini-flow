@@ -10,7 +10,7 @@ export function readLiveInvite(hash) {
 
 export function createLiveSession({ room, host, getProject, setProject, normalize, canAccept, onStatus, onEnd,
   onAvailability = () => {}, onPresence = () => {}, onGuestCounts = () => {}, readNote = () => null,
-  noteIds = () => [], onNoteColors = () => {}, onAIRequests = () => {}, onAIRequest = () => {} }) {
+  noteIds = () => [], onNoteColors = () => {}, onAIRequests = () => {} }) {
   let hostPeer;
   const guests = new Map();
   let closed = false;
@@ -499,7 +499,6 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
         if (request.sequence > waiter.after) waiter.finish(claimRequest(request));
       }
       send('ask', { type: 'received', requestId: data.requestId }).catch(() => {});
-      onAIRequest({ sequence: request.sequence, noteId: request.note.id });
     }
   });
   room.onMessage('end', (_, from) => {
@@ -603,22 +602,12 @@ function failure(reason, message) {
   return { ok: false, reason, message };
 }
 
-export async function connectLiveBoard(invite, host, handlers, bridge) {
+export async function connectLiveBoard(invite, host, handlers) {
   const { joinRoom } = await import('./vendor/p2p-core/p2p-core.js');
   const role = host ? 'host' : 'editor';
   const room = joinRoom({ app: 'mini-flow-live', ...invite, mode: 'online', protocol: 3, maxPeers: host ? maxGuests : 1,
     maxMessageBytes: 256 * 1024, rateLimit: 60, kinds, profile: { role },
     acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host') });
-  if (host && bridge) {
-    try {
-      const { connectAgentBridge } = await import('./mini-flow-bridge.js');
-      const combinedRoom = await connectAgentBridge(room, invite, bridge, handlers.onBridgeDisconnect);
-      return createLiveSession({ ...handlers, room: combinedRoom, host });
-    } catch (error) {
-      room.leave();
-      throw error;
-    }
-  }
   return createLiveSession({ ...handlers, room, host });
 }
 

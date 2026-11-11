@@ -90,7 +90,6 @@ dialog button:disabled{opacity:.5;cursor:default}
     <details id="live-ai-options">
       <summary>AI guests</summary>
       <button id="live-copy-ai" type="button">Copy AI invite</button>
-      <button id="live-copy-curl" type="button" hidden>Copy curl command</button>
     </details>
   </div>
   <form method="dialog">
@@ -526,9 +525,8 @@ document.querySelector('#share').onclick = async () => {
 };
 </script>
 <script type="module">
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=ai-invite';
-import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=curl';
-import { bridgeAddress } from './mini-flow-bridge.js';
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=webmcp-only';
+import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=webmcp-only';
 import { setupGistBackups } from './mini-flow-gist.js';
 import { setupSavedProjects } from './mini-flow-projects.js?v=7';
 
@@ -645,10 +643,7 @@ const inviteRow = document.querySelector('#live-invite-row');
 const inviteInput = document.querySelector('#live-invite');
 const copyInvite = document.querySelector('#live-copy');
 const copyAIInvite = document.querySelector('#live-copy-ai');
-const copyCurl = document.querySelector('#live-copy-curl');
 const aiOptions = document.querySelector('#live-ai-options');
-const configuredBridge = new URLSearchParams(location.search).get('ai-bridge');
-let aiInvite;
 let connectionTimer;
 let copiedTimer;
 
@@ -667,9 +662,6 @@ function ended() {
   copyInvite.textContent = 'Copy invite';
   copyAIInvite.textContent = 'Copy AI invite';
   aiOptions.open = false;
-  copyCurl.hidden = true;
-  copyCurl.textContent = 'Copy curl command';
-  aiInvite = undefined;
   endSession.hidden = true;
   inviteRow.hidden = true;
   delete liveToggle.dataset.active;
@@ -692,16 +684,10 @@ async function startLive(invite, host) {
   if (host) liveNotice.textContent = '';
   showStatus('Connecting…');
   try {
-    const bridge = host && configuredBridge ? bridgeAddress(configuredBridge) : undefined;
     liveBoard = await connectLiveBoard(invite, host, {
       getProject: editor.getProject, setProject: editor.setProject, normalize: normalizeProject,
       canAccept: () => !editor.isInteracting(), onStatus: showStatus, onEnd: ended,
       onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts,
-      onBridgeDisconnect() {
-        aiInvite = undefined;
-        copyCurl.hidden = true;
-        showStatus('AI bridge disconnected. Browser guests can still join.');
-      },
       onNoteColors: editor.setNoteColors,
       onAIRequests: editor.setAIRequests,
       noteIds: project => MiniFlow.parse(project.source).nodes.filter(node => node.type === 'note').map(node => node.id),
@@ -714,7 +700,7 @@ async function startLive(invite, host) {
           ? { type: 'arrow', from: edge.from, to: edge.to }
           : typeof note.target === 'string' ? { type: 'node', id: note.target } : null };
       }
-    }, bridge);
+    });
     liveToggle.dataset.active = '';
     liveToggle.setAttribute('aria-label', 'Live session, active');
     endSession.hidden = false;
@@ -725,11 +711,6 @@ async function startLive(invite, host) {
       address.hash = 'live=' + invite.room + '.' + invite.password;
       inviteInput.value = address.href;
       inviteRow.hidden = false;
-      if (bridge) {
-        address.searchParams.set('bridge', bridge);
-        aiInvite = address.href;
-        copyCurl.hidden = false;
-      }
     }
     connectionTimer = setTimeout(() => {
       if (liveStatus.textContent.startsWith('Waiting') || liveStatus.textContent.startsWith('Receiving')) {
@@ -761,41 +742,14 @@ copyInvite.onclick = async () => {
 };
 copyAIInvite.onclick = async () => {
   try {
-    const instructions = [
-      'Join this Mini Flow live session as an AI guest. Choose one method based on your available tools.',
-      'Browser + WebMCP (no shell or Node bridge): Open the invite in a browser you control with WebMCP tool access. Wait for Live · Connected, call register_live_agent with {}, then use get_board and wait_for_ai_request.',
-      aiInvite
-        ? 'curl + SSE: Read the bridge URL from the bridge query parameter and fetch its /v1 manifest. The #live fragment contains the room and join credential. Keep the SSE connection open for Ask AI.'
-        : 'curl + SSE is available in rooms where the host has configured a Node bridge. Use Browser + WebMCP for this room.',
-      aiInvite || inviteInput.value
-    ];
-    await navigator.clipboard.writeText(instructions.join('\n\n'));
+    await navigator.clipboard.writeText([
+      'Join this Mini Flow live session as an AI guest using WebMCP.',
+      'Open the invite in a browser with WebMCP tool access. Wait for Live · Connected, call register_live_agent with {}, then use get_board and wait_for_ai_request.',
+      inviteInput.value
+    ].join('\n\n'));
     copyAIInvite.textContent = 'AI invite copied';
   } catch {
     showStatus('Could not copy the AI invite.');
-  }
-};
-copyCurl.onclick = async () => {
-  if (!aiInvite) return;
-  const address = new URL(aiInvite);
-  const { room, password } = readLiveInvite(address.hash);
-  const quote = value => "'" + value.replaceAll("'", "'\"'\"'") + "'";
-  const command = [
-    '(',
-    '  command -v jq >/dev/null || { printf "%s\\n" "Install jq to use this command." >&2; exit 1; }',
-    '  BRIDGE=' + quote(address.searchParams.get('bridge')),
-    '  GUEST=$(curl --silent --show-error --fail --request POST --header ' +
-      quote('Authorization: Bearer ' + password) + ' "$BRIDGE/v1/rooms/' + room + '/agents") &&',
-    '  TOKEN=$(printf "%s" "$GUEST" | jq -er .token) &&',
-    '  EVENTS=$(printf "%s" "$GUEST" | jq -er .events) &&',
-    '  curl --no-buffer --silent --show-error --fail --header "Authorization: Bearer $TOKEN" "$BRIDGE$EVENTS"',
-    ')'
-  ].join('\n');
-  try {
-    await navigator.clipboard.writeText(command);
-    copyCurl.textContent = 'Curl command copied';
-  } catch {
-    showStatus('Could not copy the curl command.');
   }
 };
 if (joiningLive) {
