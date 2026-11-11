@@ -112,13 +112,49 @@ test('reconnect an endpoint and undo it', async ({ page }) => {
 });
 
 test('snap preference survives reloads in both directions', async ({ page }) => {
+  const arrange = page.getByText('Arrange', { exact: true });
   const snap = page.getByRole('checkbox', { name: 'Snap to grid' });
+  await arrange.click();
   await snap.check();
   await page.reload();
+  await arrange.click();
   await expect(snap).toBeChecked();
   await snap.uncheck();
   await page.reload();
+  await arrange.click();
   await expect(snap).not.toBeChecked();
+});
+
+test('drag autosaves the open project and its title saves as you type', async ({ page }) => {
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Test diagram');
+  await page.getByRole('button', { name: 'Save project', exact: true }).click();
+  const row = page.getByRole('listitem').filter({ hasText: 'Test diagram' });
+  const time = row.locator('time');
+  await expect(time).toBeVisible();
+  const initialTime = await time.getAttribute('datetime');
+  const node = page.getByRole('button', { name: 'terminal: Prompt In', exact: true });
+  const box = await node.boundingBox();
+  const x = box.x + box.width / 2, y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 65, y + 30, { steps: 5 });
+  await page.mouse.up();
+  await expect(time).not.toHaveAttribute('datetime', initialTime);
+  const moved = await page.evaluate(() => miniFlowEditor.getProject());
+
+  await row.getByRole('button', { name: 'Rename Test diagram', exact: true }).click();
+  const title = row.getByRole('textbox', { name: 'Project title' });
+  await title.fill('Renamed diagram');
+  const open = page.getByRole('button', { name: 'Open Renamed diagram', exact: true });
+  await expect(open).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Project title' })).toBeFocused();
+  const restored = await page.context().newPage();
+  await restored.goto('http://127.0.0.1:8765/');
+  expect(await restored.evaluate(() => miniFlowEditor.getProject())).toEqual(moved);
+  await restored.getByRole('button', { name: 'Projects', exact: true }).click();
+  await expect(restored.getByRole('button', { name: 'Rename Renamed diagram', exact: true }))
+    .toHaveAttribute('aria-current', 'true');
 });
 
 test('review and apply an edit link as one undo step', async ({ page }) => {

@@ -12,22 +12,39 @@
 body{margin:0;background:#faf8f5;color:#242b29;font:15px system-ui,sans-serif}
 main{height:100dvh;display:flex;flex-direction:column}
 header{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:9px clamp(10px,2vw,28px);background:#faf8f5;border-bottom:1px solid #e7e2dc}
-h1{display:flex;align-items:center;gap:9px;margin:0 auto 0 0;font-size:21px;font-weight:750;letter-spacing:-.035em}
+h1{display:flex;align-items:center;gap:9px;margin:0 12px 0 0;font-size:21px;font-weight:750;letter-spacing:-.035em}
 h1 svg{width:26px;height:26px;color:#087f71}
 header button svg{width:19px;height:19px;flex:none}
 header [data-fit] > svg{display:none}
 header [data-fit]::before{content:"";display:block;flex:0 0 19px;width:19px;height:19px;
 background:center / contain no-repeat url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23242b29%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M9%204H4v5m11-5h5v5M4%2015v5h5m11-5v5h-5%22%2F%3E%3C%2Fsvg%3E")}
 header .header-actions{display:contents}
-header .view-actions{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+header .view-actions{display:inline-flex;align-items:center;gap:2px;margin-right:auto;white-space:nowrap}
+header .compact-action{width:38px;justify-content:center;padding-inline:0}
+header .compact-action > span:first-of-type{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.arrange{position:relative;z-index:4}
+.arrange summary{display:flex;align-items:center;gap:6px;padding:7px 9px;min-height:38px;box-sizing:border-box;border-radius:8px;cursor:pointer;list-style:none}
+.arrange summary::-webkit-details-marker{display:none}
+.arrange summary:hover,.arrange[open] summary{background:#f0ece6}
+.arrange summary:focus-visible{outline:2px solid #087f71;outline-offset:2px}
+.arrange summary svg{width:18px;height:18px}
+.arrange summary::after{content:"";width:6px;height:6px;border-right:1.5px solid;border-bottom:1.5px solid;transform:translateY(-2px) rotate(45deg)}
+.arrange-options{position:absolute;top:calc(100% + 6px);right:0;display:grid;min-width:174px;padding:5px;border:1px solid #ded9d2;border-radius:10px;background:#fffdfb;box-shadow:0 6px 20px #332c2220}
+.arrange-options label{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:38px;padding:0 8px;cursor:pointer}
+.arrange-options label svg{display:none}
+.arrange-options input{order:1;appearance:none;width:34px;height:20px;margin:0;border:1px solid #aaa59e;border-radius:20px;background:#d9d6d1;cursor:pointer}
+.arrange-options input::after{content:"";display:block;width:14px;height:14px;margin:2px;border-radius:50%;background:white}
+.arrange-options input:checked{background:#087f71;border-color:#087f71}
+.arrange-options input:checked::after{transform:translateX(14px)}
+.arrange-options input:focus-visible{outline:2px solid #087f71;outline-offset:2px}
 header button{display:inline-flex;align-items:center;gap:7px;font:inherit;border:1px solid transparent;background:transparent;color:inherit;border-radius:8px;padding:7px 10px;min-height:38px;cursor:pointer}
 header button:hover:not(:disabled){background:#f0ece6}
 header button[hidden],#live-session [hidden]{display:none}
 #live-toggle{white-space:nowrap}
 #live-toggle svg{color:#666f69}
 #live-toggle[data-active] svg{color:#087f71}
-.live-state{font-size:11px;font-weight:650;line-height:1.5;padding:0 5px;border-radius:5px;background:#eeebe6;color:#525b55}
-#live-toggle[data-active] .live-state{background:#e0f1e8;color:#175b50}
+.live-state{display:none;width:7px;height:7px;border-radius:50%;background:#087f71}
+#live-toggle[data-active] .live-state{display:block}
 #live-invite{display:block;width:100%;box-sizing:border-box;margin:6px 0 12px;font:inherit;padding:8px}
 #live-session form{flex-wrap:wrap}
 header button:disabled{opacity:.45;cursor:default}
@@ -39,8 +56,10 @@ header button:focus-visible{outline:2px solid #087f71;outline-offset:2px}
 #editor{flex:1;min-height:0;--mini-flow-height:100%}
 #editor > div{height:100%}
 @media(max-width:550px){header{gap:3px;padding:5px 8px}h1{font-size:18px}
-header button{font-size:13px;padding:5px 7px;min-height:44px}
-header .header-actions{display:flex;flex:1 1 100%;flex-wrap:wrap;gap:3px}}
+header button,.arrange summary{font-size:13px;padding:5px 7px;min-height:44px}
+header .header-actions{display:flex;flex:1 1 100%;align-items:center;flex-wrap:wrap;gap:3px}
+header .view-actions{margin-right:0}
+.arrange-options{left:0;right:auto}}
 dialog{width:min(560px,calc(100% - 32px));max-height:85dvh;padding:22px;border:1px solid #ded9d2;border-radius:14px;color:inherit;background:#fffdfb}
 dialog::backdrop{background:#242b2959}
 dialog h2{margin:0;font-size:20px}
@@ -85,6 +104,7 @@ dialog button:disabled{opacity:.5;cursor:default}
     .projects-body {padding:14px}
     #saved-project-form {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 8px;align-items:end}
     #saved-project-form label {grid-column:1/-1;font-size:13px;font-weight:650}
+    #saved-project-hint {margin:10px 0 0;font-size:12px;color:var(--mf-stroke)}
     #saved-project-name {min-width:0;min-height:40px;border-color:#ded9d2}
     #save-project {min-height:40px;background:#e4f4ee;border-color:#a7cfc4}
     #saved-project-status {margin:10px 0 0;font-size:13px;color:var(--mf-stroke);overflow-wrap:anywhere}
@@ -100,8 +120,13 @@ dialog button:disabled{opacity:.5;cursor:default}
     .project-row-actions button:not(:first-child) {background:transparent;border-color:transparent;font-size:13px}
     .project-action-form {flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
     .project-action-form label {width:100%;font-size:13px}
-    .project-action-form input {display:block;width:100%;margin-top:4px}
-    .live-guest-counter {position:absolute;bottom:10px;right:12px;z-index:2;pointer-events:none;
+    #saved-project-list .project-title {display:block;max-width:100%;min-height:28px;padding:2px 4px;margin-left:-4px;
+      border:1px solid transparent;background:transparent;font-weight:700;text-align:left;overflow-wrap:anywhere}
+    #saved-project-list .project-title:hover {background:#f1ede7}
+    .project-title-input {width:100%;min-width:0;padding:2px 4px;margin-left:-4px;font-weight:700}
+    .project-current {display:inline-block;margin-left:6px;color:#175b50;font-size:11px;font-weight:650}
+    #saved-project-list li:has(.project-title-input:not([hidden])) > div:first-child {flex:1 1 100%}
+    .live-guest-counter {position:absolute;bottom:calc(var(--dock-height) + var(--dock-bottom) + 10px);right:12px;z-index:2;pointer-events:none;
       padding:5px 9px;background:var(--mf-surface);border:1px solid #ded9d2;border-radius:8px;color:var(--mf-stroke);font-size:12px}
     @media (max-width:849px) {
       .dock-layout .workspace-panel {bottom:auto;max-height:56%;box-shadow:0 4px 16px #332c221c}
@@ -125,6 +150,7 @@ dialog button:disabled{opacity:.5;cursor:default}
         <button id="save-project" type="submit">Save project</button>
       </form>
       <p id="saved-project-status" role="status"></p>
+      <p id="saved-project-hint" hidden>Open a project below to autosave edits to it.</p>
       <ul id="saved-project-list" aria-label="Projects saved in this browser"></ul>
     </div>
   </aside>
@@ -140,7 +166,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=laser"></script>
+<script src="./mini-flow.js?v=floating-dock"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -178,14 +204,24 @@ let syncSavedProjects;
 let autosaveProject;
 function setActiveSavedProject(record, { reuse = false, silent = false } = {}) {
   if (!reuse) activeSavedProject = record ? { name: record.name, revision: record.revision } : null;
-  if (record && !joiningLive && !silent) {
+  if (record && !joiningLive) {
     const { source, positions } = editor.getProject();
-    save(source, positions);
+    if (!silent) {
+      sharedSession = false;
+      save(source, positions);
+    } else if (source === record.project.source && JSON.stringify(positions) === JSON.stringify(record.project.positions)) {
+      saveLocal(source, positions);
+    }
+  } else if (!record && !joiningLive) {
+    const { source, positions } = editor.getProject();
+    saveLocal(source, positions);
   }
-  try { history.replaceState({ ...history.state, miniFlowSavedProject: activeSavedProject }, '', location.href); } catch {}
+  try {
+    history.replaceState({ ...history.state, miniFlowSavedProject: activeSavedProject, miniFlowLocal: !sharedSession }, '', location.href);
+  } catch {}
   if (!silent) syncSavedProjects?.();
 }
-const sharedSession = joiningLive || ((location.hash.startsWith(prefix) || location.hash.startsWith(proposalPrefix)) &&
+let sharedSession = joiningLive || ((location.hash.startsWith(prefix) || location.hash.startsWith(proposalPrefix)) &&
   !history.state?.miniFlowLocal);
 const message = document.querySelector('#save-status');
 const address = new URL(location.href);
@@ -238,15 +274,24 @@ function restore() {
     message.textContent = 'Could not open the shared edit.';
   }
   try {
-    const local = readEdit(localStorage.getItem(key));
-    return local && MiniFlow.parse(local.source).nodes.length ? local : null;
+    const raw = localStorage.getItem(key);
+    const local = readEdit(raw);
+    if (!local) return null;
+    if (!location.hash && !Object.hasOwn(history.state ?? {}, 'miniFlowSavedProject')) {
+      const record = JSON.parse(raw)?.savedProject;
+      if (typeof record?.name === 'string' && typeof record.revision === 'string') activeSavedProject = record;
+    }
+    return activeSavedProject || MiniFlow.parse(local.source).nodes.length ? local : null;
   } catch { return null; }
+}
+function saveLocal(source, positions) {
+  if (!sharedSession) {
+    try { localStorage.setItem(key, JSON.stringify({ source, positions, savedProject: activeSavedProject })); } catch {}
+  }
 }
 function save(source, positions) {
   const raw = JSON.stringify({ source, positions });
-  if (!sharedSession) {
-    try { localStorage.setItem(key, raw); } catch {}
-  }
+  saveLocal(source, positions);
   const hash = prefix + encodeURIComponent(raw);
   if (location.hash !== hash) {
     try { history.replaceState({ ...history.state, miniFlowLocal: !sharedSession }, '', hash); }
@@ -280,11 +325,39 @@ document.querySelector('#editor > div').shadowRoot.querySelector('.panel').appen
 const headerActions = document.querySelector('header .header-actions');
 const panelButton = headerActions.querySelector('[data-panel]');
 const viewActions = headerActions.querySelector('.view-actions');
+const arrange = document.createElement('details');
+arrange.className = 'arrange';
+arrange.innerHTML = '<summary><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 6h16M4 12h10M4 18h13"/></svg>Arrange</summary><div class="arrange-options"></div>';
+const arrangeOptions = arrange.querySelector('.arrange-options');
+const layoutAction = viewActions.querySelector('[data-layout]');
+const snapControl = editorHost.firstElementChild.shadowRoot.querySelector('[data-snap]').parentElement;
+arrangeOptions.append(layoutAction, snapControl);
+viewActions.append(arrange);
+layoutAction.addEventListener('click', () => {
+  arrange.open = false;
+  arrange.querySelector('summary').focus();
+});
+document.addEventListener('pointerdown', event => {
+  if (arrange.open && !event.composedPath().includes(arrange)) arrange.open = false;
+});
+arrange.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || !arrange.open) return;
+  event.preventDefault();
+  arrange.open = false;
+  arrange.querySelector('summary').focus();
+});
+for (const [selector, label] of [['[data-undo]', 'Undo'], ['[data-redo]', 'Redo'],
+  ['[data-fit]', 'Fit'], ['#share', 'Copy link']]) {
+  const control = document.querySelector(selector);
+  control.classList.add('compact-action');
+  control.setAttribute('aria-label', label);
+  control.title = label;
+}
 headerActions.append(viewActions, document.querySelector('#share'));
 const liveToggle = document.createElement('button');
 liveToggle.id = 'live-toggle';
-liveToggle.innerHTML = '<svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.364 19.364a9 9 0 1 0 -12.728 0" /><path d="M15.536 16.536a5 5 0 1 0 -7.072 0" /><path d="M11 13a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /></svg><span>Live session</span><span class="live-state">Off</span>';
-const liveToggleState = liveToggle.querySelector('.live-state');
+liveToggle.innerHTML = '<svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.364 19.364a9 9 0 1 0 -12.728 0" /><path d="M15.536 16.536a5 5 0 1 0 -7.072 0" /><path d="M11 13a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /></svg><span>Live session</span><span class="live-state" aria-hidden="true"></span>';
+liveToggle.setAttribute('aria-label', 'Live session');
 liveToggle.setAttribute('aria-haspopup', 'dialog');
 headerActions.append(liveToggle, panelButton);
 liveNotice.id = 'live-notice';
@@ -293,7 +366,7 @@ liveToggle.closest('header').append(liveNotice);
 function setGuestAvailability(available) {
   const locked = joiningLive && !available;
   editorHost.inert = locked;
-  for (const control of [document.querySelector('#blank'), document.querySelector('#open-saved-projects'), viewActions.querySelector('[data-layout]'), panelButton]) {
+  for (const control of [document.querySelector('#blank'), document.querySelector('#open-saved-projects'), arrange, panelButton]) {
     if (control) control.inert = locked;
   }
   if (joiningLive && available) autosaveProject?.(editor.getProject());
@@ -418,7 +491,7 @@ document.querySelector('#share').onclick = async () => {
 <script type="module">
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=agent-presence';
 import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=6';
-import { setupSavedProjects } from './mini-flow-projects.js?v=4';
+import { setupSavedProjects } from './mini-flow-projects.js?v=5';
 
 const projectsButton = document.createElement('button');
 projectsButton.id = 'open-saved-projects';
@@ -512,7 +585,7 @@ function ended() {
   endSession.hidden = true;
   inviteRow.hidden = true;
   delete liveToggle.dataset.active;
-  liveToggleState.textContent = 'Off';
+  liveToggle.setAttribute('aria-label', 'Live session');
   startSession.hidden = false;
   if (wasGuest) {
     setGuestAvailability(true);
@@ -537,7 +610,7 @@ async function startLive(invite, host) {
       onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts
     });
     liveToggle.dataset.active = '';
-    liveToggleState.textContent = 'On';
+    liveToggle.setAttribute('aria-label', 'Live session, active');
     endSession.hidden = false;
     endSession.textContent = host ? 'End session' : 'Leave session';
     startSession.hidden = true;

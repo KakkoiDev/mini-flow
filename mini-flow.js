@@ -214,7 +214,6 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .dock-layout .toolbar label input:checked::after {left:16px}
         .dock-layout .toolbar label input:focus-visible {outline:2px solid var(--mf-accent);outline-offset:2px}
         .dock-layout .toolbar input {accent-color:var(--mf-accent);width:17px;height:17px;margin:0}
-        .dock-layout .scroll {bottom:calc(var(--dock-height) + var(--dock-bottom) + 8px)}
         .dock-layout .status {inset:8px auto auto 12px;min-height:0;max-width:calc(100% - 24px);
           padding:6px 9px;border:0;background:var(--mf-canvas);color:var(--mf-stroke);font-size:12px}
         .dock-layout .panel {inset:0 0 calc(var(--dock-height) + var(--dock-bottom) + 8px) auto;
@@ -468,7 +467,9 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     }
     function fit() {
       const box = svg.getBBox();
-      const width = viewport.clientWidth || 1, height = viewport.clientHeight || 1;
+      const width = viewport.clientWidth || 1;
+      const dockClearance = dockLayout ? frame.clientHeight - toolbar.offsetTop + 8 : 0;
+      const height = Math.max(1, viewport.clientHeight - dockClearance);
       zoom = Math.max(.05, Math.min(1, width / (box.width + 48), height / (box.height + 110)));
       cameraX = box.x + (box.width - width / zoom) / 2;
       cameraY = box.y + (box.height - height / zoom) / 2 - 22 / zoom;

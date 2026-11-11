@@ -79,6 +79,7 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
   const nameField = form.elements.name;
   const saveButton = panel.querySelector('#save-project');
   const list = panel.querySelector('#saved-project-list');
+  const hint = panel.querySelector('#saved-project-hint');
   const message = panel.querySelector('#saved-project-status');
   const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
   let busy = false;
@@ -86,6 +87,7 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
   let writes = Promise.resolve();
   const queuedSnapshots = new WeakMap();
   let refreshRevision = 0;
+  const rows = new Map();
 
   function enqueue(action) {
     const job = writes.then(action);
@@ -109,69 +111,132 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
     return button;
   }
 
-  async function manage(record, newName) {
+  async function deleteProject(record) {
     if (busy) return;
     busy = true;
     try {
       await enqueue(async () => {
         const active = getActive();
         const current = active?.name === record.name;
-        const updated = await manageProject(current ? active : record, newName);
+        await manageProject(current ? active : record);
         if (current) {
-          if (updated) Object.assign(active, { name: updated.name, revision: updated.revision });
-          else active.deleted = true;
-          if (getActive() === active) setActive(updated, { reuse: Boolean(updated) });
+          active.deleted = true;
+          if (getActive() === active) setActive(null);
         }
       });
-      message.textContent = newName ? 'Project renamed.' : 'Saved project deleted.';
+      message.textContent = 'Saved project deleted.';
       await refresh();
     } catch (error) {
-      message.textContent = error.name === 'ConstraintError' ? 'That name already exists.' : error.message;
+      message.textContent = error.message;
     } finally {
       busy = false;
       updateSaveButton();
     }
   }
 
-  function showActions(row, actions, record, rename) {
+  function confirmDelete(row, actions, record) {
     if (busy) return;
     panel.querySelector('.project-action-form')?.remove();
     const form = document.createElement('form');
     form.className = 'project-action-form';
-    const label = document.createElement('label');
-    label.textContent = rename ? 'New project name' : `Delete “${record.name}”?`;
-    const field = document.createElement('input');
-    if (rename) {
-      field.value = record.name;
-      field.maxLength = 80;
-      field.required = true;
-      label.append(field);
-    }
+    const question = document.createElement('span');
+    question.textContent = `Delete “${record.name}”?`;
     const confirm = document.createElement('button');
     confirm.type = 'submit';
-    confirm.textContent = rename ? 'Save name' : 'Delete project';
-    const cancel = makeButton('Cancel', () => { form.remove(); actions.querySelector('button').focus(); });
-    form.append(label, confirm, cancel);
+    confirm.textContent = 'Delete project';
+    const cancel = makeButton('Cancel', () => {
+      form.remove();
+      actions.querySelector('button').focus();
+    });
+    form.append(question, confirm, cancel);
     form.onsubmit = event => {
       event.preventDefault();
-      const name = field.value.trim();
-      if (rename && (!name || name === record.name)) return;
-      manage(record, rename ? name : undefined);
+      deleteProject(record);
     };
     row.append(form);
-    (rename ? field : cancel).focus();
+    cancel.focus();
+  }
+
+  function editTitle(entry) {
+    const { title, field, record } = entry;
+    if (busy) return;
+    field.value = record.name;
+    title.hidden = true;
+    field.hidden = false;
+    field.focus();
+    field.select();
+
+    let draftVersion = 0;
+    function saveTitle() {
+      if (field.hidden) return;
+      const version = ++draftVersion;
+      const next = field.value.trim();
+      if (!next) {
+        message.textContent = 'Enter a project name.';
+        return;
+      }
+      enqueue(async () => {
+        if (version !== draftVersion) return;
+        if (next === record.name) {
+          message.textContent = '';
+          return;
+        }
+        const previous = record.name;
+        const active = getActive();
+        const current = active?.name === previous;
+        const renamed = await manageProject(current ? active : record, next);
+        rows.delete(previous);
+        Object.assign(record, renamed);
+        rows.set(record.name, entry);
+        updateRow(entry);
+        if (current) {
+          Object.assign(active, { name: renamed.name, revision: renamed.revision });
+          if (getActive() === active) setActive(renamed, { reuse: true });
+        }
+        markCurrentProject();
+        if (version === draftVersion) message.textContent = '';
+      }).catch(error => {
+        if (version === draftVersion) {
+          message.textContent = error.name === 'ConstraintError' ? 'That project name already exists.' : error.message;
+        }
+      });
+    }
+
+    field.oninput = event => { if (!event.isComposing) saveTitle(); };
+    field.oncompositionend = saveTitle;
+    field.onblur = () => {
+      field.hidden = true;
+      title.hidden = false;
+    };
+    field.onkeydown = event => {
+      if (event.isComposing || (event.key !== 'Enter' && event.key !== 'Escape')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      field.blur();
+      title.focus();
+    };
+  }
+
+  function updateRow({ record, title, open, remove, time }) {
+    title.textContent = record.name;
+    title.dataset.projectName = record.name;
+    title.setAttribute('aria-label', 'Rename ' + record.name);
+    open.setAttribute('aria-label', 'Open ' + record.name);
+    remove.setAttribute('aria-label', 'Delete ' + record.name);
+    setSavedTime(time, record.updatedAt);
   }
 
   async function refresh() {
     const revision = ++refreshRevision;
     let records;
-    try { records = await readProjects(); }
+    try { await writes; records = await readProjects(); }
     catch {
       if (revision === refreshRevision) message.textContent = 'Could not read saved projects in this browser.';
       return;
     }
     if (revision !== refreshRevision) return;
     list.replaceChildren();
+    rows.clear();
     if (!records.length) {
       const empty = document.createElement('li');
       empty.textContent = 'No saved projects yet.';
@@ -181,14 +246,22 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
     for (const record of records) {
       const row = document.createElement('li');
       const details = document.createElement('div');
-      const name = document.createElement('strong');
-      name.textContent = record.name;
-      name.dataset.projectName = record.name;
+      const title = makeButton(record.name, () => editTitle(entry));
+      title.className = 'project-title';
+      title.title = 'Click to rename';
+      const field = document.createElement('input');
+      field.className = 'project-title-input';
+      field.setAttribute('aria-label', 'Project title');
+      field.maxLength = 80;
+      field.hidden = true;
+      const current = document.createElement('span');
+      current.className = 'project-current';
+      current.textContent = 'Current';
+      current.hidden = true;
       const date = document.createElement('small');
       const time = document.createElement('time');
-      setSavedTime(time, record.updatedAt);
-      date.append('Last saved ', time);
-      details.append(name, date);
+      date.append('Last saved ', time, current);
+      details.append(title, field, date);
       const open = makeButton('Open', async () => {
         if (busy) return;
         busy = true;
@@ -201,6 +274,8 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
           if (!latest) throw new Error('This project is no longer saved.');
           opening = true;
           editor.setProject(normalize(latest.project), { message: 'Opened ' + latest.name + '.' });
+          Object.assign(record, latest);
+          updateRow(entry);
           setActive(latest);
           message.textContent = '';
           open.focus({ preventScroll: true });
@@ -213,8 +288,11 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
       }, record.name);
       const actions = document.createElement('div');
       actions.className = 'project-row-actions';
-      actions.append(open, makeButton('Rename', () => showActions(row, actions, record, true), record.name),
-        makeButton('Delete', () => showActions(row, actions, record, false), record.name));
+      const remove = makeButton('Delete', () => confirmDelete(row, actions, record), record.name);
+      const entry = { record, title, field, open, remove, time, current };
+      rows.set(record.name, entry);
+      updateRow(entry);
+      actions.append(open, remove);
       row.append(details, actions);
       list.append(row);
     }
@@ -222,9 +300,13 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
   }
 
   function markCurrentProject() {
-    for (const name of list.querySelectorAll('[data-project-name]')) {
-      if (name.dataset.projectName === getActive()?.name) name.setAttribute('aria-current', 'true');
-      else name.removeAttribute('aria-current');
+    const active = getActive();
+    hint.hidden = !rows.size || Boolean(active);
+    for (const { record, title, current } of rows.values()) {
+      const isCurrent = record.name === active?.name;
+      current.hidden = !isCurrent;
+      if (isCurrent) title.setAttribute('aria-current', 'true');
+      else title.removeAttribute('aria-current');
     }
   }
 
@@ -274,9 +356,11 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
       const record = await writeProject(active.name, project, active);
       active.revision = record.revision;
       if (getActive() === active) setActive(record, { reuse: true, silent: true });
-      const row = [...list.querySelectorAll('[data-project-name]')]
-        .find(name => name.dataset.projectName === record.name)?.closest('li');
-      if (row) setSavedTime(row.querySelector('time'), record.updatedAt);
+      const entry = rows.get(record.name);
+      if (entry) {
+        Object.assign(entry.record, record);
+        setSavedTime(entry.time, record.updatedAt);
+      }
     }).catch(error => {
       if (queuedSnapshots.get(active) === snapshot) queuedSnapshots.delete(active);
       const text = 'Could not autosave ' + active.name + '. ' + error.message;
