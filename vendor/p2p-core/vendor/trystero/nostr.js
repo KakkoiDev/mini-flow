@@ -5,4 +5,3 @@ import*as Vt from"./node-crypto.js";var d=BigInt(0),w=BigInt(1),R=BigInt(2),F=Bi
 @noble/secp256k1/lib/esm/index.js:
   (*! noble-secp256k1 - MIT License (c) 2019 Paul Miller (paulmillr.com) *)
 */
-//# sourceMappingURL=nostr.bundle.mjs.map
