@@ -179,9 +179,9 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           transform-box:fill-box;transform-origin:center;animation:note-ai-spin .85s linear infinite}
         @keyframes note-ai-spin {to {transform:rotate(360deg)}}
         @media (prefers-reduced-motion:reduce) {.note-ai-spinner {animation:none}}
-        .peer-cursor {padding:3px 7px;margin:12px 0 0 12px;border-radius:6px;background:var(--peer-color,#185d78);color:#fff;font-size:12px;white-space:nowrap}
+        .peer-cursor {padding:3px 7px;margin:12px 0 0 12px;border-radius:6px;background:var(--peer-color,#185d78);color:var(--peer-ink,#fff);font-size:12px;white-space:nowrap}
         .peer-cursor::before {content:'';position:absolute;left:-10px;top:-10px;width:14px;height:18px;background:inherit;clip-path:polygon(0 0,100% 60%,53% 64%,35% 100%)}
-        .peer-focus {border:2px dashed var(--peer-color,#185d78);border-radius:8px;box-sizing:border-box}
+        .peer-focus {border:2px dashed var(--peer-outline,#185d78);border-radius:8px;box-sizing:border-box}
         .status {position:absolute;inset:auto 12px 8px;pointer-events:none;border-radius:10px;margin:0;padding:8px 12px;background:var(--mf-surface);border-top:1px solid #d9e2ec;min-height:38px}
         .panel > .repo-link {display:block;margin:0 14px;padding:12px 0;color:var(--mf-stroke);
           font-size:12px;text-decoration:none;border-top:1px solid #e7e2dc;width:fit-content}
@@ -383,18 +383,23 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       }, true);
     }
     const peerOverlays = new Map();
-    const peerColors = ['#6d3c83', '#9b422d', '#316849', '#28549a', '#8a3462', '#426037', '#644b28', '#375c73'];
+    const guestHues = [210, 140, 275, 15, 325, 175, 245, 88];
     let peerPresence = [], pointerPosition = null;
     let noteOwners = {}, aiRequests = {}, remoteDrafts = [], draftKey = '', noteAction;
     const activityList = document.createElement('div');
     activityList.className = 'peer-activity';
     activityList.hidden = true;
     viewport.append(activityList);
+    function guestHue(color) {
+      if (!Number.isSafeInteger(color) || color < 1) return undefined;
+      return guestHues[color - 1] ?? (color * 137.5) % 360;
+    }
+    function guestFill(hue) {
+      return `hsl(${hue} 65% 86%)`;
+    }
     function noteFill(id) {
-      const color = noteOwners[id];
-      if (!Number.isSafeInteger(color) || color < 1) return palette.note ?? '#fff4ae';
-      const hues = [210, 140, 275, 15, 325, 175, 245, 88];
-      return `hsl(${hues[color - 1] ?? (color * 137.5) % 360} 65% 86%)`;
+      const hue = guestHue(noteOwners[id]);
+      return hue === undefined ? (palette.note ?? '#fff4ae') : guestFill(hue);
     }
     function setNoteColors(colors) {
       noteOwners = colors;
@@ -442,23 +447,27 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         ...(laserPoints.length ? { laser: laserPoints } : {}), draft, tool });
     }
     function renderPresence() {
-      for (const { id, label, point, focus, tool, draft } of peerPresence) {
+      for (const { id, label, point, focus, tool, draft, color } of peerPresence) {
         let overlay = peerOverlays.get(id);
         if (!overlay) {
           const cursor = document.createElement('span'), outline = document.createElement('span');
           cursor.className = 'peer-cursor';
           outline.className = 'peer-focus';
-          const guestNumber = Number(/^(?:Guest|AI) (\d+)$/.exec(label)?.[1]);
-          const color = peerColors[(guestNumber - 1) % peerColors.length] ?? '#185d78';
           for (const element of [outline, cursor]) {
             element.setAttribute('aria-hidden', 'true');
-            element.style.setProperty('--peer-color', color);
             viewport.append(element);
           }
           overlay = { cursor, outline };
           peerOverlays.set(id, overlay);
         }
         const { cursor, outline } = overlay;
+        const hue = guestHue(color ?? Number(/^(?:Guest|AI) (\d+)$/.exec(label)?.[1]));
+        if (hue !== undefined && overlay.hue !== hue) {
+          cursor.style.setProperty('--peer-color', guestFill(hue));
+          cursor.style.setProperty('--peer-ink', `hsl(${hue} 45% 24%)`);
+          outline.style.setProperty('--peer-outline', `hsl(${hue} 45% 40%)`);
+          overlay.hue = hue;
+        }
         cursor.hidden = !point;
         if (point) {
           cursor.style.left = (point[0] - cameraX) * zoom + 'px';

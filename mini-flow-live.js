@@ -272,7 +272,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
 
   function presenceSnapshot() {
     return [{ id: room.selfId, label: 'Host', ...presence },
-      ...Array.from(guests, ([id, guest]) => ({ id, label: guest.label, ...guest.presence }))];
+      ...Array.from(guests, ([id, guest]) => ({ id, label: guest.label, color: guest.color, ...guest.presence }))];
   }
 
   function publishPresence() {
@@ -423,7 +423,9 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       }
       onPresence(data.peers.slice(0, maxGuests + 1).filter(item => typeof item?.id === 'string' &&
         item.id !== room.selfId && typeof item.label === 'string').map(item => ({
-        id: item.id, label: item.label.slice(0, 32), ...readPresence(item, /^AI \d+$/.test(item.label))
+        id: item.id, label: item.label.slice(0, 32),
+        ...(Number.isSafeInteger(item.color) && item.color > 0 ? { color: item.color } : {}),
+        ...readPresence(item, /^AI \d+$/.test(item.label))
       })));
       onAIRequests(Object.fromEntries(Object.entries(data.aiRequests ?? {}).slice(0, 64)
         .filter(([id, status]) => id.length <= 128 && (typeof status === 'string' && status.length <= 32 ||
@@ -608,6 +610,10 @@ export async function connectLiveBoard(invite, host, handlers) {
   const room = joinRoom({ app: 'mini-flow-live', ...invite, mode: 'online', protocol: 3, maxPeers: host ? maxGuests : 1,
     maxMessageBytes: 256 * 1024, rateLimit: 60, kinds, profile: { role },
     acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host') });
+  if (handlers.onNetworkStatus) {
+    room.onStatus(handlers.onNetworkStatus);
+    handlers.onNetworkStatus(room.status());
+  }
   return createLiveSession({ ...handlers, room, host });
 }
 

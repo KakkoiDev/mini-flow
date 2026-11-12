@@ -73,9 +73,8 @@ export function relaysTransport({
       if (turn?.length) config.turnConfig = turn;
       if (rtcConfig) config.rtcConfig = rtcConfig;
       try {
-        room = joinRoom(config, ctx.roomId, (failure) => {
-          ctx.error(new Error(`p2p-core: ${failure?.error || 'a peer could not be decrypted'}`
-            + ' — is everyone using the same password?'));
+        room = joinRoom(config, ctx.roomId, () => {
+          ctx.error(new Error('p2p-core: could not decrypt a peer handshake — check that everyone uses the same room password.'));
         });
       } catch (err) {
         state = 'error';

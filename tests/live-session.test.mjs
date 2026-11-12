@@ -143,6 +143,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     await network.settle();
     assert.deepEqual(guest.presence().find(peer => peer.id === host.id), { id: host.id, point: [25, -10], focus: 'A', label: 'Host' });
     assert.deepEqual(secondGuest.presence().find(peer => peer.id === guest.id)?.point, [12, 34]);
+    assert.equal(secondGuest.presence().find(peer => peer.id === guest.id)?.color, 1);
     assert.deepEqual(secondGuest.presence().find(peer => peer.id === guest.id)?.laser, laser);
     assert.deepEqual(host.presence().find(peer => peer.id === guest.id)?.laser, laser);
     assert.deepEqual(host.presence().find(peer => peer.id === secondGuest.id)?.point, [-20, 31]);
@@ -178,6 +179,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     await network.settle();
     const preview = host.presence().find(peer => peer.id === guest.id);
     assert.equal(preview.activity, 'Drafting an example');
+    assert.equal(preview.color, host.colors().AI_NOTE);
     assert.equal(preview.tool, 'note');
     assert.equal(preview.draft.text, 'Typing live');
     assert.deepEqual(host.getProject().positions.AI_NOTE, [12, 34]);

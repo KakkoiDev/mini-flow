@@ -26,7 +26,6 @@ export const RELAYS = Object.freeze([
   'wss://nostr.vulpem.com',
   'wss://relay.primal.net',
   'wss://nostr.mom',
-  'wss://offchain.pub',
   'wss://eu.purplerelay.com',
   'wss://nostr.data.haus',
   'wss://relay.fountain.fm',
@@ -36,9 +35,11 @@ export const RELAYS = Object.freeze([
  * Relays that refuse our notes. They carry no rendezvous, so leaving them out
  * strands nobody — the one way an entry may leave RELAYS — and dialling them
  * fills every player's console with trystero's "relay failure" warnings.
- * kakkoi-online's FAILURES.md (2026-08-16) recorded each refusal.
+ * See kakkoi-online's FAILURES.md and relay maintenance history.
  */
 export const REFUSING_RELAYS = Object.freeze([
+  'wss://nos.lol',                // kakkoi-online 991edf7: proof of work required
+  'wss://offchain.pub',           // Mini Flow: posting key must be in relay's web of trust
   'wss://relay.nostromo.social',   // "blocked: not on white-list"
   'wss://nostr.grooveix.com',      // "blocked: only certain pubkeys are allowed to post"
   'wss://relay.nostraddress.com',  // "auth-required: authenticate to publish events"

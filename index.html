@@ -83,6 +83,7 @@ dialog button:disabled{opacity:.5;cursor:default}
 <dialog id="live-session" aria-labelledby="live-title">
   <h2 id="live-title">Live session</h2>
   <p id="live-status" role="status">Invite people or agents to edit this board with you.</p>
+  <p id="live-network-status" hidden></p>
   <div id="live-invite-row" hidden>
     <label for="live-invite">Private invite link</label>
     <input id="live-invite" readonly>
@@ -214,7 +215,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=laser-fade"></script>
+<script src="./mini-flow.js?v=guest-note-colors"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
@@ -544,7 +545,8 @@ document.querySelector('#share').onclick = async () => {
 </script>
 <script type="module">
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=keep-listening';
-import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=ai-result-author';
+import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
+import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=relay-recovery';
 import { setupGistBackups } from './mini-flow-gist.js?v=project-backups';
 import { setupSavedProjects } from './mini-flow-projects.js?v=gist-actions';
 
@@ -658,6 +660,7 @@ showPanel(null);
 
 const liveDialog = document.querySelector('#live-session');
 const liveStatus = document.querySelector('#live-status');
+const liveNetworkStatus = document.querySelector('#live-network-status');
 const startSession = document.querySelector('#live-start');
 const endSession = document.querySelector('#live-end');
 const inviteRow = document.querySelector('#live-invite-row');
@@ -666,6 +669,8 @@ const copyInvite = document.querySelector('#live-copy');
 const copyAIInvite = document.querySelector('#live-copy-ai');
 const aiOptions = document.querySelector('#live-ai-options');
 let connectionTimer;
+let liveNetwork;
+let connectionWaited = false;
 let copiedTimer;
 
 function showStatus(text) {
@@ -674,10 +679,24 @@ function showStatus(text) {
   if (joiningLive && text !== 'Sending edit…') liveNotice.textContent = text === 'Live · Connected' ? '' : text;
   if (text.startsWith('Live ·')) clearTimeout(connectionTimer);
 }
+function showNetworkStatus(status) {
+  liveNetwork = status;
+  const relays = status.transports.relays;
+  liveNetworkStatus.hidden = !relays;
+  if (!relays) return;
+  const hint = connectionWaited && diagnose(status, 12000);
+  liveNetworkStatus.textContent = hint || (relays.state === 'unavailable'
+    ? 'Internet signaling unavailable · ' + relays.detail
+    : `Signaling relay sockets open · ${relays.open} of ${relays.total}`);
+}
+
 function ended() {
   const wasGuest = joiningLive;
   joiningLive = false;
   liveBoard = undefined;
+  liveNetwork = undefined;
+  connectionWaited = false;
+  liveNetworkStatus.hidden = true;
   clearTimeout(connectionTimer);
   clearTimeout(copiedTimer);
   copyInvite.textContent = 'Copy invite';
@@ -709,6 +728,7 @@ async function startLive(invite, host) {
       getProject: editor.getProject, setProject: editor.setProject, normalize: normalizeProject,
       canAccept: () => !editor.isInteracting(), onStatus: showStatus, onEnd: ended,
       onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts,
+      onNetworkStatus: showNetworkStatus,
       onNoteColors: editor.setNoteColors,
       onAIRequests: editor.setAIRequests,
       noteIds: project => MiniFlow.parse(project.source).nodes.filter(node => node.type === 'note').map(node => node.id),
@@ -735,6 +755,8 @@ async function startLive(invite, host) {
     }
     connectionTimer = setTimeout(() => {
       if (liveStatus.textContent.startsWith('Waiting') || liveStatus.textContent.startsWith('Receiving')) {
+        connectionWaited = true;
+        if (liveNetwork) showNetworkStatus(liveNetwork);
         showStatus(host ? 'Waiting for guests. Keep this tab open and share the invite.'
           : 'Still waiting for the host. Check that the host tab is open.');
       }
