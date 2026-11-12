@@ -4,7 +4,7 @@ export const maxThreadMessages = 12;
 export const maxReplyLength = 1000;
 const maxAnswerLength = 2000;
 // Set to your trusted Cloudflare relay's wss:// origin to enable fallback.
-const liveRelayUrl = '';
+const liveRelayUrl = 'wss://p2p-core-cloudflare.kakkoidev.workers.dev';
 const invitePattern = /^#live=([a-f0-9]{32})\.([a-f0-9]{32})$/;
 const id = () => crypto.randomUUID().replaceAll('-', '');
 

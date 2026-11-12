@@ -309,6 +309,8 @@ optional WebSocket relay. Mini Flow can still be served by GitHub Pages.
    **Live session** for the WebSocket relay status and test an edit in each
    direction.
 
-The relay setting is empty by default. Keep private board traffic on a relay
-you trust because the relay can read forwarded messages. You can reuse the
-same relay for other p2p-core apps by adding their origins to its allowlist.
+The hosted Mini Flow app uses the Cloudflare relay at
+`wss://p2p-core-cloudflare.kakkoidev.workers.dev`. For your own deployment,
+set `liveRelayUrl` to your relay URL or leave it empty to disable the fallback.
+Use a relay you trust because it can read forwarded messages. You can reuse
+the same relay for other p2p-core apps by adding their origins to its allowlist.
