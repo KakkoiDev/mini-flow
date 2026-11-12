@@ -119,7 +119,7 @@ A regular board link opens a snapshot.
   acknowledges it. Repeat calls keep the same guest identity and count.
 - `wait_for_ai_request` waits for **Ask AI** on a selected note. The host
   grants the request to one AI guest. The result contains the sequence,
-  requester, note text, and optional target. Start with `after: 0` and read
+  requester, note text, optional target, and preceding messages for a follow-up. Start with `after: 0` and read
   the board before acting, since the note may have changed. If the request
   is null, wait again with the same cursor. After each result, immediately
   wait again with `after` set to the handled sequence. Keep the turn active
@@ -129,7 +129,7 @@ A regular board link opens a snapshot.
   activity, then call `apply_board_edit` for each coherent batch as it is
   ready. Use the revision from each successful response for the next batch.
   A reported activity keeps the claim open across batches. When finished,
-  send an empty message with an optional `result` summary to close the
+  send an empty message with an optional `result` reply to close the
   claim and show the outcome on the note.
 
 ```json

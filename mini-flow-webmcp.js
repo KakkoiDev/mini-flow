@@ -123,7 +123,7 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
   if (typeof context?.registerTool === 'function' && options.waitForAIRequest) {
     await context.registerTool({
       name: 'wait_for_ai_request',
-      description: 'Wait for Ask AI and claim the request exclusively. Only the first AI acknowledged by the host gets the task. Pass the last handled sequence as after (start at 0). Use get_board to verify the current target. On a null request, wait again with the same cursor. After reporting each result, immediately wait again with the handled sequence as after. Keep listening until the live session disconnects or the user asks you to stop.',
+      description: 'Wait for Ask AI and claim the request exclusively. Only the first AI acknowledged by the host gets the task. Pass the last handled sequence as after (start at 0). Use get_board to verify the current target. On a follow-up, use the preceding messages in request.thread as context. On a null request, wait again with the same cursor. After reporting each result, immediately wait again with the handled sequence as after. Keep listening until the live session disconnects or the user asks you to stop.',
       inputSchema: {
         type: 'object', additionalProperties: false,
         properties: {
@@ -137,9 +137,9 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
   if (typeof context?.registerTool === 'function' && options.reportAIActivity) {
     await context.registerTool({
       name: 'report_ai_activity',
-      description: 'Show a short progress update to everyone on the live board. Send an empty message with an optional result summary when finished.',
+      description: 'Show a short progress update to everyone on the live board. Send an empty message with an optional full reply for the note conversation when finished.',
       inputSchema: { type: 'object', additionalProperties: false, required: ['message'],
-        properties: { message: { type: 'string', maxLength: 200 }, result: { type: 'string', maxLength: 200 } } },
+        properties: { message: { type: 'string', maxLength: 200 }, result: { type: 'string', maxLength: 2000 } } },
       execute: ({ message, result } = {}) => options.reportAIActivity(message, result)
     });
   }

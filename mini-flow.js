@@ -90,7 +90,7 @@ SOFTWARE.
     ), ...metadata].join('\n');
   }
 
-  function mount(host, source = 'flowchart TD', positions = {}, { onChange, onPresence, onSelection, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic', settingsKey, snapToGrid = false, dagre } = {}) {
+  function mount(host, source = 'flowchart TD', positions = {}, { onChange, onPresence, onSelection, onAIReply, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic', settingsKey, snapToGrid = false, dagre } = {}) {
     const enabled = name => features[name] !== false;
     let historyEnabled = enabled('history');
     const palette = { canvas: '#f7faff', grid: '#c5d4e4', text: '#203044', surface: '#fff',
@@ -1089,6 +1089,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         if (focus === attachment) group.focus({ preventScroll: true });
       }
       for (const node of graph.nodes) {
+        let aiBadge;
         const shown = byId.get(node.id);
         const group = itemGroup(node, node.type + ': ' + node.label);
         group.setAttribute('transform', 'translate(' + shown.x + ' ' + shown.y + ')');
@@ -1119,15 +1120,33 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           const summary = result ? author + request.label : '';
           const label = result ? (summary.length > 42 ? summary.slice(0, 41) + '…' : summary)
             : waiting ? 'Waiting for AI…' : (request.label ?? request) + ' working…';
-          const badgeWidth = label.length * 7 + 30;
-          const badge = element('g', { class: result ? 'note-ai-mark note-ai-result' : 'note-ai-mark',
-            transform: `translate(${Math.max(-w, w - badgeWidth + 8)} ${result ? h + 6 : -h - 13})`,
-            role: 'img', 'aria-label': result ? summary : label });
-          if (result) badge.append(element('title', {}, summary));
+          const interactive = Boolean(onAIReply) && (result || request.hasThread);
+          const badgeWidth = label.length * 7 + (interactive ? 46 : 30);
+          const badge = element('g', { class: interactive ? 'note-ai-mark note-ai-result' : 'note-ai-mark',
+            transform: `translate(${shown.x + Math.max(-w, w - badgeWidth + 8)} ${shown.y + (result ? h + 6 : -h - 13)})`,
+            role: interactive ? 'button' : 'img', 'aria-label': interactive ? 'Open AI conversation: ' + (summary || label) : result ? summary : label });
+          if (result || interactive) badge.append(element('title', {}, summary || label));
           badge.append(element('rect', { width: badgeWidth, height: 26, rx: 9, fill: palette.surface, stroke: palette.accent }));
           if (!result) badge.append(element('circle', { class: 'note-ai-spinner', cx: 13, cy: 13, r: 6 }));
           badge.append(element('text', { x: result ? 10 : 24, y: 17, 'font-size': 12 }, label));
-          group.append(badge);
+          if (interactive) {
+            badge.setAttribute('tabindex', '0');
+            badge.setAttribute('aria-haspopup', 'dialog');
+            badge.setAttribute('data-note-reply', node.id);
+            badge.append(element('path', { d: `M${badgeWidth - 16} 9l4 4-4 4`,
+              fill: 'none', stroke: palette.accent, 'stroke-width': 1.6, 'stroke-linecap': 'round' }));
+            const open = event => {
+              event.preventDefault();
+              event.stopPropagation();
+              onAIReply(node.id, node.label);
+            };
+            badge.addEventListener('pointerdown', event => event.stopPropagation());
+            badge.addEventListener('click', open);
+            badge.addEventListener('keydown', event => {
+              if (event.key === 'Enter' || event.key === ' ') open(event);
+            });
+          }
+          aiBadge = badge;
         }
         if (connect.getAttribute('aria-pressed') === 'false') {
           group.addEventListener('pointerdown', event => {
@@ -1141,6 +1160,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           });
         }
         svg.append(group);
+        if (aiBadge) svg.append(aiBadge);
         if (focus === node) group.focus();
       }
       for (const draft of nodeDrafts.values()) {

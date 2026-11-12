@@ -18,6 +18,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     let counts;
     let colors = {};
     let requests = {};
+    const threads = new Map();
     const room = joinRoom({ app: 'mini-flow-live-test', room: 'room', password: 'private', network,
       protocol: 3, maxPeers: host ? 8 : 1, profile: { role: host ? 'host' : 'editor' },
       acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host'),
@@ -35,9 +36,13 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     onPresence(value) { presence = value; }, onGuestCounts(value) { counts = value; },
     readNote: (_, id) => id === 'N1' ? { id, text: 'Review this step', target: { type: 'node', id: 'A' } } : null,
     noteIds: value => MiniFlow.parse(value.source).nodes.filter(node => node.type === 'note').map(node => node.id),
-    onNoteColors(value) { colors = value; }, onAIRequests(value) { requests = value; } });
+    onNoteColors(value) { colors = value; }, onAIRequests(value) { requests = value; },
+    onAIThread(id, messages) {
+      if (messages) threads.set(id, messages);
+      else threads.delete(id);
+    } });
     return { id: room.selfId, session, getProject, setProject, commits: () => commits, ended: () => ended,
-      presence: () => presence, counts: () => counts, colors: () => colors, requests: () => requests };
+      threads, presence: () => presence, counts: () => counts, colors: () => colors, requests: () => requests };
   }
 
   const host = connect(true);
@@ -81,13 +86,22 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     await network.settle();
     assert.deepEqual(host.requests().N1, { phase: 'result', label: 'Two batches added', author: 'AI 1' });
     assert.deepEqual(secondGuest.requests().N1, host.requests().N1);
-    assert.deepEqual(await secondGuest.session.askAI('N1'), { ok: true });
+    assert.deepEqual(await secondGuest.session.askAI('N1', 'What changed?'), { ok: true });
     const next = await wait({ after: first.request.sequence, timeoutMs: 1000 });
     assert.equal(next.request.requester, 'Guest 2');
+    assert.equal(next.request.note.text, 'What changed?');
+    assert.deepEqual(next.request.thread, [
+      { role: 'user', author: 'Host', text: 'Review this step' },
+      { role: 'assistant', author: 'AI 1', text: 'Two batches added' }
+    ]);
     assert.deepEqual(await wait({ after: next.request.sequence, timeoutMs: 0 }), { ok: true, request: null });
     assert.equal((await host.session.askAI('missing')).reason, 'note_missing');
-    guest.session.reportAIActivity('');
+    const fullReply = 'Here are the changes. '.repeat(16).trim();
+    assert.deepEqual(guest.session.reportAIActivity('', fullReply), { ok: true });
     await network.settle();
+    assert.equal(host.requests().N1.label, fullReply.slice(0, 200));
+    assert.equal(host.threads.get('N1').at(-1).text, fullReply);
+    assert.deepEqual(secondGuest.threads.get('N1'), host.threads.get('N1'));
     assert.deepEqual(await secondGuest.session.registerAgent(), { ok: true });
     const competing = [
       wait({ after: next.request.sequence, timeoutMs: 1000 }),

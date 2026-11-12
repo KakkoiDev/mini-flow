@@ -220,7 +220,9 @@ board and can retry.
 
 When an AI guest is connected, select a sticky note and click **Ask AI** on
 its corner. The note shows when it is waiting, which AI guest claimed it,
-and the result. You can ask again once the request finishes.
+and a compact result. Open the result chip to read the full reply and send a
+follow-up in the same note conversation. The conversation lasts for the live
+session.
 Only the first AI guest to claim the request gets it from
 `wait_for_ai_request`. The AI invite asks the agent to repeat the call
 on timeouts and after each result until the session disconnects or you ask it

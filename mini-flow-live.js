@@ -1,5 +1,9 @@
 const kinds = ['read', 'state', 'edit', 'end', 'presence', 'agent', 'ask'];
 const maxGuests = 8;
+const maxThreads = 32;
+const maxThreadMessages = 12;
+const maxReplyLength = 1000;
+const maxAnswerLength = 2000;
 // Set to your trusted Cloudflare relay's wss:// origin to enable fallback.
 const liveRelayUrl = '';
 const invitePattern = /^#live=([a-f0-9]{32})\.([a-f0-9]{32})$/;
@@ -12,7 +16,7 @@ export function readLiveInvite(hash) {
 
 export function createLiveSession({ room, host, getProject, setProject, normalize, canAccept, onStatus, onEnd,
   onAvailability = () => {}, onPresence = () => {}, onGuestCounts = () => {}, readNote = () => null,
-  noteIds = () => [], onNoteColors = () => {}, onAIRequests = () => {} }) {
+  noteIds = () => [], onNoteColors = () => {}, onAIRequests = () => {}, onAIThread = () => {} }) {
   let hostPeer;
   const guests = new Map();
   let closed = false;
@@ -36,8 +40,28 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   const pendingDeliveries = new Map();
   const offers = new Map();
   const results = new Map();
+  const threads = new Map();
   const pendingClaims = new Map();
   let requestSequence = 0;
+
+  function publishThread(noteId, to) {
+    const messages = threads.get(noteId);
+    send('ask', { type: 'thread', noteId, messages }, to).catch(() => {});
+  }
+
+  function appendThread(noteId, message) {
+    const messages = [...(threads.get(noteId) ?? []), message].slice(-maxThreadMessages);
+    threads.delete(noteId);
+    threads.set(noteId, messages);
+    if (threads.size > maxThreads) {
+      const oldest = threads.keys().next().value;
+      threads.delete(oldest);
+      onAIThread(oldest, null);
+      publishThread(oldest);
+    }
+    onAIThread(noteId, messages);
+    publishThread(noteId);
+  }
 
   function finishOffer(requestId, label, author) {
     const offer = offers.get(requestId);
@@ -46,8 +70,9 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     offers.delete(requestId);
     if (label) {
       results.delete(offer.noteId);
-      results.set(offer.noteId, { phase: 'result', label, ...(author && { author }) });
+      results.set(offer.noteId, { phase: 'result', label: label.slice(0, 200), ...(author && { author }) });
       if (results.size > 32) results.delete(results.keys().next().value);
+      appendThread(offer.noteId, { role: author ? 'assistant' : 'status', author: author ?? 'Mini Flow', text: label });
     }
     if (!closed) publishPresence();
   }
@@ -102,11 +127,13 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     for (const offer of offers.values()) clearTimeout(offer.timer);
     offers.clear();
     results.clear();
+    for (const noteId of threads.keys()) onAIThread(noteId, null);
+    threads.clear();
     onAIRequests({});
     requests.length = 0;
   }
 
-  function forwardAIRequest(noteId, from) {
+  function forwardAIRequest(noteId, from, prompt) {
     const note = readNote(getProject(), noteId);
     if (!note) return failure('note_missing', 'The note is no longer on the board.');
     const agents = [...guests].filter(([peer, guest]) => guest.agent && peer !== from).map(([peer]) => peer);
@@ -115,10 +142,17 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       return failure('already_requested', 'This note already has an active AI request.');
     }
     if (offers.size >= 32) return failure('too_many_requests', 'Wait for a pending request to finish.');
+    if (prompt !== undefined && (typeof prompt !== 'string' || !prompt.trim() || prompt.length > maxReplyLength)) {
+      return failure('invalid_reply', 'Enter a reply of up to 1000 characters.');
+    }
+    const requester = guests.get(from)?.label ?? 'Host';
+    const thread = threads.get(noteId);
+    const text = prompt?.trim() ?? note.text;
     const requestId = id();
     results.delete(noteId);
     const expire = () => finishOffer(requestId, 'No AI claimed the request');
     offers.set(requestId, { noteId, agents: new Set(agents), timer: setTimeout(expire, 90000) });
+    appendThread(noteId, { role: 'user', author: requester, text });
     publishPresence();
     return new Promise(resolve => {
       const failed = failure('ask_failed', 'No AI guest confirmed receipt of the note.');
@@ -130,16 +164,16 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       };
       const timer = setTimeout(() => finish(failed), 3000);
       pendingDeliveries.set(requestId, { agents: new Set(agents), finish });
-      send('ask', { type: 'delivery', requestId, note, requester: guests.get(from)?.label ?? 'Host' }, agents)
+      send('ask', { type: 'delivery', requestId, note: { ...note, text }, requester, ...(thread && { thread }) }, agents)
         .catch(() => finish(failed));
     });
   }
 
-  function askAI(noteId) {
+  function askAI(noteId, prompt) {
     if (closed || !state || (!host && !hostPeer)) {
       return Promise.resolve(failure('live_not_ready', 'The live board is disconnected.'));
     }
-    if (host) return Promise.resolve(forwardAIRequest(noteId, room.selfId));
+    if (host) return Promise.resolve(forwardAIRequest(noteId, room.selfId, prompt));
     if (pendingAsks.size >= 8) return Promise.resolve(failure('too_many_requests', 'Wait for a pending request to finish.'));
     return new Promise(resolve => {
       const requestId = id();
@@ -150,7 +184,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       };
       const timer = setTimeout(() => finish(failure('ask_timeout', 'The host did not confirm the request.')), 5000);
       pendingAsks.set(requestId, finish);
-      send('ask', { type: 'request', requestId, noteId }).catch(() =>
+      send('ask', { type: 'request', requestId, noteId, prompt }).catch(() =>
         finish(failure('ask_failed', 'Could not send the request to the host.')));
     });
   }
@@ -309,6 +343,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       const number = Array.from({ length: maxGuests }, (_, i) => i + 1).find(i => !numbers.has(i));
       guests.set(from, { number, color: ++nextColor, label: `Guest ${number}`, presence: { point: null, focus: null } });
       publish({}, from);
+      for (const noteId of threads.keys()) publishThread(noteId, from);
       reportGuestCount();
       schedulePresence();
     } else {
@@ -456,7 +491,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       if (data?.type === 'done' && guests.get(from)?.agent) {
         for (const [requestId, offer] of offers) {
           if (offer.winner === from) finishOffer(requestId,
-            typeof data.result === 'string' && data.result.trim() ? data.result.trim().slice(0, 200)
+            typeof data.result === 'string' && data.result.trim() ? data.result.trim().slice(0, maxAnswerLength)
               : offer.lastEdit ?? 'AI finished the request', guests.get(from).label);
         }
         return;
@@ -485,10 +520,22 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       if (!guests.has(from) || data?.type !== 'request' ||
           typeof data.noteId !== 'string' || data.noteId.length > 128 ||
           typeof data.requestId !== 'string' || data.requestId.length !== 32) return;
-      const result = await forwardAIRequest(data.noteId, from);
+      const result = await forwardAIRequest(data.noteId, from, data.prompt);
       await send('ask', { type: 'result', requestId: data.requestId, result }, from).catch(() => {});
     } else if (from === hostPeer && data?.type === 'result') {
       pendingAsks.get(data.requestId)?.(data.result);
+    } else if (from === hostPeer && data?.type === 'thread' &&
+      typeof data.noteId === 'string' && data.noteId.length <= 128) {
+      if (data.messages === undefined) {
+        threads.delete(data.noteId);
+        onAIThread(data.noteId, null);
+      } else if (Array.isArray(data.messages) && data.messages.length <= maxThreadMessages &&
+        data.messages.every(message => ['user', 'assistant', 'status'].includes(message?.role) &&
+          typeof message.author === 'string' && message.author.length <= 32 &&
+          typeof message.text === 'string' && message.text.length <= 4000)) {
+        threads.set(data.noteId, data.messages);
+        onAIThread(data.noteId, data.messages);
+      }
     } else if (from === hostPeer && data?.type === 'claim_result') {
       if (data.granted === true && pendingClaims.has(data.requestId)) {
         presence = { ...presence, activity: 'Reviewing a note…' };
@@ -496,7 +543,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       }
       pendingClaims.get(data.requestId)?.finish(data.granted === true);
     } else if (from === hostPeer && agentRegistered && data?.type === 'delivery' && data.note) {
-      const request = { id: data.requestId, sequence: ++requestSequence, note: data.note, requester: data.requester };
+      const request = { id: data.requestId, sequence: ++requestSequence, note: data.note, requester: data.requester,
+        ...(Array.isArray(data.thread) && { thread: data.thread }) };
       requests.push(request);
       if (requests.length > 32) requests.shift();
       for (const waiter of requestWaiters) {
@@ -552,8 +600,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     reportAIActivity(message, result) {
       if (host || closed || !hostPeer || !agentRegistered) return failure('ai_not_connected', 'Register as a live AI guest first.');
       if (typeof message !== 'string' || message.length > 200) return failure('invalid_activity', 'Use a status of up to 200 characters.');
-      if (result !== undefined && (typeof result !== 'string' || result.length > 200 || message.trim())) {
-        return failure('invalid_result', 'Send a result of up to 200 characters with an empty progress message.');
+      if (result !== undefined && (typeof result !== 'string' || result.length > maxAnswerLength || message.trim())) {
+        return failure('invalid_result', 'Send a result of up to 2000 characters with an empty progress message.');
       }
       reportedActivity = Boolean(message.trim());
       presence = { ...presence, activity: message.trim() || undefined };
