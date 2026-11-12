@@ -13,6 +13,7 @@
  */
 import { selfId as trysteroSelfId } from '../vendor/trystero/nostr.js';
 import { Emitter, payloadSize, sha256 } from './util.js';
+import { createDebugReport } from './debug.js';
 import { RELAYS } from './relays.js';
 import { tabsTransport } from './transports/tabs.js';
 import { relaysTransport } from './transports/relays.js';
@@ -152,7 +153,13 @@ export function joinRoom(rawOptions) {
     dropped: { unknownPeer: 0, tooBig: 0, rateLimited: 0, invalid: 0, unhandled: 0, refused: 0 },
   };
 
-  const debug = (...args) => { if (options.debug) console.log('[p2p-core]', ...args); };
+  const diagnostics = options.debug === true ? createDebugReport({
+    app, mode: options.mode, version: VERSION,
+    protocol: typeof options.protocol === 'number' ? options.protocol : undefined,
+    roomFingerprint: sha256(`p2p-debug\n${app}\n${options.room}`).slice(0, 12),
+  }) : null;
+  const debug = diagnostics?.record;
+  debug?.('room.join', { transports: PRIORITY.filter(name => plan[name]), needsHello: options.protocol !== undefined || !!options.acceptPeer });
 
   // ------------------------------------------------------------ transports
 
@@ -205,7 +212,12 @@ export function joinRoom(rawOptions) {
         if (record) dropRecord(record);
       },
       statusChanged: queueStatus,
-      error: (err) => { if (!left) events.emit('error', err); },
+      debug: debug && ((event, details) => debug(event, { ...details, transport: transport.name })),
+      error: (err) => {
+        if (left) return;
+        debug?.('transport.error', { transport: transport.name });
+        events.emit('error', err);
+      },
     };
   }
 
@@ -214,7 +226,14 @@ export function joinRoom(rawOptions) {
     statusQueued = true;
     queueMicrotask(() => {
       statusQueued = false;
-      if (!left) events.emit('status', status());
+      if (left) return;
+      const snapshot = status();
+      if (debug) debug('room.status', {
+        peers: snapshot.peers,
+        transports: Object.fromEntries(Object.entries(snapshot.transports).map(([name, info]) =>
+          [name, { state: info.state, peers: info.peers, open: info.open, total: info.total }])),
+      });
+      events.emit('status', snapshot);
     });
   }
 
@@ -254,7 +273,7 @@ export function joinRoom(rawOptions) {
     }
     const fresh = !record.via.has(name);
     record.via.add(name);
-    debug('transport join', name, id, record.state);
+    debug?.('peer.transport-joined', { transport: name, peerId: id, state: record.state });
     if (record.state === 'accepted') {
       if (fresh) events.emit('update', id, publicPeer(record));
       return;
@@ -267,7 +286,7 @@ export function joinRoom(rawOptions) {
   function transportLeave(name, id) {
     const record = records.get(id);
     if (!record || !record.via.delete(name)) return;
-    debug('transport leave', name, id);
+    debug?.('peer.transport-left', { transport: name, peerId: id });
     if (record.via.size) {
       if (record.state === 'accepted') events.emit('update', id, publicPeer(record));
       return;
@@ -286,6 +305,7 @@ export function joinRoom(rawOptions) {
 
   function sendHello(record, seen) {
     record.helloSent++;
+    debug?.('peer.hello-sent', { peerId: record.id, attempt: record.helloSent, acknowledgment: seen });
     internalSend(INTERNAL.hello, { v: options.protocol ?? null, p: profile ?? null, s: seen, lib: VERSION }, record);
     // A hello sent while the other side is still wiring itself up can vanish.
     // Until we have heard theirs, say it again, a few times.
@@ -363,7 +383,7 @@ export function joinRoom(rawOptions) {
     record.state = 'accepted';
     record.peer.joinedAt = Date.now();
     if (record.hello) record.peer.profile = record.hello.p ?? undefined;
-    debug('accepted', record.id);
+    debug?.('peer.accepted', { peerId: record.id, transport: bestTransport(record) });
     events.emit('join', record.id, publicPeer(record));
     checkHost();
     const queued = record.buffer;
@@ -376,7 +396,7 @@ export function joinRoom(rawOptions) {
     record.buffer = [];
     stats.dropped.refused++;
     internalSend(INTERNAL.refuse, { r: reason }, record);
-    debug('refused', record.id, reason);
+    debug?.('peer.refused', { peerId: record.id, reason });
     events.emit('refused', record.id, reason);
     if (reason === 'version') events.emit('error', new Error(`p2p-core: ${message}`));
   }
@@ -430,7 +450,7 @@ export function joinRoom(rawOptions) {
     if (validator) {
       let ok = false;
       try { ok = validator(data, record.id) !== false; } catch { ok = false; }
-      if (!ok) { stats.dropped.invalid++; debug('invalid', kind, data); return; }
+      if (!ok) { stats.dropped.invalid++; debug?.('receive.invalid', { peerId: record.id }); return; }
     }
     stats.received++;
     const handlers = kindHandlers.get(kind);
@@ -478,6 +498,7 @@ export function joinRoom(rawOptions) {
     if (kind === INTERNAL.hello) {
       if (!data || typeof data !== 'object') return;
       const first = !record.hello;
+      if (first) debug?.('peer.hello-received', { peerId: record.id, protocolMatches: options.protocol === data.v });
       record.hello = { v: data.v ?? undefined, p: data.p ?? undefined, lib: data.lib };
       if (!data.s) sendHello(record, true);
       if (record.state === 'accepted') {
@@ -492,6 +513,7 @@ export function joinRoom(rawOptions) {
       events.emit('update', record.id, publicPeer(record));
     } else if (kind === INTERNAL.refuse) {
       if (record.state === 'refused') return;
+      debug?.('peer.remote-refusal', { peerId: record.id, versionMismatch: data?.r === 'version' });
       const wasAccepted = record.state === 'accepted';
       record.state = 'refused';
       events.emit('refused', record.id, `they-refused:${data?.r ?? 'unknown'}`);
@@ -533,7 +555,7 @@ export function joinRoom(rawOptions) {
     for (const id of ids) {
       const record = records.get(id);
       if (record?.state === 'accepted') out.push(record);
-      else debug(`send: ${id} is not a peer in this room; skipped`);
+      else debug?.('send.peer-unavailable');
     }
     return out;
   }
@@ -644,6 +666,12 @@ export function joinRoom(rawOptions) {
     },
 
     status,
+    /** A JSON snapshot of this room's diagnostic timeline, when enabled. */
+    debugReport: () => diagnostics ? {
+      ...diagnostics.report(),
+      left,
+      stats: structuredClone(stats),
+    } : null,
     /** How a peer is connected: { path, local, rtt, transport }. */
     async route(id) {
       const record = records.get(id);
@@ -702,6 +730,7 @@ export function joinRoom(rawOptions) {
       }
       for (const record of records.values()) clearTimeout(record.helloTimer);
       records.clear();
+      debug?.('room.left');
       events.clear();
     },
     get left() { return left; },
@@ -732,13 +761,18 @@ export function joinRoom(rawOptions) {
 
   const starting = [];
   for (const transport of transports.values()) {
+    debug?.('transport.start', { transport: transport.name });
     try {
-      starting.push(Promise.resolve(transport.start(contextFor(transport))).catch((err) => events.emit('error', err)));
+      starting.push(Promise.resolve(transport.start(contextFor(transport))).catch((err) => {
+        debug?.('transport.start-error', { transport: transport.name });
+        events.emit('error', err);
+      }));
     } catch (err) {
+      debug?.('transport.start-error', { transport: transport.name });
       queueMicrotask(() => events.emit('error', err));
     }
   }
   room.ready = Promise.all(starting).then(() => room);
-  debug('joined', app, options.room, 'as', selfId, 'with', [...transports.keys()].join(', '));
   return room;
 }
+

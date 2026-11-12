@@ -84,6 +84,12 @@ dialog button:disabled{opacity:.5;cursor:default}
   <h2 id="live-title">Live session</h2>
   <p id="live-status" role="status">Invite people or agents to edit this board with you.</p>
   <p id="live-network-status" hidden></p>
+  <details id="live-debug" hidden>
+    <summary>Connection diagnostics</summary>
+    <button id="live-debug-copy" type="button">Copy diagnostics</button>
+    <span id="live-debug-status" role="status"></span>
+    <textarea id="live-debug-text" aria-label="Connection diagnostics JSON" readonly hidden rows="5"></textarea>
+  </details>
   <div id="live-invite-row" hidden>
     <label for="live-invite">Private invite link</label>
     <input id="live-invite" readonly>
@@ -546,7 +552,7 @@ document.querySelector('#share').onclick = async () => {
 <script type="module">
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=keep-listening';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=relay-recovery';
+import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=connection-diagnostics';
 import { setupGistBackups } from './mini-flow-gist.js?v=project-backups';
 import { setupSavedProjects } from './mini-flow-projects.js?v=gist-actions';
 
@@ -668,16 +674,68 @@ const inviteInput = document.querySelector('#live-invite');
 const copyInvite = document.querySelector('#live-copy');
 const copyAIInvite = document.querySelector('#live-copy-ai');
 const aiOptions = document.querySelector('#live-ai-options');
+const debugEnabled = new URL(location.href).searchParams.get('debug') === '1';
+const debugPanel = document.querySelector('#live-debug');
+const debugText = document.querySelector('#live-debug-text');
+const debugStatus = document.querySelector('#live-debug-status');
+let debugAttempt;
 let connectionTimer;
 let liveNetwork;
 let connectionWaited = false;
 let copiedTimer;
+
+function liveDebugReport() {
+  if (!debugAttempt) return null;
+  const { started, role, stages, network } = debugAttempt;
+  return { role, elapsedMs: Math.round(performance.now() - started), stages: [...stages],
+    p2p: network?.() ?? null };
+}
+
+if (debugEnabled) {
+  window.miniFlowLiveDebug = liveDebugReport;
+  document.querySelector('#live-debug-copy').onclick = async () => {
+    const report = liveDebugReport();
+    if (!report) return;
+    const json = JSON.stringify(report, null, 2);
+    try {
+      await navigator.clipboard.writeText(json);
+      debugStatus.textContent = 'Diagnostics copied.';
+    } catch {
+      debugText.hidden = false;
+      debugText.value = json;
+      debugText.select();
+      debugStatus.textContent = 'Copy the selected text.';
+    }
+  };
+}
+
+function traceLiveStage(stage) {
+  if (!debugAttempt || debugAttempt.stages.at(-1)?.stage === stage) return;
+  const stages = debugAttempt.stages;
+  stages.push({ stage, ms: Math.round(performance.now() - debugAttempt.started) });
+  if (stages.length > 100) stages.shift();
+}
+
+function logLiveDebug(outcome) {
+  if (debugEnabled) console.info('[Mini Flow live]', outcome, liveDebugReport());
+}
 
 function showStatus(text) {
   liveStatus.textContent = text;
   liveToggle.title = text;
   if (joiningLive && text !== 'Sending edit…') liveNotice.textContent = text === 'Live · Connected' ? '' : text;
   if (text.startsWith('Live ·')) clearTimeout(connectionTimer);
+  if (!debugAttempt) return;
+  if (text.startsWith('Waiting for')) traceLiveStage('waiting-for-peer');
+  if (text.startsWith('Receiving the board')) traceLiveStage('receiving-board');
+  if (text.startsWith('Could not request the board')) traceLiveStage('board-request-failed');
+  if (text.startsWith('Could not send the board')) traceLiveStage('board-send-failed');
+  if (text.startsWith('Could not read the live board')) traceLiveStage('board-read-failed');
+  if (text.startsWith('Host disconnected')) traceLiveStage('host-disconnected');
+  if (text.startsWith('Live ·') && debugAttempt.stages.at(-1)?.stage !== 'connected') {
+    traceLiveStage('connected');
+    queueMicrotask(() => logLiveDebug('connected'));
+  }
 }
 function showNetworkStatus(status) {
   liveNetwork = status;
@@ -691,6 +749,8 @@ function showNetworkStatus(status) {
 }
 
 function ended() {
+  traceLiveStage('ended');
+  logLiveDebug('ended');
   const wasGuest = joiningLive;
   joiningLive = false;
   liveBoard = undefined;
@@ -722,13 +782,21 @@ function ended() {
 async function startLive(invite, host) {
   startSession.disabled = true;
   if (host) liveNotice.textContent = '';
+  if (debugEnabled) {
+    debugAttempt = { started: performance.now(), role: host ? 'host' : 'guest', stages: [] };
+    debugPanel.hidden = false;
+    debugText.hidden = true;
+    debugText.value = '';
+    debugStatus.textContent = '';
+    traceLiveStage('connecting');
+  }
   showStatus('Connecting…');
   try {
     liveBoard = await connectLiveBoard(invite, host, {
       getProject: editor.getProject, setProject: editor.setProject, normalize: normalizeProject,
       canAccept: () => !editor.isInteracting(), onStatus: showStatus, onEnd: ended,
       onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts,
-      onNetworkStatus: showNetworkStatus,
+      onNetworkStatus: showNetworkStatus, debug: debugEnabled,
       onNoteColors: editor.setNoteColors,
       onAIRequests: editor.setAIRequests,
       noteIds: project => MiniFlow.parse(project.source).nodes.filter(node => node.type === 'note').map(node => node.id),
@@ -742,6 +810,7 @@ async function startLive(invite, host) {
           : typeof note.target === 'string' ? { type: 'node', id: note.target } : null };
       }
     });
+    if (debugAttempt) debugAttempt.network = liveBoard.debugReport;
     liveToggle.dataset.active = '';
     liveToggle.setAttribute('aria-label', 'Live session, active');
     endSession.hidden = false;
@@ -749,6 +818,7 @@ async function startLive(invite, host) {
     startSession.hidden = true;
     if (host) {
       const address = new URL(location.pathname, location.origin);
+      if (debugEnabled) address.searchParams.set('debug', '1');
       address.hash = 'live=' + invite.room + '.' + invite.password;
       inviteInput.value = address.href;
       inviteRow.hidden = false;
@@ -757,12 +827,17 @@ async function startLive(invite, host) {
       if (liveStatus.textContent.startsWith('Waiting') || liveStatus.textContent.startsWith('Receiving')) {
         connectionWaited = true;
         if (liveNetwork) showNetworkStatus(liveNetwork);
+        const receiving = liveStatus.textContent.startsWith('Receiving');
         showStatus(host ? 'Waiting for guests. Keep this tab open and share the invite.'
-          : 'Still waiting for the host. Check that the host tab is open.');
+          : receiving ? 'Still receiving the board…' : 'Still waiting for the host. Check that the host tab is open.');
+        traceLiveStage(receiving ? 'board-transfer-slow' : 'peer-discovery-slow');
+        logLiveDebug('still waiting after 12 seconds');
       }
     }, 12000);
   } catch (error) {
     showStatus('Could not start the live connection. ' + error.message);
+    traceLiveStage('start-failed');
+    logLiveDebug('start failed');
   } finally {
     startSession.disabled = false;
   }

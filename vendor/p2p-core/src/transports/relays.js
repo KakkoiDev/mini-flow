@@ -10,6 +10,7 @@
 import {
   joinRoom as trysteroJoinRoom,
   getRelaySockets as trysteroRelaySockets,
+  observeRelaySockets,
 } from '../../vendor/trystero/nostr.js';
 import { classifyConnection } from '../route.js';
 
@@ -29,6 +30,7 @@ export function relaysTransport({
   let poll = null;
   let lastOpen = -1;
   let detail = '';
+  let stopObserving;
   const actions = new Map();
   const peers = new Set();
 
@@ -58,6 +60,7 @@ export function relaysTransport({
       if (typeof globalThis.RTCPeerConnection !== 'function' && joinRoom === trysteroJoinRoom) {
         state = 'unavailable';
         detail = 'this browser has no WebRTC';
+        ctx.debug?.('relay.unavailable', { reason: 'no-webrtc' });
         ctx.statusChanged();
         return;
       }
@@ -65,6 +68,7 @@ export function relaysTransport({
         // Normal on a local server's http:// address, so a status, not an error.
         state = 'unavailable';
         detail = 'needs https or localhost';
+        ctx.debug?.('relay.unavailable', { reason: 'insecure-context' });
         ctx.statusChanged();
         return;
       }
@@ -72,6 +76,17 @@ export function relaysTransport({
       if (password) config.password = password;
       if (turn?.length) config.turnConfig = turn;
       if (rtcConfig) config.rtcConfig = rtcConfig;
+      if (ctx.debug) {
+        let attempt = 0;
+        config.onDebug = ctx.debug;
+        config.nextDebugAttempt = () => ++attempt;
+        ctx.debug('relay.config', {
+          relays: relays.map(url => { try { return new URL(url).host; } catch { return 'invalid-url'; } }),
+          customIceServers: rtcConfig?.iceServers?.length ?? null,
+          turnServers: turn?.length ?? 0,
+          iceTransportPolicy: rtcConfig?.iceTransportPolicy === 'relay' ? 'relay' : 'all',
+        });
+      }
       try {
         room = joinRoom(config, ctx.roomId, () => {
           ctx.error(new Error('p2p-core: could not decrypt a peer handshake — check that everyone uses the same room password.'));
@@ -82,6 +97,7 @@ export function relaysTransport({
         ctx.statusChanged();
         return;
       }
+      if (ctx.debug && joinRoom === trysteroJoinRoom) stopObserving = observeRelaySockets(relays, ctx.debug);
       state = 'connecting';
       room.onPeerJoin((id) => { peers.add(id); ctx.peerJoin(id); });
       room.onPeerLeave((id) => { peers.delete(id); ctx.peerLeave(id); });
@@ -112,6 +128,7 @@ export function relaysTransport({
     },
     stop() {
       clearInterval(poll);
+      stopObserving?.();
       for (const id of [...peers]) { peers.delete(id); ctx.peerLeave(id); }
       try { room?.leave(); } catch { /* already gone */ }
       room = null;

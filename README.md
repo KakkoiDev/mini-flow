@@ -271,3 +271,18 @@ closes or reloads the page. GitHub Pages continues to host the editor.
 Run the live-session regression with `node --test tests/live-session.test.mjs`.
 Serve the repo and open `tests/auto-layout.html` to run the browser regression
 for bend reset, note attachments, Undo, and Redo.
+
+### Diagnose a live connection
+
+Open [Mini Flow with connection diagnostics enabled](https://mini-flow.kakkoi.dev/?debug=1),
+start a live session, and send the invite from that session. The invite
+enables diagnostics for the guest as well. After connecting or waiting
+for the board, open **Live session → Connection diagnostics → Copy
+diagnostics** on both devices. The console also logs a report at the
+12-second wait, on connection, and when the session ends. Run
+`JSON.stringify(miniFlowLiveDebug(), null, 2)` in the console for a fresh
+snapshot.
+
+The reports include browser and relay information, WebRTC negotiation, and
+whether Mini Flow received the board. They omit invite credentials, board
+content, and raw ICE addresses.

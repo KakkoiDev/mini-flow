@@ -5,18 +5,30 @@ function makeRelaySocket(url, onMessage, restoreSubscriptions = false) {
   let resolveReady;
   let delay = 3333;
   const subscriptions = new Map();
+  const observers = new Set();
+  const report = (event, details) => {
+    for (const observer of observers) observer(event, details);
+  };
   const relay = { ready: new Promise(resolve => { resolveReady = resolve; }) };
 
   function connect() {
     const socket = new WebSocket(url);
     relay.socket = socket;
     relay.url = socket.url;
+    if (observers.size) report('relay.socket', { state: socket.readyState });
+    socket.onerror = () => {
+      if (observers.size) report('relay.socket-error', { state: socket.readyState });
+    };
     socket.onmessage = event => onMessage(event.data);
-    socket.onclose = () => {
+    socket.onclose = event => {
+      if (observers.size) report('relay.socket-closed', {
+        code: event?.code, clean: event?.wasClean, retryMs: delay,
+      });
       setTimeout(connect, delay);
       delay = Math.min(delay * 2, 60000);
     };
     socket.onopen = () => {
+      if (observers.size) report('relay.socket-open', { replayedSubscriptions: subscriptions.size });
       delay = 3333;
       for (const request of subscriptions.values()) socket.send(request);
       resolveReady(relay);
@@ -30,6 +42,11 @@ function makeRelaySocket(url, onMessage, restoreSubscriptions = false) {
       if (kind === 'CLOSE') subscriptions.delete(id);
     }
     if (relay.socket.readyState === 1) relay.socket.send(message);
+  };
+  relay.observe = observer => {
+    observers.add(observer);
+    observer('relay.socket', { state: relay.socket.readyState });
+    return () => observers.delete(observer);
   };
   connect();
   return relay;

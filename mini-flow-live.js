@@ -608,13 +608,14 @@ export async function connectLiveBoard(invite, host, handlers) {
   const { joinRoom } = await import('./vendor/p2p-core/p2p-core.js');
   const role = host ? 'host' : 'editor';
   const room = joinRoom({ app: 'mini-flow-live', ...invite, mode: 'online', protocol: 3, maxPeers: host ? maxGuests : 1,
-    maxMessageBytes: 256 * 1024, rateLimit: 60, kinds, profile: { role },
+    maxMessageBytes: 256 * 1024, rateLimit: 60, kinds, profile: { role }, debug: handlers.debug === true,
     acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host') });
   if (handlers.onNetworkStatus) {
     room.onStatus(handlers.onNetworkStatus);
     handlers.onNetworkStatus(room.status());
   }
-  return createLiveSession({ ...handlers, room, host });
+  const session = createLiveSession({ ...handlers, room, host });
+  return { ...session, debugReport: room.debugReport };
 }
 
 export function newLiveInvite() {
