@@ -174,6 +174,13 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .note-action {display:flex;align-items:center;gap:5px;
           min-height:34px;padding:4px 8px;white-space:nowrap;font-size:12px;font-weight:650;
           background:var(--mf-surface);border-color:var(--mf-accent);box-shadow:0 2px 8px #332c2220}
+        .note-actions[data-below] .note-action {
+          min-height:0;height:calc(26px * var(--note-action-zoom, 1));
+          padding:0 calc(10px * var(--note-action-zoom, 1));
+          border-radius:calc(9px * var(--note-action-zoom, 1));
+          font-size:calc(12px * var(--note-action-zoom, 1));
+          font-weight:400;line-height:1;box-shadow:none
+        }
         .note-action[hidden] {display:none}
         .note-action svg {width:16px;height:16px}
         .note-ai-mark {pointer-events:none}
@@ -431,6 +438,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         noteAction.hidden = true;
         return;
       }
+      if (noteActionBelow) noteAction.style.setProperty('--note-action-zoom', zoom);
       let left = noteActionBelow ? right - noteAction.offsetWidth + 8 * zoom : right - 8;
       let top = noteActionBelow ? upper + (2 * height(node) + 6) * zoom : upper - noteAction.offsetHeight + 7;
       if (badge) {
@@ -453,6 +461,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       noteAction = button;
       noteActionAvailable = available;
       noteActionBelow = below;
+      noteAction.toggleAttribute('data-below', below);
       positionNoteAction();
     }
     function setAIRequests(next) {
