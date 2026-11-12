@@ -294,7 +294,7 @@ reports omit invite credentials, board content, and raw ICE addresses.
 Safari builds or settings that leave WebRTC unavailable can join through an
 optional WebSocket relay. Mini Flow can still be served by GitHub Pages.
 
-1. Deploy the [p2p-core Cloudflare relay](https://github.com/KakkoiDev/p2p-core-cloudflare)
+1. Deploy the [Cloudflare relay from p2p-core](https://github.com/KakkoiDev/p2p-core/tree/main/cloudflare)
    on your Cloudflare account and add your Mini Flow site's HTTPS origin to
    `ALLOWED_ORIGINS`.
 2. In `mini-flow-live.js`, set `liveRelayUrl` to the relay's `wss://` origin
