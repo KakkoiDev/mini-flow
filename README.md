@@ -233,9 +233,16 @@ immediately.
 
 ## GitHub Gist backups
 
-Open a saved project and expand **GitHub Gist backup** in Projects. Paste a
-Gist URL or ID and a GitHub token with Gists write permission, then choose
-**Connect project**. While the tab is open, Mini Flow checks for changes every
+Open a saved project and expand **GitHub Gist backup** in Projects.
+
+1. [Create a secret Gist](https://gist.github.com/). Add a starter file, choose
+   **Create secret gist**, then paste its URL or ID into Mini Flow.
+2. [Create a fine-grained token](https://github.com/settings/personal-access-tokens/new?name=Mini+Flow+Gist+backups&gists=write)
+   from the account that owns the Gist. Grant **Account permissions → Gists →
+   Read and write**. No repository permissions are needed.
+3. Paste the token into Mini Flow and choose **Connect project**.
+
+While the tab is open, Mini Flow checks for changes every
 five minutes. **Back up now** saves a changed snapshot immediately. Each
 snapshot has its own file, so edits from different machines can be opened
 independently. The token is kept in memory until reload. **Disconnect** stops

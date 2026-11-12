@@ -156,7 +156,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .scroll > svg {display:block;width:100%;height:100%;cursor:grab;touch-action:none;user-select:none}
         .scroll > .laser-layer {position:absolute;inset:0;pointer-events:none}
         .scroll > svg.is-laser, svg.is-laser g[role=button] {cursor:crosshair}
-        .laser-mark {animation:laser-fade 1.2s ease-in forwards}
+        .laser-mark {opacity:0;animation:laser-fade 1.2s ease-in forwards}
         @keyframes laser-fade {0%,20% {opacity:1} 100% {opacity:0}}
         g[role=button] {cursor:pointer}
         g:focus-visible {outline:2px solid var(--mf-accent)}
@@ -315,10 +315,9 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
 
     function drawLaser(point, previous) {
       const [ , x, y, start] = point;
-      const mark = previous && !start
-        ? element('line', { x1: previous[1], y1: previous[2], x2: x, y2: y,
-            stroke: '#e62649', 'stroke-width': 4, 'stroke-linecap': 'round', 'vector-effect': 'non-scaling-stroke' })
-        : element('circle', { cx: x, cy: y, r: 3 / zoom, fill: '#e62649' });
+      if (!previous || start) return;
+      const mark = element('line', { x1: previous[1], y1: previous[2], x2: x, y2: y,
+        stroke: '#e62649', 'stroke-width': 4, 'stroke-linecap': 'butt', 'vector-effect': 'non-scaling-stroke' });
       mark.setAttribute('class', 'laser-mark');
       mark.addEventListener('animationend', () => mark.remove(), { once: true });
       laserLayer.append(mark);

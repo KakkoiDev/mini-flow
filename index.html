@@ -168,7 +168,9 @@ dialog button:disabled{opacity:.5;cursor:default}
       <p id="saved-project-hint" hidden>Open a project below to autosave edits to it.</p>
       <details data-gist-backups>
         <summary>GitHub Gist backup</summary>
+        <small><a href="https://gist.github.com/" target="_blank" rel="noopener noreferrer">Create a secret Gist</a>. Add a starter file, choose <strong>Create secret gist</strong>, then paste its URL.</small>
         <label>Gist URL or ID <input data-gist-id type="text" autocomplete="off"></label>
+        <small><a href="https://github.com/settings/personal-access-tokens/new?name=Mini+Flow+Gist+backups&amp;gists=write" target="_blank" rel="noopener noreferrer">Create a fine-grained token</a>. Use the account that owns the Gist and grant <strong>Account permissions → Gists → Read and write</strong>. No repository permissions are needed.</small>
         <label>GitHub token for backups <input data-gist-token type="password" autocomplete="off"></label>
         <small>Anyone with the Gist link can read its backups. The token is kept in this tab until reload.</small>
         <div class="gist-actions">
@@ -196,7 +198,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=ai-result-author"></script>
+<script src="./mini-flow.js?v=laser-fade"></script>
 <script>
 const example = `flowchart TD
     A([Prompt In])
