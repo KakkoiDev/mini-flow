@@ -37,13 +37,13 @@ export function canManageReply(message, host, selfId) {
 
 export function changeThreadReply(messages, { replyId, previousText, text }, host, selfId) {
   const message = messages.find(item => item.replyId === replyId);
-  if (!message) return failure('reply_missing', 'This reply is no longer in the conversation.');
-  if (!canManageReply(message, host, selfId)) return failure('reply_forbidden', 'You can only change your own replies.');
-  if (message.text !== previousText) return failure('reply_changed', 'This reply changed. Reopen it to try again.');
+  if (!message) return failure('reply_missing', 'This comment is no longer in the conversation.');
+  if (!canManageReply(message, host, selfId)) return failure('reply_forbidden', 'You can only change your own comments.');
+  if (message.text !== previousText) return failure('reply_changed', 'This comment changed. Reopen it to try again.');
   if (text === null) return { ok: true, messages: messages.filter(item => item !== message) };
   const limit = message.role === 'assistant' ? maxAnswerLength : maxReplyLength;
   if (typeof text !== 'string' || !text.trim() || text.length > limit) {
-    return failure('invalid_reply', 'Enter a reply of up to ' + limit + ' characters.');
+    return failure('invalid_reply', 'Enter a comment of up to ' + limit + ' characters.');
   }
   if (text.trim() === message.text) return { ok: true, messages };
   const edited = host && (!selfId || message.owner !== selfId) && !['Host', 'You'].includes(message.author) ? 'host' : 'author';
@@ -217,7 +217,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     }
     if (offers.size >= 32) return failure('too_many_requests', 'Wait for a pending request to finish.');
     if (prompt !== undefined && (typeof prompt !== 'string' || !prompt.trim() || prompt.length > maxReplyLength)) {
-      return failure('invalid_reply', 'Enter a reply of up to 1000 characters.');
+      return failure('invalid_reply', 'Enter a comment of up to 1000 characters.');
     }
     const requester = guests.get(from)?.label ?? 'Host';
     const thread = threads.get(noteId);
@@ -252,7 +252,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   function appendComment(noteId, from, text) {
     if (!readNote(getProject(), noteId)) return failure('note_missing', 'The note is no longer on the board.');
     if (typeof text !== 'string' || !text.trim() || text.length > maxReplyLength) {
-      return failure('invalid_reply', 'Enter a reply of up to 1000 characters.');
+      return failure('invalid_reply', 'Enter a comment of up to 1000 characters.');
     }
     appendThread(noteId, { role: 'user', author: guests.get(from)?.label ?? 'Host', owner: from, text: text.trim() });
     return { ok: true };

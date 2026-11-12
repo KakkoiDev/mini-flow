@@ -137,13 +137,13 @@ dialog button:disabled{opacity:.5;cursor:default}
         </div>
       </header>
       <p id="ai-reply-note" hidden></p>
-      <ol id="ai-reply-messages" aria-label="Messages"></ol>
+      <ol id="ai-reply-messages" aria-label="Comments"></ol>
       <p id="ai-reply-status" role="status"></p>
       <form id="ai-reply-form" hidden>
-        <label for="ai-reply-input">Reply</label>
+        <label for="ai-reply-input">Comment</label>
         <textarea id="ai-reply-input" rows="3" maxlength="1000"></textarea>
         <div id="ai-reply-actions">
-          <button type="submit">Post reply</button>
+          <button type="submit">Post comment</button>
         </div>
       </form>
     </aside>
@@ -290,7 +290,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=ai-request-queue"></script>
+<script src="./mini-flow.js?v=unread-comments"></script>
 <script type="module">
 const example = `flowchart TD
     A([Prompt In])
@@ -674,7 +674,7 @@ document.querySelector('#share').onclick = async () => {
 };
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=saved-note-conversations';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { canManageReply, changeThreadReply, connectLiveBoard, maxAnswerLength, maxReplyLength, maxThreadMessages, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=ai-request-queue';
+import { canManageReply, changeThreadReply, connectLiveBoard, maxAnswerLength, maxReplyLength, maxThreadMessages, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=comment-labels';
 import { setupGistBackups } from './mini-flow-gist.js?v=project-backups';
 import { setupSavedProjects } from './mini-flow-projects.js?v=gist-actions';
 
@@ -704,11 +704,35 @@ let replyError = '';
 let replyEditor;
 let replyOpener;
 
+const readCommentsKey = 'mini-flow-read-comments-v1';
+const maxReadComments = 4096;
+function loadReadComments() {
+  try {
+    const ids = JSON.parse(localStorage.getItem(readCommentsKey));
+    if (Array.isArray(ids)) return ids.filter(id => typeof id === 'string' && /^[a-f0-9]{32}$/.test(id));
+  } catch {}
+  return [];
+}
+const readComments = new Set(loadReadComments());
+
 function updateNoteRequestBadges() {
   const badges = { ...noteRequests };
+  const newlyRead = [];
   for (const [id, messages] of noteThreads) {
-    const replyCount = messages.filter(message => !message.original && message.role !== 'status').length;
-    badges[id] = { ...(badges[id] ?? { phase: 'comments' }), hasThread: true, replyCount };
+    const comments = messages.filter(message => !message.original && message.role !== 'status');
+    const unread = comments.some(comment => comment.replyId && !readComments.has(comment.replyId));
+    if (id === replyTarget && unread) {
+      newlyRead.push(...comments.map(comment => comment.replyId).filter(Boolean));
+    }
+    badges[id] = { ...(badges[id] ?? { phase: 'comments' }), hasThread: true,
+      replyCount: comments.length, unread: unread && id !== replyTarget };
+  }
+  if (newlyRead.length) {
+    for (const id of [...loadReadComments(), ...newlyRead]) {
+      readComments.delete(id);
+      readComments.add(id);
+    }
+    try { localStorage.setItem(readCommentsKey, JSON.stringify([...readComments].slice(-maxReadComments))); } catch {}
   }
   editor.setAIRequests(badges);
 }
@@ -756,16 +780,16 @@ function renderThreadMessage(message) {
       renderAIReply();
       focusReplyMenu(message.replyId);
     });
-    const save = replyButton(edit.remove ? 'Delete reply' : 'Save changes', () => saveReplyChange(edit, save, cancel));
+    const save = replyButton(edit.remove ? 'Delete comment' : 'Save changes', () => saveReplyChange(edit, save, cancel));
     if (edit.remove) {
       save.className = 'ai-reply-delete';
       save.dataset.replyConfirm = '';
-      body.after(Object.assign(document.createElement('p'), { textContent: 'Delete this reply from the conversation?' }));
+      body.after(Object.assign(document.createElement('p'), { textContent: 'Delete this comment from the conversation?' }));
     } else {
       const input = document.createElement('textarea');
       input.rows = 3;
       input.maxLength = message.role === 'assistant' ? maxAnswerLength : maxReplyLength;
-      input.setAttribute('aria-label', 'Edit reply');
+      input.setAttribute('aria-label', 'Edit comment');
       input.value = edit.text;
       input.oninput = () => {
         edit.text = input.value;
@@ -783,7 +807,7 @@ function renderThreadMessage(message) {
   menu.className = 'ai-reply-menu';
   const trigger = document.createElement('summary');
   trigger.textContent = '⋯';
-  trigger.setAttribute('aria-label', 'Reply actions for ' + message.author);
+  trigger.setAttribute('aria-label', 'Comment actions for ' + message.author);
   const options = document.createElement('div');
   menu.addEventListener('toggle', () => {
     if (!menu.open) {
@@ -843,7 +867,7 @@ async function saveReplyChange(edit, save, cancel) {
     }
     if (replyEditor === edit) replyEditor = undefined;
   } catch {
-    if (replyEditor === edit) replyError = 'Could not save the reply change.';
+    if (replyEditor === edit) replyError = 'Could not save the comment.';
   } finally {
     edit.saving = false;
     save.disabled = cancel.disabled = false;
@@ -883,7 +907,7 @@ function renderAIReply() {
   replyAsk.hidden = !liveBoard?.ready() || replyForm.hidden;
   replyAsk.disabled = active || sending;
   replyStatus.toggleAttribute('data-error', Boolean(replyError));
-  replyStatus.textContent = replyError || (sending ? 'Sending reply…' : request?.phase === 'waiting'
+  replyStatus.textContent = replyError || (sending ? 'Sending comment…' : request?.phase === 'waiting'
     ? 'Queued for AI' : request?.phase === 'working' ? request.label + ' is working…'
       : '');
 }
@@ -901,6 +925,7 @@ openAIReply = (noteId, label) => {
   }
   replyNote.textContent = label;
   replyPanel.hidden = false;
+  updateNoteRequestBadges();
   renderAIReply();
   replyClose.focus({ preventScroll: true });
 };
@@ -953,7 +978,7 @@ async function sendNoteMessage(askAI) {
     }
     if (!result.ok && replyTarget === noteId) replyError = result.message;
   } catch {
-    if (replyTarget === noteId) replyError = 'Could not send the reply.';
+    if (replyTarget === noteId) replyError = 'Could not post the comment.';
   } finally {
     sendingReplies.delete(noteId);
     renderAIReply();
@@ -975,7 +1000,7 @@ function persistNoteThreads() {
 }
 
 function postLocalReply(noteId, text) {
-  if (!text || text.length > maxReplyLength) return { ok: false, message: 'Enter a reply of up to 1000 characters.' };
+  if (!text || text.length > maxReplyLength) return { ok: false, message: 'Enter a comment of up to 1000 characters.' };
   const messages = [...(noteThreads.get(noteId) ?? []), { role: 'user', author: 'You', text, replyId: crypto.randomUUID().replaceAll('-', '') }].slice(-maxThreadMessages);
   noteThreads.set(noteId, messages);
   updateNoteRequestBadges();

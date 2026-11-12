@@ -1218,19 +1218,23 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           const author = result && typeof request.author === 'string' && /^AI \d+$/.test(request.author)
             ? request.author.replace(' ', '') + ' · ' : '';
           const summary = result ? author + request.label : '';
-          const count = request.replyCount ? request.replyCount + (request.replyCount === 1 ? ' reply' : ' replies') : '';
+          const count = request.replyCount ? request.replyCount + (request.replyCount === 1 ? ' comment' : ' comments') : '';
           const status = result ? (summary.length > 36 ? summary.slice(0, 35) + '…' : summary)
             : waiting ? 'Queued for AI' : (request.label ?? request) + ' working…';
           const label = comments ? count || 'Comments' : [status, count].filter(Boolean).join(' · ');
           const interactive = Boolean(onAIReply) && (result || request.hasThread);
-          const badgeWidth = label.length * 7 + (interactive ? 46 : 30);
+          const newLabel = request.unread ? ' · New' : '';
+          const badgeWidth = (label.length + newLabel.length) * 7 + (interactive ? 46 : 30);
+          const description = (summary && count ? summary + ' · ' + count : summary || label) + newLabel;
           const badge = element('g', { class: interactive ? 'note-ai-mark note-ai-result' : 'note-ai-mark',
             transform: `translate(${shown.x + Math.max(-w, w - badgeWidth + 8)} ${shown.y + (result || comments || (noteActionBelow && interactive) ? h + 6 : -h - 13)})`,
-            role: interactive ? 'button' : 'img', 'aria-label': interactive ? 'Open note conversation: ' + (summary && count ? summary + ' · ' + count : summary || label) : result ? summary : label });
-          if (result || interactive) badge.append(element('title', {}, summary || label));
+            role: interactive ? 'button' : 'img', 'aria-label': interactive ? 'Open note conversation: ' + description : description });
+          if (result || interactive) badge.append(element('title', {}, description));
           badge.append(element('rect', { width: badgeWidth, height: 26, rx: 9, fill: palette.surface, stroke: palette.accent }));
           if (!result && !comments) badge.append(element('circle', { class: 'note-ai-spinner', cx: 13, cy: 13, r: 6 }));
-          badge.append(element('text', { x: result || comments ? 10 : 24, y: 17, 'font-size': 12 }, label));
+          const badgeText = element('text', { x: result || comments ? 10 : 24, y: 17, 'font-size': 12 }, label);
+          if (newLabel) badgeText.append(element('tspan', { fill: palette.accent, 'font-weight': 'bold' }, newLabel));
+          badge.append(badgeText);
           if (interactive) {
             badge.setAttribute('tabindex', '0');
             badge.setAttribute('data-note-reply', node.id);
