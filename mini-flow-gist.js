@@ -105,7 +105,7 @@ async function projectHash(project) {
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export function setupGistBackups({ panel, getActive, getProject, canBackUp, link, openProject, onBackupChange, canSync, applySyncedProject }) {
+export function setupGistBackups({ panel, getActive, getProject, canBackUp, link, openProject, onBackupChange, canSync, checkLocalRevision, applySyncedProject }) {
   const get = key => panel.querySelector('[data-gist-' + key + ']');
   const address = get('id'), token = get('token'), status = get('status');
   const picker = get('picker'), select = get('snapshot'), load = get('load');
@@ -254,6 +254,9 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
       const localChanged = localHash !== previous?.hash;
       const diverged = heads.length > 1 && (await Promise.all(heads.map(head => projectHash(head.project))))
         .some(hash => hash !== remoteHash);
+      if (!await checkLocalRevision(active)) {
+        throw new Error('This project changed in another tab. Reopen it before syncing.');
+      }
       const conflictKey = JSON.stringify([localHash, heads.map(head => head.clock)]);
       if (choice && conflict !== conflictKey) choice = undefined;
       if (getActive() !== active || !canSync() || await projectHash(getProject()) !== localHash) return;

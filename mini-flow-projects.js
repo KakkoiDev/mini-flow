@@ -396,7 +396,14 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
       updateSaveButton();
     }
   };
-  return { refresh, syncActive, syncBackupTimes, async applyRemote(project, active, canApply) {
+  return { refresh, syncActive, syncBackupTimes, async checkSyncRevision(active) {
+    await writes;
+    const current = await projects('readonly', (store, done) => {
+      const request = store.get(active.name);
+      request.onsuccess = () => done(request.result);
+    });
+    return getActive() === active && current?.revision === active.revision;
+  }, async applyRemote(project, active, canApply) {
     return enqueue(async () => {
       if (getActive() !== active || active.deleted || !canApply()) throw new Error('The board changed during sync. Try again.');
       const previous = JSON.stringify(normalize(editor.getProject()));

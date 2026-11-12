@@ -744,8 +744,8 @@ document.querySelector('#share').onclick = async () => {
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=saved-note-conversations';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
 import { canManageReply, changeThreadReply, connectLiveBoard, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=live-recovery';
-import { setupGistBackups } from './mini-flow-gist.js?v=project-sync';
-import { setupSavedProjects } from './mini-flow-projects.js?v=project-sync';
+import { setupGistBackups } from './mini-flow-gist.js?v=project-sync-revisions';
+import { setupSavedProjects } from './mini-flow-projects.js?v=project-sync-revisions';
 
 const projectsButton = document.createElement('button');
 projectsButton.id = 'open-saved-projects';
@@ -1155,6 +1155,7 @@ const gistBackups = setupGistBackups({
   getActive: () => activeSavedProject,
   getProject: () => normalizeSavedProject(currentSavedProject()),
   canBackUp: () => !editor.isInteracting() && (!joiningLive || Boolean(liveBoard?.ready())),
+  checkLocalRevision: savedProjects.checkSyncRevision,
   canSync: () => !liveBoard && !joiningLive && !editor.isInteracting(),
   applySyncedProject(project, active, previous) {
     return savedProjects.applyRemote(normalizeSavedProject(project), active, () =>
