@@ -720,7 +720,18 @@ function logLiveDebug(outcome) {
   if (debugEnabled) console.info('[Mini Flow live]', outcome, liveDebugReport());
 }
 
+function lacksLiveWebRTC() {
+  return liveNetwork?.transports.relays?.state === 'unavailable' &&
+    typeof globalThis.RTCPeerConnection !== 'function';
+}
+
 function showStatus(text) {
+  if (text.startsWith('Waiting for') && lacksLiveWebRTC()) {
+    text = joiningLive
+      ? 'WebRTC is unavailable in this browser. Open the invite in Firefox or Chrome to join.'
+      : 'WebRTC is unavailable in this browser. Use Firefox or Chrome to host across devices.';
+    traceLiveStage('webrtc-unavailable');
+  }
   liveStatus.textContent = text;
   liveToggle.title = text;
   if (joiningLive && text !== 'Sending edit…') liveNotice.textContent = text === 'Live · Connected' ? '' : text;
@@ -822,13 +833,14 @@ async function startLive(invite, host) {
     address.hash = 'live=' + invite.room + '.' + invite.password;
     inviteInput.value = address.href;
     inviteRow.hidden = false;
+    if (lacksLiveWebRTC()) logLiveDebug('WebRTC unavailable');
     connectionTimer = setTimeout(() => {
       if (liveStatus.textContent.startsWith('Waiting') || liveStatus.textContent.startsWith('Receiving')) {
         connectionWaited = true;
         if (liveNetwork) showNetworkStatus(liveNetwork);
         const receiving = liveStatus.textContent.startsWith('Receiving');
         showStatus(host ? 'Waiting for guests. Keep this tab open and share the invite.'
-          : receiving ? 'Still receiving the board…' : 'Still waiting for the host. Check that the host tab is open.');
+          : receiving ? 'Still receiving the board…' : 'Still connecting. Keep this tab and the host tab open.');
         traceLiveStage(receiving ? 'board-transfer-slow' : 'peer-discovery-slow');
         logLiveDebug('still waiting after 12 seconds');
       }
