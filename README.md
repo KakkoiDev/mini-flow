@@ -206,6 +206,7 @@ board. See the [Site tools guide](./agent-guide.md#webmcp-site-tools).
 Open the board you want to edit, then choose **Live session → Start live session**
 and share the same **Copy invite** link with your collaborators. Keep the
 host tab open. Up to eight guests can join, including humans and agents.
+Guests can also copy both invite formats from the **Live session** dialog.
 The regular **Copy link** shares a snapshot. **AI guests → Copy AI invite**
 includes instructions for joining from a browser with WebMCP access.
 

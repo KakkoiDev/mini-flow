@@ -764,6 +764,7 @@ function ended() {
   aiOptions.open = false;
   endSession.hidden = true;
   inviteRow.hidden = true;
+  inviteInput.value = '';
   delete liveToggle.dataset.active;
   liveToggle.setAttribute('aria-label', 'Live session');
   startSession.hidden = false;
@@ -816,13 +817,11 @@ async function startLive(invite, host) {
     endSession.hidden = false;
     endSession.textContent = host ? 'End session' : 'Leave session';
     startSession.hidden = true;
-    if (host) {
-      const address = new URL(location.pathname, location.origin);
-      if (debugEnabled) address.searchParams.set('debug', '1');
-      address.hash = 'live=' + invite.room + '.' + invite.password;
-      inviteInput.value = address.href;
-      inviteRow.hidden = false;
-    }
+    const address = new URL(location.pathname, location.origin);
+    if (debugEnabled) address.searchParams.set('debug', '1');
+    address.hash = 'live=' + invite.room + '.' + invite.password;
+    inviteInput.value = address.href;
+    inviteRow.hidden = false;
     connectionTimer = setTimeout(() => {
       if (liveStatus.textContent.startsWith('Waiting') || liveStatus.textContent.startsWith('Receiving')) {
         connectionWaited = true;
