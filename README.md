@@ -288,3 +288,21 @@ The reports include browser and relay information, WebRTC negotiation, and
 whether Mini Flow received the board. `browser.webRTCProbe` records whether
 the peer connection API exists and can create a local data channel. The
 reports omit invite credentials, board content, and raw ICE addresses.
+
+### Optional WebSocket fallback for Safari
+
+Safari builds or settings that leave WebRTC unavailable can join through an
+optional WebSocket relay. Mini Flow can still be served by GitHub Pages.
+
+1. Deploy the [p2p-core Cloudflare relay](https://github.com/KakkoiDev/p2p-core-cloudflare)
+   on your Cloudflare account and add your Mini Flow site's HTTPS origin to
+   `ALLOWED_ORIGINS`.
+2. In `mini-flow-live.js`, set `liveRelayUrl` to the relay's `wss://` origin
+   and redeploy Mini Flow. Every participant uses this same setting.
+3. Start a new live session and open its invite in Safari. Check
+   **Live session** for the WebSocket relay status and test an edit in each
+   direction.
+
+The relay setting is empty by default. Keep private board traffic on a relay
+you trust because the relay can read forwarded messages. You can reuse the
+same relay for other p2p-core apps by adding their origins to its allowlist.

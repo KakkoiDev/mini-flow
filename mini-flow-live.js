@@ -1,5 +1,7 @@
 const kinds = ['read', 'state', 'edit', 'end', 'presence', 'agent', 'ask'];
 const maxGuests = 8;
+// Set to your trusted Cloudflare relay's wss:// origin to enable fallback.
+const liveRelayUrl = '';
 const invitePattern = /^#live=([a-f0-9]{32})\.([a-f0-9]{32})$/;
 const id = () => crypto.randomUUID().replaceAll('-', '');
 
@@ -608,6 +610,7 @@ export async function connectLiveBoard(invite, host, handlers) {
   const { joinRoom } = await import('./vendor/p2p-core/p2p-core.js');
   const role = host ? 'host' : 'editor';
   const room = joinRoom({ app: 'mini-flow-live', ...invite, mode: 'online', protocol: 3, maxPeers: host ? maxGuests : 1,
+    server: liveRelayUrl ? { url: liveRelayUrl, roomInUrl: true } : false,
     maxMessageBytes: 256 * 1024, rateLimit: 60, kinds, profile: { role }, debug: handlers.debug === true,
     acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host') });
   if (handlers.onNetworkStatus) {

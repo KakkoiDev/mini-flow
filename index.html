@@ -552,7 +552,7 @@ document.querySelector('#share').onclick = async () => {
 <script type="module">
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=keep-listening';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=connection-diagnostics';
+import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=optional-websocket-relay';
 import { setupGistBackups } from './mini-flow-gist.js?v=project-backups';
 import { setupSavedProjects } from './mini-flow-projects.js?v=gist-actions';
 
@@ -721,6 +721,8 @@ function logLiveDebug(outcome) {
 }
 
 function lacksLiveWebRTC() {
+  const server = liveNetwork?.transports.server;
+  if (server?.state === 'connecting' || server?.state === 'ready') return false;
   return liveNetwork?.transports.relays?.state === 'unavailable' &&
     typeof globalThis.RTCPeerConnection !== 'function';
 }
@@ -754,9 +756,11 @@ function showNetworkStatus(status) {
   liveNetworkStatus.hidden = !relays;
   if (!relays) return;
   const hint = connectionWaited && diagnose(status, 12000);
-  liveNetworkStatus.textContent = hint || (relays.state === 'unavailable'
+  const signaling = hint || (relays.state === 'unavailable'
     ? 'Internet signaling unavailable · ' + relays.detail
     : `Signaling relay sockets open · ${relays.open} of ${relays.total}`);
+  const server = status.transports.server;
+  liveNetworkStatus.textContent = server ? `${signaling} · WebSocket relay: ${server.state}` : signaling;
 }
 
 function ended() {

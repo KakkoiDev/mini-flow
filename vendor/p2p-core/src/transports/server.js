@@ -52,7 +52,7 @@ export async function detectServer(base = globalThis.location?.href, fetchImpl =
   }
 }
 
-export function serverTransport({ url = 'auto', WebSocketImpl = globalThis.WebSocket, fetchImpl } = {}) {
+export function serverTransport({ url = 'auto', roomInUrl = false, WebSocketImpl = globalThis.WebSocket, fetchImpl } = {}) {
   let ctx = null;
   let socket = null;
   let state = 'off';
@@ -77,7 +77,9 @@ export function serverTransport({ url = 'auto', WebSocketImpl = globalThis.WebSo
     if (stopped) return;
     let ws;
     try {
-      ws = new WebSocketImpl(address);
+      const endpoint = new URL(address);
+      if (roomInUrl) endpoint.searchParams.set('room', ctx.key);
+      ws = new WebSocketImpl(endpoint.href);
     } catch (err) {
       setState('error', err.message);
       return;
@@ -170,3 +172,4 @@ export function serverTransport({ url = 'auto', WebSocketImpl = globalThis.WebSo
     },
   };
 }
+
