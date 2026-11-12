@@ -218,11 +218,15 @@ The host owns Undo and Redo, and accepted edits
 and Undo or Redo sync to everyone. If edits conflict, the guest sees the current
 board and can retry.
 
-When an AI guest is connected, select a sticky note and click **Ask AI** on
-its corner. The note shows when it is waiting, which AI guest claimed it,
-and a compact result. Open the result chip to read the full reply and send a
-follow-up in the same note conversation. The conversation lasts for the live
-session.
+Select a sticky note and open **Comments** to post a
+reply. The reply count on the note opens the conversation. When an AI guest
+joins, use **Ask AI** to send the note and the conversation to the guest.
+Type a follow-up before clicking **Ask AI** to include it in the request.
+The note shows when it is waiting, who claimed it, and a compact result.
+Conversations survive reload in the same tab and are included in saved projects
+and Gist snapshots. The board link shares the diagram alone. Each note keeps
+its latest 12 messages. After a host reload, start a fresh live session to
+share the saved conversation again.
 Only the first AI guest to claim the request gets it from
 `wait_for_ai_request`. The AI invite asks the agent to repeat the call
 on timeouts and after each result until the session disconnects or you ask it

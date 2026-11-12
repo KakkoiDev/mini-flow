@@ -169,9 +169,12 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .peer-activity {position:absolute;z-index:1;bottom:calc(var(--dock-height, 55px) + var(--dock-bottom, 12px) + 10px);
           left:12px;max-width:calc(100% - 24px);padding:6px 9px;border-radius:8px;background:var(--mf-surface);
           border:1px solid #ded9d2;color:var(--mf-text);font-size:12px;pointer-events:none;overflow-wrap:anywhere}
-        .note-action {position:absolute;z-index:2;display:flex;align-items:center;gap:5px;
+        .note-actions {position:absolute;z-index:2;display:flex;gap:4px}
+        .note-actions[hidden] {display:none}
+        .note-action {display:flex;align-items:center;gap:5px;
           min-height:34px;padding:4px 8px;white-space:nowrap;font-size:12px;font-weight:650;
           background:var(--mf-surface);border-color:var(--mf-accent);box-shadow:0 2px 8px #332c2220}
+        .note-action[hidden] {display:none}
         .note-action svg {width:16px;height:16px}
         .note-ai-mark {pointer-events:none}
         .note-ai-result {pointer-events:auto}
@@ -410,8 +413,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     function positionNoteAction() {
       if (!noteAction) return;
       const node = selected?.type === 'note' ? selected : null;
-      const active = node && Object.hasOwn(aiRequests, node.id) && aiRequests[node.id]?.phase !== 'result';
-      noteAction.hidden = !node || !noteActionAvailable || Boolean(active) || Boolean(editing || drag);
+      const active = node && ['waiting', 'working'].includes(aiRequests[node.id]?.phase);
+      const ask = noteAction.querySelector('[data-ask-ai]');
+      if (ask) ask.disabled = Boolean(active);
+      noteAction.hidden = !node || !noteActionAvailable || Boolean(editing || drag);
       if (noteAction.hidden) return;
       const right = (node.x + radius(node) - cameraX) * zoom;
       const upper = (node.y - height(node) - cameraY) * zoom;
@@ -1114,21 +1119,24 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         if (node.type === 'note' && Object.hasOwn(aiRequests, node.id)) {
           const request = aiRequests[node.id];
           const result = request.phase === 'result';
+          const comments = request.phase === 'comments';
           const waiting = request.phase === 'waiting' || request === 'Waiting for AI';
           const author = result && typeof request.author === 'string' && /^AI \d+$/.test(request.author)
             ? request.author.replace(' ', '') + ' · ' : '';
           const summary = result ? author + request.label : '';
-          const label = result ? (summary.length > 42 ? summary.slice(0, 41) + '…' : summary)
+          const count = request.replyCount ? request.replyCount + (request.replyCount === 1 ? ' reply' : ' replies') : '';
+          const status = result ? (summary.length > 36 ? summary.slice(0, 35) + '…' : summary)
             : waiting ? 'Waiting for AI…' : (request.label ?? request) + ' working…';
+          const label = comments ? count : [status, count].filter(Boolean).join(' · ');
           const interactive = Boolean(onAIReply) && (result || request.hasThread);
           const badgeWidth = label.length * 7 + (interactive ? 46 : 30);
           const badge = element('g', { class: interactive ? 'note-ai-mark note-ai-result' : 'note-ai-mark',
-            transform: `translate(${shown.x + Math.max(-w, w - badgeWidth + 8)} ${shown.y + (result ? h + 6 : -h - 13)})`,
-            role: interactive ? 'button' : 'img', 'aria-label': interactive ? 'Open AI conversation: ' + (summary || label) : result ? summary : label });
+            transform: `translate(${shown.x + Math.max(-w, w - badgeWidth + 8)} ${shown.y + (result || comments ? h + 6 : -h - 13)})`,
+            role: interactive ? 'button' : 'img', 'aria-label': interactive ? 'Open note conversation: ' + (summary && count ? summary + ' · ' + count : summary || label) : result ? summary : label });
           if (result || interactive) badge.append(element('title', {}, summary || label));
           badge.append(element('rect', { width: badgeWidth, height: 26, rx: 9, fill: palette.surface, stroke: palette.accent }));
-          if (!result) badge.append(element('circle', { class: 'note-ai-spinner', cx: 13, cy: 13, r: 6 }));
-          badge.append(element('text', { x: result ? 10 : 24, y: 17, 'font-size': 12 }, label));
+          if (!result && !comments) badge.append(element('circle', { class: 'note-ai-spinner', cx: 13, cy: 13, r: 6 }));
+          badge.append(element('text', { x: result || comments ? 10 : 24, y: 17, 'font-size': 12 }, label));
           if (interactive) {
             badge.setAttribute('tabindex', '0');
             badge.setAttribute('aria-haspopup', 'dialog');

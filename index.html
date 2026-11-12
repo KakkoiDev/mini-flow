@@ -83,10 +83,11 @@ dialog button:disabled{opacity:.5;cursor:default}
 #ai-reply-messages li[data-role=assistant]{background:#e4f4ee}
 #ai-reply-messages strong{font-size:12px}
 #ai-reply-messages p{white-space:pre-wrap;margin:3px 0 0}
-#ai-reply-form{display:grid;gap:7px;margin-top:14px}
+#ai-reply-form{display:grid;grid-template-columns:minmax(0,1fr);justify-content:stretch;gap:7px;margin-top:14px}
 #ai-reply-form[hidden]{display:none}
 #ai-reply-form textarea{box-sizing:border-box;width:100%;font:inherit;padding:8px;border:1px solid #b8b2aa;border-radius:8px;resize:vertical}
-#ai-reply-form button{justify-self:end;background:#e4f4ee}
+#ai-reply-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+#ai-reply-ask{background:#e4f4ee}
 #ai-reply-status{font-size:13px;color:#4c6660}
 </style>
 <main>
@@ -120,7 +121,7 @@ dialog button:disabled{opacity:.5;cursor:default}
 </dialog>
 <dialog id="ai-reply" aria-labelledby="ai-reply-title">
   <header>
-    <h2 id="ai-reply-title">AI conversation</h2>
+    <h2 id="ai-reply-title">Note conversation</h2>
     <button id="ai-reply-close" type="button">Close</button>
   </header>
   <p id="ai-reply-note" hidden></p>
@@ -128,8 +129,11 @@ dialog button:disabled{opacity:.5;cursor:default}
   <p id="ai-reply-status" role="status"></p>
   <form id="ai-reply-form" hidden>
     <label for="ai-reply-input">Reply</label>
-    <textarea id="ai-reply-input" rows="3" maxlength="1000" required></textarea>
-    <button type="submit">Send reply</button>
+    <textarea id="ai-reply-input" rows="3" maxlength="1000"></textarea>
+    <div id="ai-reply-actions">
+      <button type="submit">Post reply</button>
+      <button id="ai-reply-ask" type="button" hidden>Ask AI</button>
+    </div>
   </form>
 </dialog>
 <template id="workspace-panel-template">
@@ -248,8 +252,8 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=ai-note-thread"></script>
-<script>
+<script src="./mini-flow.js?v=saved-note-conversations"></script>
+<script type="module">
 const example = `flowchart TD
     A([Prompt In])
     B{Is English?}
@@ -277,6 +281,7 @@ const examplePositions = {
   E: [330, 585], F: [665, 145], G: [70, 275], H: [330, 485], I: [570, 495]
 };
 const key = 'mini-flow-edit-v1';
+const draftThreadKey = 'mini-flow-draft-threads-v1';
 const prefix = '#flow=';
 const proposalPrefix = '#apply=';
 let joiningLive = location.hash.startsWith('#live=');
@@ -310,6 +315,33 @@ const address = new URL(location.href);
 if (address.searchParams.has('tab') && /^https?:$/.test(location.protocol)) {
   address.searchParams.delete('tab');
   history.replaceState(history.state, '', address);
+}
+function threadsFor(source, entries) {
+  const notes = new Set(MiniFlow.parse(source).nodes.filter(node => node.type === 'note').map(node => node.id));
+  const threads = new Map();
+  if (Array.isArray(entries)) for (const entry of entries) {
+    if (!Array.isArray(entry) || !notes.has(entry[0])) continue;
+    const messages = readThreadMessages(entry[1]);
+    if (messages) threads.set(entry[0], messages);
+  }
+  return threads;
+}
+function includeThreads(project, entries = [...noteThreads]) {
+  const threads = [...threadsFor(project.source, entries)];
+  return threads.length ? { ...project, threads } : project;
+}
+function normalizeSavedProject(project) {
+  return includeThreads(normalizeProject(project), project.threads ?? []);
+}
+function currentSavedProject() {
+  return includeThreads(editor.getProject());
+}
+function openSavedProject(project, options) {
+  editor.setProject(project, options);
+  noteThreads = threadsFor(project.source, project.threads);
+  liveBoard?.replaceThreads(noteThreads);
+  updateNoteRequestBadges();
+  save(project.source, project.positions);
 }
 function readEdit(raw) {
   try {
@@ -351,7 +383,14 @@ function restore() {
   if (location.hash.startsWith(prefix)) {
     try {
       const shared = readEdit(decodeURIComponent(location.hash.slice(prefix.length)));
-      if (shared) return shared;
+      if (shared) {
+        let threads;
+        try {
+          const draft = JSON.parse(sessionStorage.getItem(draftThreadKey));
+          if (draft?.hash === location.hash) threads = draft.threads;
+        } catch {}
+        return { ...shared, threads };
+      }
     } catch {}
     message.textContent = 'Could not open the shared edit.';
   }
@@ -363,18 +402,24 @@ function restore() {
       const record = JSON.parse(raw)?.savedProject;
       if (typeof record?.name === 'string' && typeof record.revision === 'string') activeSavedProject = record;
     }
-    return activeSavedProject || MiniFlow.parse(local.source).nodes.length ? local : null;
+    return activeSavedProject || MiniFlow.parse(local.source).nodes.length
+      ? { ...local, threads: JSON.parse(raw)?.threads } : null;
   } catch { return null; }
 }
 function saveLocal(source, positions) {
   if (!sharedSession) {
-    try { localStorage.setItem(key, JSON.stringify({ source, positions, savedProject: activeSavedProject })); } catch {}
+    try { localStorage.setItem(key, JSON.stringify(includeThreads({ source, positions, savedProject: activeSavedProject }))); } catch {}
   }
 }
 function save(source, positions) {
   const raw = JSON.stringify({ source, positions });
   saveLocal(source, positions);
   const hash = prefix + encodeURIComponent(raw);
+  const threads = [...threadsFor(source, [...noteThreads])];
+  try {
+    if (threads.length) sessionStorage.setItem(draftThreadKey, JSON.stringify({ hash, threads }));
+    else sessionStorage.removeItem(draftThreadKey);
+  } catch {}
   if (location.hash !== hash) {
     try { history.replaceState({ ...history.state, miniFlowLocal: !sharedSession }, '', hash); }
     catch { message.textContent = 'Could not update the share link.'; }
@@ -382,6 +427,7 @@ function save(source, positions) {
 }
 const initialProposal = readProposal();
 const saved = joiningLive ? { source: 'flowchart TD', positions: {} } : initialProposal?.base ?? restore();
+let noteThreads = threadsFor(saved?.source ?? example, saved?.threads);
 const editorHost = document.querySelector('#editor');
 const liveNotice = document.createElement('span');
 let selectedNoteId;
@@ -392,7 +438,8 @@ const editor = MiniFlow.mount(editorHost, saved?.source ?? example,
       if (!joiningLive) {
         liveNotice.textContent = '';
         save(source, positions);
-        autosaveProject?.({ version: 1, source, positions });
+        if (!liveBoard) noteThreads = threadsFor(source, [...noteThreads]);
+        autosaveProject?.(includeThreads({ version: 1, source, positions }));
       }
       liveBoard?.changed();
     }, onPresence: presence => liveBoard?.updatePresence(presence),
@@ -459,7 +506,8 @@ function setGuestAvailability(available) {
   for (const control of [document.querySelector('#blank'), document.querySelector('#open-saved-projects'), arrange, panelButton]) {
     if (control) control.inert = locked;
   }
-  if (joiningLive && available) autosaveProject?.(editor.getProject());
+  refreshAskAI?.();
+  if (joiningLive && available) autosaveProject?.(currentSavedProject());
 }
 setGuestAvailability(false);
 const proposalDialog = document.querySelector('#edit-proposal');
@@ -555,8 +603,12 @@ window.addEventListener('hashchange', () => {
 });
 reviewProposal(initialProposal);
 document.querySelector('#blank').onclick = () => {
+  noteThreads.clear();
+  liveBoard?.replaceThreads(noteThreads);
   setActiveSavedProject(null);
   editor.setMermaid('flowchart TD');
+  save('flowchart TD', {});
+  updateNoteRequestBadges();
 };
 let copyTimer;
 document.querySelector('#share').onclick = async () => {
@@ -577,11 +629,9 @@ document.querySelector('#share').onclick = async () => {
     message.textContent = joiningLive ? 'Could not copy the board link.' : 'Copy the link from your address bar.';
   }
 };
-</script>
-<script type="module">
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=ai-note-thread';
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=saved-note-conversations';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=ai-note-thread';
+import { connectLiveBoard, maxReplyLength, maxThreadMessages, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=saved-note-conversations';
 import { setupGistBackups } from './mini-flow-gist.js?v=project-backups';
 import { setupSavedProjects } from './mini-flow-projects.js?v=gist-actions';
 
@@ -600,8 +650,8 @@ const replyMessages = document.querySelector('#ai-reply-messages');
 const replyStatus = document.querySelector('#ai-reply-status');
 const replyForm = document.querySelector('#ai-reply-form');
 const replyInput = document.querySelector('#ai-reply-input');
-const replySend = replyForm.querySelector('button');
-const noteThreads = new Map();
+const replySend = replyForm.querySelector('[type=submit]');
+const replyAsk = document.querySelector('#ai-reply-ask');
 const sendingReplies = new Set();
 let replyTarget;
 let noteRequests = {};
@@ -609,8 +659,12 @@ let displayedMessages;
 let replyError = '';
 
 function updateNoteRequestBadges() {
-  editor.setAIRequests(Object.fromEntries(Object.entries(noteRequests).map(([id, request]) =>
-    [id, noteThreads.has(id) ? { ...request, hasThread: true } : request])));
+  const badges = { ...noteRequests };
+  for (const [id, messages] of noteThreads) {
+    const replyCount = messages.filter(message => !message.original && message.role !== 'status').length;
+    badges[id] = { ...(badges[id] ?? { phase: 'comments' }), hasThread: true, replyCount };
+  }
+  editor.setAIRequests(badges);
 }
 
 function renderAIReply() {
@@ -618,7 +672,7 @@ function renderAIReply() {
   const thread = noteThreads.get(replyTarget);
   const request = noteRequests[replyTarget];
   const active = request?.phase === 'waiting' || request?.phase === 'working';
-  replyNote.hidden = Boolean(thread);
+  replyNote.hidden = thread?.some(message => message.original) ?? false;
   const messages = thread ?? (request?.phase === 'result'
     ? [{ role: 'assistant', author: request.author ?? 'AI', text: request.label }] : []);
   const key = JSON.stringify(messages);
@@ -636,12 +690,14 @@ function renderAIReply() {
     }));
     replyMessages.scrollTop = replyMessages.scrollHeight;
   }
-  replyForm.hidden = !thread || !liveBoard;
+  replyForm.hidden = joiningLive && !liveBoard?.ready();
   const sending = sendingReplies.has(replyTarget);
-  replySend.disabled = active || sending || connectedAI === 0 || !replyInput.value.trim();
+  replySend.disabled = sending || !replyInput.value.trim();
+  replyAsk.hidden = connectedAI === 0;
+  replyAsk.disabled = active || sending;
   replyStatus.textContent = replyError || (sending ? 'Sending reply…' : request?.phase === 'waiting'
     ? 'Waiting for AI…' : request?.phase === 'working' ? request.label + ' is working…'
-      : !replyForm.hidden && connectedAI === 0 ? 'An AI guest must be connected to reply.' : '');
+      : '');
 }
 
 openAIReply = (noteId, label) => {
@@ -661,15 +717,15 @@ replyDialog.addEventListener('close', () => {
   if (noteId) editorRoot.querySelector(`[data-note-reply="${CSS.escape(noteId)}"]`)?.focus({ preventScroll: true });
 });
 replyInput.oninput = () => { replyError = ''; renderAIReply(); };
-replyForm.onsubmit = async event => {
-  event.preventDefault();
-  if (!replyTarget || !liveBoard || replySend.disabled) return;
+async function sendNoteMessage(askAI) {
+  if (!replyTarget || replyForm.hidden || (askAI ? replyAsk.hidden || replyAsk.disabled : replySend.disabled)) return;
   const noteId = replyTarget;
   const prompt = replyInput.value.trim();
   sendingReplies.add(noteId);
   renderAIReply();
   try {
-    const result = await liveBoard.askAI(noteId, prompt);
+    const result = askAI ? await liveBoard.askAI(noteId, prompt || undefined)
+      : liveBoard ? await liveBoard.comment(noteId, prompt) : postLocalReply(noteId, prompt);
     if (replyTarget !== noteId) return;
     if (result.ok) replyInput.value = '';
     else replyError = result.message;
@@ -679,21 +735,62 @@ replyForm.onsubmit = async event => {
     sendingReplies.delete(noteId);
     renderAIReply();
   }
+}
+replyForm.onsubmit = event => {
+  event.preventDefault();
+  void sendNoteMessage(false);
 };
+replyAsk.onclick = () => sendNoteMessage(true);
+function persistNoteThreads() {
+  if (joiningLive) {
+    autosaveProject?.(currentSavedProject());
+    return;
+  }
+  const project = currentSavedProject();
+  save(project.source, project.positions);
+  autosaveProject?.(project);
+}
+
+function postLocalReply(noteId, text) {
+  if (!text || text.length > maxReplyLength) return { ok: false, message: 'Enter a reply of up to 1000 characters.' };
+  const messages = [...(noteThreads.get(noteId) ?? []), { role: 'user', author: 'You', text }].slice(-maxThreadMessages);
+  noteThreads.set(noteId, messages);
+  updateNoteRequestBadges();
+  persistNoteThreads();
+  return { ok: true };
+}
+
 const guestCounter = document.createElement('div');
 guestCounter.className = 'live-guest-counter';
 guestCounter.hidden = true;
 guestCounter.setAttribute('role', 'status');
 guestCounter.title = 'Connected guests, excluding the host';
 editorRoot.querySelector('.scroll').append(guestCounter);
+const noteActions = document.createElement('div');
+noteActions.className = 'note-actions';
+const commentButton = document.createElement('button');
+commentButton.type = 'button';
+commentButton.className = 'note-action';
+commentButton.textContent = 'Comments';
+commentButton.setAttribute('aria-haspopup', 'dialog');
+commentButton.onclick = () => {
+  const note = MiniFlow.parse(editor.getProject().source).nodes.find(node => node.id === selectedNoteId);
+  if (note) openAIReply(note.id, note.label);
+};
 const askButton = document.createElement('button');
+askButton.dataset.askAi = '';
 askButton.type = 'button';
 askButton.className = 'note-action';
 askButton.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3v4M2 12v3m20-3v3m-13-3h.01m6 0h.01m-5 4h4"/></svg><span>Ask AI</span>';
 askButton.title = 'Send the selected note to the AI guests in this live share';
 let connectedAI = 0;
-refreshAskAI = () => editor.setNoteAction(askButton, connectedAI > 0);
+noteActions.append(commentButton, askButton);
+refreshAskAI = () => {
+  askButton.hidden = connectedAI === 0;
+  editor.setNoteAction(noteActions, !joiningLive || Boolean(liveBoard?.ready()));
+};
 refreshAskAI();
+updateNoteRequestBadges();
 askButton.onclick = async () => {
   if (!liveBoard || !selectedNoteId || askButton.disabled) return;
   askButton.disabled = true;
@@ -729,23 +826,24 @@ const panels = [
   { button: projectsButton, panel: projectsPanel, title: 'Projects' },
   { button: panelButton, panel: codePanel, title: 'Code & export' }
 ];
-const savedProjects = setupSavedProjects({ panel: projectsPanel, editor,
-  normalize: normalizeProject, getActive: () => activeSavedProject, setActive: setActiveSavedProject,
+const savedProjects = setupSavedProjects({ panel: projectsPanel,
+  editor: { ...editor, getProject: currentSavedProject, setProject: openSavedProject },
+  normalize: normalizeSavedProject, getActive: () => activeSavedProject, setActive: setActiveSavedProject,
   onError: text => { message.textContent = text; },
   onBackup: record => gistBackups.backupProject(record),
   getBackupTime: id => gistBackups.getBackupTime(id) });
 const gistBackups = setupGistBackups({
   panel: projectsPanel.querySelector('[data-gist-backups]'),
   getActive: () => activeSavedProject,
-  getProject: () => normalizeProject(editor.getProject()),
+  getProject: () => normalizeSavedProject(currentSavedProject()),
   canBackUp: () => !editor.isInteracting() && (!joiningLive || Boolean(liveBoard?.ready())),
   link: savedProjects.linkGist,
   onBackupChange: savedProjects.syncBackupTimes,
   openProject(project) {
     if (liveBoard || editor.isInteracting()) throw new Error('End the live session or finish editing before opening a backup.');
-    const restored = normalizeProject(project);
+    const restored = normalizeSavedProject(project);
     setActiveSavedProject(null);
-    editor.setProject(restored, { message: 'Opened Gist backup.' });
+    openSavedProject(restored, { message: 'Opened Gist backup.' });
   }
 });
 syncSavedProjects = () => { savedProjects.syncActive(); gistBackups.refresh(); };
@@ -887,6 +985,7 @@ function ended() {
   const wasGuest = joiningLive;
   joiningLive = false;
   liveBoard = undefined;
+  refreshAskAI();
   liveNetwork = undefined;
   connectionWaited = false;
   liveNetworkStatus.hidden = true;
@@ -931,7 +1030,7 @@ async function startLive(invite, host) {
       canAccept: () => !editor.isInteracting(), onStatus: showStatus, onEnd: ended,
       onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts,
       onNetworkStatus: showNetworkStatus, debug: debugEnabled,
-      onNoteColors: editor.setNoteColors,
+      onNoteColors: editor.setNoteColors, initialThreads: [...noteThreads],
       onAIRequests(next) {
         noteRequests = next;
         updateNoteRequestBadges();
@@ -940,8 +1039,9 @@ async function startLive(invite, host) {
       onAIThread(noteId, messages) {
         if (messages) noteThreads.set(noteId, messages);
         else noteThreads.delete(noteId);
-        if (noteRequests[noteId]) updateNoteRequestBadges();
+        updateNoteRequestBadges();
         if (replyTarget === noteId) renderAIReply();
+        persistNoteThreads();
       },
       noteIds: project => MiniFlow.parse(project.source).nodes.filter(node => node.type === 'note').map(node => node.id),
       readNote(project, id) {
@@ -955,6 +1055,7 @@ async function startLive(invite, host) {
       }
     });
     if (debugAttempt) debugAttempt.network = liveBoard.debugReport;
+    refreshAskAI();
     liveToggle.dataset.active = '';
     liveToggle.setAttribute('aria-label', 'Live session, active');
     endSession.hidden = false;

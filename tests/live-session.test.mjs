@@ -61,6 +61,11 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
       registerAgent: guest.session.registerAgent, waitForAIRequest: guest.session.waitForAIRequest
     });
     assert.deepEqual(host.counts(), { human: 2, ai: 0 });
+    assert.deepEqual(await secondGuest.session.comment('N1', 'A comment before any AI joined'), { ok: true });
+    assert.deepEqual(host.threads.get('N1'), [
+      { role: 'user', author: 'Guest 2', text: 'A comment before any AI joined' }
+    ]);
+    assert.equal((await host.session.askAI('N1')).reason, 'no_ai_guest');
     assert.deepEqual(await tools.get('register_live_agent')({}), { ok: true });
     await network.settle();
     assert.deepEqual(host.counts(), { human: 1, ai: 1 });
@@ -72,7 +77,8 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     const first = await listening;
     assert.equal(host.requests().N1.phase, 'working');
     assert.equal(first.request.requester, 'Host');
-    assert.deepEqual(first.request.note, { id: 'N1', text: 'Review this step', target: { type: 'node', id: 'A' } });
+    assert.deepEqual(first.request.note, { id: 'N1', text: 'A comment before any AI joined', target: { type: 'node', id: 'A' } });
+    assert.deepEqual(first.request.thread, host.threads.get('N1'));
     assert.equal((await secondGuest.session.waitForAIRequest()).reason, 'ai_not_connected');
     assert.equal((await host.session.askAI('N1')).reason, 'already_requested');
     assert.deepEqual(guest.session.reportAIActivity('Building in batches'), { ok: true });
@@ -91,7 +97,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.equal(next.request.requester, 'Guest 2');
     assert.equal(next.request.note.text, 'What changed?');
     assert.deepEqual(next.request.thread, [
-      { role: 'user', author: 'Host', text: 'Review this step' },
+      { role: 'user', author: 'Guest 2', text: 'A comment before any AI joined' },
       { role: 'assistant', author: 'AI 1', text: 'Two batches added' }
     ]);
     assert.deepEqual(await wait({ after: next.request.sequence, timeoutMs: 0 }), { ok: true, request: null });

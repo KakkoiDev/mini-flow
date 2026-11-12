@@ -1,8 +1,7 @@
 const kinds = ['read', 'state', 'edit', 'end', 'presence', 'agent', 'ask'];
 const maxGuests = 8;
-const maxThreads = 32;
-const maxThreadMessages = 12;
-const maxReplyLength = 1000;
+export const maxThreadMessages = 12;
+export const maxReplyLength = 1000;
 const maxAnswerLength = 2000;
 // Set to your trusted Cloudflare relay's wss:// origin to enable fallback.
 const liveRelayUrl = '';
@@ -14,9 +13,17 @@ export function readLiveInvite(hash) {
   return match && { room: match[1], password: match[2] };
 }
 
+export function readThreadMessages(messages) {
+  if (!Array.isArray(messages) || !messages.length || messages.length > maxThreadMessages) return null;
+  if (!messages.every(message => ['user', 'assistant', 'status'].includes(message?.role) &&
+    typeof message.author === 'string' && message.author.length <= 32 &&
+    typeof message.text === 'string' && message.text.length <= 4000)) return null;
+  return messages.map(({ role, author, text, original }) => ({ role, author, text, ...(original === true && { original }) }));
+}
+
 export function createLiveSession({ room, host, getProject, setProject, normalize, canAccept, onStatus, onEnd,
   onAvailability = () => {}, onPresence = () => {}, onGuestCounts = () => {}, readNote = () => null,
-  noteIds = () => [], onNoteColors = () => {}, onAIRequests = () => {}, onAIThread = () => {} }) {
+  noteIds = () => [], onNoteColors = () => {}, onAIRequests = () => {}, onAIThread = () => {}, initialThreads = [] }) {
   let hostPeer;
   const guests = new Map();
   let closed = false;
@@ -40,7 +47,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   const pendingDeliveries = new Map();
   const offers = new Map();
   const results = new Map();
-  const threads = new Map();
+  const threads = new Map(host ? initialThreads : []);
   const pendingClaims = new Map();
   let requestSequence = 0;
 
@@ -53,12 +60,6 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     const messages = [...(threads.get(noteId) ?? []), message].slice(-maxThreadMessages);
     threads.delete(noteId);
     threads.set(noteId, messages);
-    if (threads.size > maxThreads) {
-      const oldest = threads.keys().next().value;
-      threads.delete(oldest);
-      onAIThread(oldest, null);
-      publishThread(oldest);
-    }
     onAIThread(noteId, messages);
     publishThread(noteId);
   }
@@ -127,8 +128,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     for (const offer of offers.values()) clearTimeout(offer.timer);
     offers.clear();
     results.clear();
-    for (const noteId of threads.keys()) onAIThread(noteId, null);
-    threads.clear();
+    if (!host) threads.clear();
     onAIRequests({});
     requests.length = 0;
   }
@@ -147,12 +147,14 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     }
     const requester = guests.get(from)?.label ?? 'Host';
     const thread = threads.get(noteId);
-    const text = prompt?.trim() ?? note.text;
+    const text = prompt?.trim() ?? thread?.findLast(message => message.role === 'user')?.text ?? note.text;
     const requestId = id();
     results.delete(noteId);
     const expire = () => finishOffer(requestId, 'No AI claimed the request');
     offers.set(requestId, { noteId, agents: new Set(agents), timer: setTimeout(expire, 90000) });
-    appendThread(noteId, { role: 'user', author: requester, text });
+    if (!thread || prompt !== undefined) {
+      appendThread(noteId, { role: 'user', author: requester, text, ...(!thread && prompt === undefined && { original: true }) });
+    }
     publishPresence();
     return new Promise(resolve => {
       const failed = failure('ask_failed', 'No AI guest confirmed receipt of the note.');
@@ -169,11 +171,22 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     });
   }
 
-  function askAI(noteId, prompt) {
+  function appendComment(noteId, from, text) {
+    if (!readNote(getProject(), noteId)) return failure('note_missing', 'The note is no longer on the board.');
+    if (typeof text !== 'string' || !text.trim() || text.length > maxReplyLength) {
+      return failure('invalid_reply', 'Enter a reply of up to 1000 characters.');
+    }
+    appendThread(noteId, { role: 'user', author: guests.get(from)?.label ?? 'Host', text: text.trim() });
+    return { ok: true };
+  }
+
+  function submitNoteMessage(type, noteId, prompt) {
     if (closed || !state || (!host && !hostPeer)) {
       return Promise.resolve(failure('live_not_ready', 'The live board is disconnected.'));
     }
-    if (host) return Promise.resolve(forwardAIRequest(noteId, room.selfId, prompt));
+    if (host) return Promise.resolve(type === 'comment'
+      ? appendComment(noteId, room.selfId, prompt)
+      : forwardAIRequest(noteId, room.selfId, prompt));
     if (pendingAsks.size >= 8) return Promise.resolve(failure('too_many_requests', 'Wait for a pending request to finish.'));
     return new Promise(resolve => {
       const requestId = id();
@@ -184,7 +197,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       };
       const timer = setTimeout(() => finish(failure('ask_timeout', 'The host did not confirm the request.')), 5000);
       pendingAsks.set(requestId, finish);
-      send('ask', { type: 'request', requestId, noteId, prompt }).catch(() =>
+      send('ask', { type, requestId, noteId, prompt }).catch(() =>
         finish(failure('ask_failed', 'Could not send the request to the host.')));
     });
   }
@@ -232,6 +245,12 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (JSON.stringify(project) === JSON.stringify(state.project)) return false;
     const before = new Set(noteIds(state.project));
     const after = new Set(noteIds(project));
+    for (const noteId of threads.keys()) {
+      if (!before.has(noteId) || after.has(noteId)) continue;
+      threads.delete(noteId);
+      onAIThread(noteId, null);
+      publishThread(noteId);
+    }
     for (const note of noteColors.keys()) if (!after.has(note)) noteColors.delete(note);
     for (const note of after) if (!before.has(note) && color) noteColors.set(note, color);
     onNoteColors(Object.fromEntries(noteColors));
@@ -517,10 +536,12 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
         if (delivery?.agents.has(from)) delivery.finish({ ok: true });
         return;
       }
-      if (!guests.has(from) || data?.type !== 'request' ||
+      if (!guests.has(from) || !['request', 'comment'].includes(data?.type) ||
           typeof data.noteId !== 'string' || data.noteId.length > 128 ||
           typeof data.requestId !== 'string' || data.requestId.length !== 32) return;
-      const result = await forwardAIRequest(data.noteId, from, data.prompt);
+      const result = data.type === 'comment'
+        ? appendComment(data.noteId, from, data.prompt)
+        : await forwardAIRequest(data.noteId, from, data.prompt);
       await send('ask', { type: 'result', requestId: data.requestId, result }, from).catch(() => {});
     } else if (from === hostPeer && data?.type === 'result') {
       pendingAsks.get(data.requestId)?.(data.result);
@@ -529,12 +550,12 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       if (data.messages === undefined) {
         threads.delete(data.noteId);
         onAIThread(data.noteId, null);
-      } else if (Array.isArray(data.messages) && data.messages.length <= maxThreadMessages &&
-        data.messages.every(message => ['user', 'assistant', 'status'].includes(message?.role) &&
-          typeof message.author === 'string' && message.author.length <= 32 &&
-          typeof message.text === 'string' && message.text.length <= 4000)) {
-        threads.set(data.noteId, data.messages);
-        onAIThread(data.noteId, data.messages);
+      } else {
+        const messages = readThreadMessages(data.messages);
+        if (messages) {
+          threads.set(data.noteId, messages);
+          onAIThread(data.noteId, messages);
+        }
       }
     } else if (from === hostPeer && data?.type === 'claim_result') {
       if (data.granted === true && pendingClaims.has(data.requestId)) {
@@ -622,7 +643,18 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
         return result;
       });
     },
-    askAI,
+    askAI: (noteId, prompt) => submitNoteMessage('request', noteId, prompt),
+    comment: (noteId, text) => submitNoteMessage('comment', noteId, text),
+    replaceThreads(next) {
+      if (!host || closed) return;
+      for (const requestId of offers.keys()) finishOffer(requestId);
+      results.clear();
+      publishPresence();
+      const changed = new Set([...threads.keys(), ...next.keys()]);
+      threads.clear();
+      for (const [noteId, messages] of next) threads.set(noteId, messages);
+      for (const noteId of changed) publishThread(noteId);
+    },
     waitForAIRequest,
     registerAgent,
     stop
