@@ -34,7 +34,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
       return structuredClone(next);
     }, canAccept: () => host ? !hostEditing : !guestEditing, onStatus() {}, onEnd() { ended = true; },
     onPresence(value) { presence = value; }, onGuestCounts(value) { counts = value; },
-    readNote: (_, id) => id === 'N1' ? { id, text: 'Review this step', target: { type: 'node', id: 'A' } } : null,
+    readNote: (_, id) => ['N1', 'N2', 'N3'].includes(id) ? { id, text: 'Review this step', target: { type: 'node', id: 'A' } } : null,
     noteIds: value => MiniFlow.parse(value.source).nodes.filter(node => node.type === 'note').map(node => node.id),
     onNoteColors(value) { colors = value; }, onAIRequests(value) { requests = value; },
     onAIThread(id, messages) {
@@ -66,14 +66,13 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.equal(guestComment.author, 'Guest 2');
     assert.equal(guestComment.owner, secondGuest.id);
     assert.match(guestComment.replyId, /^[a-f0-9]{32}$/);
-    assert.equal((await host.session.askAI('N1')).reason, 'no_ai_guest');
+    assert.deepEqual(await host.session.askAI('N1'), { ok: true });
+    assert.equal(host.requests().N1.phase, 'waiting');
     assert.deepEqual(await tools.get('register_live_agent')({}), { ok: true });
     await network.settle();
     assert.deepEqual(host.counts(), { human: 1, ai: 1 });
     assert.deepEqual(secondGuest.counts(), host.counts());
     const wait = tools.get('wait_for_ai_request');
-    assert.deepEqual(await host.session.askAI('N1'), { ok: true });
-    assert.equal(host.requests().N1.phase, 'waiting');
     const listening = wait({ timeoutMs: 1000 });
     const first = await listening;
     assert.equal(host.requests().N1.phase, 'working');
@@ -87,6 +86,12 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.equal(first.request.thread[0].text, guestComment.text);
     assert.equal((await secondGuest.session.waitForAIRequest()).reason, 'ai_not_connected');
     assert.equal((await host.session.askAI('N1')).reason, 'already_requested');
+    assert.deepEqual(await host.session.askAI('N2'), { ok: true });
+    assert.deepEqual(await host.session.askAI('N3'), { ok: true });
+    await network.settle();
+    assert.deepEqual(await wait({ after: first.request.sequence, timeoutMs: 0 }), { ok: true, request: null });
+    assert.equal(host.session.cancelAIRequest('N2'), true);
+    assert.equal(host.requests().N2.label, 'AI request cancelled');
     assert.deepEqual(guest.session.reportAIActivity('Building in batches'), { ok: true });
     assert.equal((await guest.session.submitAIEdit(makeProject('First batch'), 'First batch')).ok, true);
     assert.deepEqual(host.getProject(), makeProject('First batch'));
@@ -99,7 +104,16 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.deepEqual(host.requests().N1, { phase: 'result', label: 'Two batches added', author: 'AI 1' });
     assert.deepEqual(secondGuest.requests().N1, host.requests().N1);
     assert.deepEqual(await secondGuest.session.askAI('N1', 'What changed?'), { ok: true });
-    const next = await wait({ after: first.request.sequence, timeoutMs: 1000 });
+    const queued = await wait({ after: first.request.sequence, timeoutMs: 1000 });
+    assert.equal(queued.request.note.id, 'N3');
+    assert.equal(host.session.cancelAIRequest('N3'), true);
+    // Attempt an edit immediately, before the guest receives the cancellation.
+    assert.equal((await guest.session.submitAIEdit(makeProject('Cancelled edit'), 'Late edit')).reason, 'ai_request_cancelled');
+    await network.settle();
+    assert.equal(guest.session.reportAIActivity('', 'Late reply').reason, 'ai_request_cancelled');
+    assert.deepEqual(host.getProject(), makeProject('Second batch'));
+    assert.equal(host.requests().N3.label, 'AI request cancelled');
+    const next = await wait({ after: queued.request.sequence, timeoutMs: 1000 });
     assert.equal(next.request.requester, 'Guest 2');
     assert.equal(next.request.note.text, 'What changed?');
     assert.deepEqual(next.request.thread[0], { ...guestComment, text: 'Corrected guest comment', edited: 'author' });

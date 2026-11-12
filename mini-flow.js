@@ -90,7 +90,7 @@ SOFTWARE.
     ), ...metadata].join('\n');
   }
 
-  function mount(host, source = 'flowchart TD', positions = {}, { onChange, onPresence, onSelection, onAIReply, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic', settingsKey, snapToGrid = false, dagre } = {}) {
+  function mount(host, source = 'flowchart TD', positions = {}, { onChange, onPresence, onSelection, onAIReply, onCancelAIRequest, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic', settingsKey, snapToGrid = false, dagre } = {}) {
     const enabled = name => features[name] !== false;
     let historyEnabled = enabled('history');
     const palette = { canvas: '#f7faff', grid: '#c5d4e4', text: '#203044', surface: '#fff',
@@ -167,8 +167,18 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .peer-cursor, .peer-focus {position:absolute;pointer-events:none;z-index:2}
         .peer-cursor svg {width:14px;height:14px;vertical-align:middle;margin-right:4px}
         .peer-activity {position:absolute;z-index:1;bottom:calc(var(--dock-height, 55px) + var(--dock-bottom, 12px) + 10px);
-          left:12px;max-width:calc(100% - 24px);padding:6px 9px;border-radius:8px;background:var(--mf-surface);
-          border:1px solid #ded9d2;color:var(--mf-text);font-size:12px;pointer-events:none;overflow-wrap:anywhere}
+          left:12px;max-width:min(360px,calc(100% - 24px));color:var(--mf-text);font-size:12px;pointer-events:none}
+        .peer-activity:not([hidden]) {display:grid;gap:5px;justify-items:start}
+        .peer-activity-queue {display:grid;gap:5px;justify-items:start;max-width:100%;max-height:min(24dvh,160px);
+          overflow:auto;overscroll-behavior:contain;pointer-events:auto}
+        .peer-activity-row {display:flex;align-items:center;gap:7px;max-width:100%;box-sizing:border-box;
+          padding:4px 8px;border-radius:8px;background:var(--mf-surface);border:1px solid #ded9d2;overflow-wrap:anywhere}
+        .peer-activity-row > :first-child {min-width:0;text-align:left}
+        .peer-activity button {pointer-events:auto;padding:2px 4px;margin:-2px -4px;min-height:24px;
+          border:0;background:none;color:inherit;font:inherit;text-decoration:underline;text-underline-offset:2px}
+        .peer-activity button:hover {background:#e4f4ee}
+        .peer-activity button.peer-activity-cancel {flex:none;margin:0;padding:0;width:28px;height:28px;
+          font-size:18px;line-height:1;text-align:center;text-decoration:none}
         .note-actions {position:absolute;z-index:2;display:flex;gap:4px}
         .note-actions[hidden] {display:none}
         .note-action {display:flex;align-items:center;gap:5px;
@@ -396,6 +406,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     const guestHues = [210, 140, 275, 15, 325, 175, 245, 88];
     let peerPresence = [], pointerPosition = null;
     let noteOwners = {}, aiRequests = {}, remoteDrafts = [], draftKey = '', noteAction;
+    let activityKey;
     const activityList = document.createElement('div');
     activityList.className = 'peer-activity';
     activityList.hidden = true;
@@ -526,6 +537,62 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         }
       }
     }
+    function renderPeerActivities() {
+      // A guest can claim one request at a time, and the host assigns a unique label in the room.
+      const noteByAgent = new Map(Object.entries(aiRequests)
+        .filter(([, request]) => request.phase === 'working')
+        .map(([noteId, request]) => [request.label, noteId]));
+      const notes = new Map(graph.nodes.filter(node => node.type === 'note').map(node => [node.id, node.label]));
+      const queued = Object.entries(aiRequests)
+        .filter(([id, request]) => request.phase === 'waiting' && notes.has(id))
+        .map(([id]) => ['Queued · ' + notes.get(id), id]);
+      const activities = peerPresence.filter(peer => peer.activity)
+        .map(peer => [peer.label + ' · ' + peer.activity, noteByAgent.get(peer.label)]);
+      const rows = [...queued, ...activities];
+      const key = JSON.stringify([queued.length, rows]);
+      if (key === activityKey) return;
+      activityKey = key;
+      activityList.hidden = !rows.length;
+      activityList.replaceChildren();
+      const queue = document.createElement('div');
+      queue.className = 'peer-activity-queue';
+      if (queued.length) activityList.append(queue);
+      for (const [index, [label, noteId]] of rows.entries()) {
+        const row = document.createElement('div');
+        row.className = 'peer-activity-row';
+        const interactive = Boolean(onAIReply && noteId);
+        const entry = document.createElement(interactive ? 'button' : 'span');
+        entry.textContent = label.length > 100 ? label.slice(0, 99) + '…' : label;
+        if (interactive) {
+          entry.type = 'button';
+          entry.title = label + ' · Open note conversation';
+          entry.onclick = () => {
+            const note = graph.nodes.find(node => node.type === 'note' && node.id === noteId);
+            if (!note) return;
+            onAIReply(note.id, note.label);
+            const dockClearance = dockLayout ? frame.clientHeight - toolbar.offsetTop : 0;
+            cameraX = note.x - viewport.clientWidth / (2 * zoom);
+            cameraY = note.y - Math.max(1, viewport.clientHeight - dockClearance) / (2 * zoom);
+            updateCamera();
+          };
+        }
+        row.append(entry);
+        if (onCancelAIRequest && noteId) {
+          const cancel = document.createElement('button');
+          cancel.className = 'peer-activity-cancel';
+          cancel.type = 'button';
+          cancel.textContent = '×';
+          cancel.title = 'Cancel AI request';
+          cancel.setAttribute('aria-label', 'Cancel AI request for ' + notes.get(noteId));
+          cancel.onclick = () => {
+            onCancelAIRequest(noteId);
+            if (!cancel.isConnected) activityList.querySelector('button')?.focus();
+          };
+          row.append(cancel);
+        }
+        (index < queued.length ? queue : activityList).append(row);
+      }
+    }
     function setPeerPresence(presence) {
       peerPresence = Array.isArray(presence) ? presence : presence ? [{ id: 'peer', ...presence }] : [];
       const presentIds = new Set(peerPresence.map(peer => peer.id));
@@ -548,9 +615,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         outline.remove();
         peerOverlays.delete(id);
       }
-      const activities = peerPresence.filter(peer => peer.activity).map(peer => peer.label + ' · ' + peer.activity);
-      activityList.hidden = !activities.length;
-      activityList.textContent = activities.join('  •  ');
+      renderPeerActivities();
       const drafts = peerPresence.flatMap(peer => peer.draft ? [peer.draft] : []);
       const key = JSON.stringify(drafts);
       if (key !== draftKey) {
@@ -1000,6 +1065,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       publishPresence();
     }
     function render(focus, includeDrafts = true) {
+      renderPeerActivities();
       svg.replaceChildren();
       const defs = element('defs', {});
       for (const [id, color] of [['arrow', palette.stroke], ['active', palette.accent]]) {
@@ -1154,7 +1220,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           const summary = result ? author + request.label : '';
           const count = request.replyCount ? request.replyCount + (request.replyCount === 1 ? ' reply' : ' replies') : '';
           const status = result ? (summary.length > 36 ? summary.slice(0, 35) + '…' : summary)
-            : waiting ? 'Waiting for AI…' : (request.label ?? request) + ' working…';
+            : waiting ? 'Queued for AI' : (request.label ?? request) + ' working…';
           const label = comments ? count || 'Comments' : [status, count].filter(Boolean).join(' · ');
           const interactive = Boolean(onAIReply) && (result || request.hasThread);
           const badgeWidth = label.length * 7 + (interactive ? 46 : 30);
@@ -1167,7 +1233,6 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           badge.append(element('text', { x: result || comments ? 10 : 24, y: 17, 'font-size': 12 }, label));
           if (interactive) {
             badge.setAttribute('tabindex', '0');
-            badge.setAttribute('aria-haspopup', 'dialog');
             badge.setAttribute('data-note-reply', node.id);
             badge.append(element('path', { d: `M${badgeWidth - 16} 9l4 4-4 4`,
               fill: 'none', stroke: palette.accent, 'stroke-width': 1.6, 'stroke-linecap': 'round' }));

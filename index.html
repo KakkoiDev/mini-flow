@@ -55,7 +55,8 @@ header :is([data-panel],#open-saved-projects)[aria-expanded=true]{background:#e4
 header button:focus-visible{outline:2px solid #087f71;outline-offset:2px}
 #save-status:empty,#live-notice:empty{display:none}
 #save-status,#live-notice{order:1;flex-basis:100%;font-size:12px;color:#4c6660}
-#editor{flex:1;min-height:0;--mini-flow-height:100%}
+#workspace{position:relative;display:flex;flex:1;min-height:0}
+#editor{flex:1;min-width:0;min-height:0;--mini-flow-height:100%}
 #editor > div{height:100%}
 @media(max-width:550px){header{gap:3px;padding:5px 8px}h1{font-size:18px}
 header button,.arrange summary{font-size:13px;padding:5px 7px;min-height:44px}
@@ -75,10 +76,22 @@ dialog form{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
 dialog button{font:inherit;padding:8px 12px;min-height:44px;border:1px solid #ded9d2;border-radius:8px;background:#fffdfb;color:inherit;cursor:pointer}
 dialog #apply-proposal{background:#e4f4ee;border-color:#a7cfc4}
 dialog button:disabled{opacity:.5;cursor:default}
-#ai-reply{box-sizing:border-box;width:min(460px,calc(100% - 28px));inset:16px 14px auto auto;margin:0;max-height:calc(100dvh - 32px)}
-#ai-reply[open]{display:flex;flex-direction:column}
-#ai-reply header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:0;background:none;border:0}
-#ai-reply-note{font-size:14px;color:#4c6660;max-height:20dvh;overflow:auto}
+#ai-reply{box-sizing:border-box;display:flex;flex:0 0 clamp(330px,34vw,460px);min-height:0;flex-direction:column;
+  overflow:auto;overscroll-behavior:contain;padding:0 14px 14px;border-left:1px solid #e7e2dc;background:#fffdfb}
+#ai-reply[hidden]{display:none}
+#ai-reply header{flex:none;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;
+  background:transparent;border-bottom:1px solid #e7e2dc}
+#ai-reply h2{margin:0;font-size:15px;font-weight:700}
+#ai-reply :is(header button,form button,.ai-reply-edit-actions button){font:inherit;font-size:13px;min-height:36px;padding:6px 10px;border:1px solid #ded9d2;
+  border-radius:8px;background:#fffdfb;color:inherit;cursor:pointer}
+#ai-reply button:disabled{opacity:.5;cursor:default}
+#ai-reply #ai-reply-close{display:grid;place-items:center;width:36px;padding:0;border-color:transparent;background:transparent}
+#ai-reply-close svg{width:18px;height:18px}
+@media(max-width:849px){
+  #workspace{flex-direction:column}
+  #ai-reply{flex:0 0 54%;border-left:0;border-top:1px solid #e7e2dc}
+}
+#ai-reply-note{font-size:14px;color:#4c6660;max-height:20dvh;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap}
 .ai-thread-actions,.ai-reply-edit-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px}
 .ai-reply-meta{display:flex;align-items:center;gap:8px;min-height:30px}
 .ai-reply-meta small{color:#52625e}
@@ -91,14 +104,14 @@ dialog button:disabled{opacity:.5;cursor:default}
 .ai-reply-menu button{justify-content:flex-start;border:0;padding:6px 10px}
 .ai-reply-delete{color:#9c2c25}
 .ai-reply-edit-actions{margin-top:8px}
-#ai-reply-messages{list-style:none;margin:12px 0;padding:0;min-height:0;overflow:auto;display:grid;gap:8px;scrollbar-gutter:stable}
+#ai-reply-messages{flex:1;list-style:none;margin:12px 0 0;padding:0;min-height:0;overflow:auto;display:grid;align-content:start;gap:8px;scrollbar-gutter:stable}
 #ai-reply-messages li{padding:9px 12px;background:#f2eee8;border-radius:8px;overflow-wrap:anywhere}
 #ai-reply-messages li[data-role=assistant]{background:#e4f4ee}
 #ai-reply-messages strong{font-size:12px}
 #ai-reply-messages p{white-space:pre-wrap;margin:3px 0 0}
-#ai-reply-form{display:grid;grid-template-columns:minmax(0,1fr);justify-content:stretch;gap:7px;margin-top:14px}
+#ai-reply-form{flex:none;display:grid;grid-template-columns:minmax(0,1fr);justify-content:stretch;gap:7px;margin-top:12px;padding-top:12px;border-top:1px solid #e7e2dc}
 #ai-reply-form[hidden]{display:none}
-#ai-reply textarea{box-sizing:border-box;width:100%;font:inherit;padding:8px;border:1px solid #b8b2aa;border-radius:8px;resize:vertical}
+#ai-reply textarea{max-height:25dvh;box-sizing:border-box;width:100%;font:inherit;padding:8px;border:1px solid #b8b2aa;border-radius:8px;resize:vertical}
 #ai-reply-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
 #ai-reply-ask{background:#e4f4ee}
 #ai-reply-status{font-size:13px;color:#4c6660;margin:0}
@@ -109,7 +122,32 @@ dialog button:disabled{opacity:.5;cursor:default}
 </style>
 <main>
   <header><h1><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M3 19a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" /><path d="M19 7a2 2 0 1 0 0 -4a2 2 0 0 0 0 4" /><path d="M11 19h5.5a3.5 3.5 0 0 0 0 -7h-8a3.5 3.5 0 0 1 0 -7h4.5" /></svg>Mini Flow</h1><button id="blank"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M12 5l0 14" /><path d="M5 12l14 0" /></svg><span>Start blank</span></button><button id="share"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M9 15l6 -6" /><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464" /><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463" /></svg><span>Copy link</span></button><span id="save-status" role="status"></span></header>
-  <div id="editor"></div>
+  <div id="workspace">
+    <div id="editor"></div>
+    <aside id="ai-reply" aria-labelledby="ai-reply-title" hidden>
+      <header>
+        <h2 id="ai-reply-title">Note conversation</h2>
+        <div class="ai-thread-actions">
+          <button id="ai-reply-ask" type="button" title="Send the conversation and any draft to the AI guest" hidden>Ask AI</button>
+          <button id="ai-reply-close" type="button" aria-label="Close note conversation">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="m6 6 12 12M18 6 6 18"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+      <p id="ai-reply-note" hidden></p>
+      <ol id="ai-reply-messages" aria-label="Messages"></ol>
+      <p id="ai-reply-status" role="status"></p>
+      <form id="ai-reply-form" hidden>
+        <label for="ai-reply-input">Reply</label>
+        <textarea id="ai-reply-input" rows="3" maxlength="1000"></textarea>
+        <div id="ai-reply-actions">
+          <button type="submit">Post reply</button>
+        </div>
+      </form>
+    </aside>
+  </div>
 </main>
 <dialog id="live-session" aria-labelledby="live-title">
   <h2 id="live-title">Live session</h2>
@@ -134,25 +172,6 @@ dialog button:disabled{opacity:.5;cursor:default}
     <button id="live-start" type="button">Start live session</button>
     <button id="live-end" type="button" hidden>End session</button>
     <button>Close</button>
-  </form>
-</dialog>
-<dialog id="ai-reply" aria-labelledby="ai-reply-title">
-  <header>
-    <h2 id="ai-reply-title">Note conversation</h2>
-    <div class="ai-thread-actions">
-      <button id="ai-reply-ask" type="button" title="Send the conversation and any draft to the AI guest" hidden>Ask AI</button>
-      <button id="ai-reply-close" type="button">Close</button>
-    </div>
-  </header>
-  <p id="ai-reply-note" hidden></p>
-  <ol id="ai-reply-messages" aria-label="Messages"></ol>
-  <p id="ai-reply-status" role="status"></p>
-  <form id="ai-reply-form" hidden>
-    <label for="ai-reply-input">Reply</label>
-    <textarea id="ai-reply-input" rows="3" maxlength="1000"></textarea>
-    <div id="ai-reply-actions">
-      <button type="submit">Post reply</button>
-    </div>
   </form>
 </dialog>
 <template id="workspace-panel-template">
@@ -271,7 +290,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=note-control-sizing"></script>
+<script src="./mini-flow.js?v=ai-request-queue"></script>
 <script type="module">
 const example = `flowchart TD
     A([Prompt In])
@@ -356,6 +375,8 @@ function currentSavedProject() {
   return includeThreads(editor.getProject());
 }
 function openSavedProject(project, options) {
+  closeAIReply();
+  replyDrafts.clear();
   editor.setProject(project, options);
   noteThreads = threadsFor(project.source, project.threads);
   liveBoard?.replaceThreads(noteThreads);
@@ -463,6 +484,7 @@ const editor = MiniFlow.mount(editorHost, saved?.source ?? example,
       liveBoard?.changed();
     }, onPresence: presence => liveBoard?.updatePresence(presence),
     onAIReply: (id, label) => openAIReply?.(id, label),
+    onCancelAIRequest: joiningLive ? undefined : id => liveBoard?.cancelAIRequest(id),
     onSelection(item) {
       selectedNoteId = item?.type === 'note' ? item.id : undefined;
       refreshAskAI?.();
@@ -622,6 +644,8 @@ window.addEventListener('hashchange', () => {
 });
 reviewProposal(initialProposal);
 document.querySelector('#blank').onclick = () => {
+  closeAIReply();
+  replyDrafts.clear();
   noteThreads.clear();
   liveBoard?.replaceThreads(noteThreads);
   setActiveSavedProject(null);
@@ -650,7 +674,7 @@ document.querySelector('#share').onclick = async () => {
 };
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=saved-note-conversations';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { canManageReply, changeThreadReply, connectLiveBoard, maxAnswerLength, maxReplyLength, maxThreadMessages, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=reply-management';
+import { canManageReply, changeThreadReply, connectLiveBoard, maxAnswerLength, maxReplyLength, maxThreadMessages, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=ai-request-queue';
 import { setupGistBackups } from './mini-flow-gist.js?v=project-backups';
 import { setupSavedProjects } from './mini-flow-projects.js?v=gist-actions';
 
@@ -662,7 +686,7 @@ projectsButton.inert = joiningLive;
 panelButton.before(projectsButton);
 
 const editorRoot = editorHost.firstElementChild.shadowRoot;
-const replyDialog = document.querySelector('#ai-reply');
+const replyPanel = document.querySelector('#ai-reply');
 const replyClose = document.querySelector('#ai-reply-close');
 const replyNote = document.querySelector('#ai-reply-note');
 const replyMessages = document.querySelector('#ai-reply-messages');
@@ -672,6 +696,7 @@ const replyInput = document.querySelector('#ai-reply-input');
 const replySend = replyForm.querySelector('[type=submit]');
 const replyAsk = document.querySelector('#ai-reply-ask');
 const sendingReplies = new Set();
+const replyDrafts = new Map();
 let replyTarget;
 let noteRequests = {};
 let displayedMessages;
@@ -855,56 +880,78 @@ function renderAIReply() {
   }
   const sending = sendingReplies.has(replyTarget);
   replySend.disabled = sending || !replyInput.value.trim();
-  replyAsk.hidden = connectedAI === 0 || replyForm.hidden;
+  replyAsk.hidden = !liveBoard?.ready() || replyForm.hidden;
   replyAsk.disabled = active || sending;
   replyStatus.toggleAttribute('data-error', Boolean(replyError));
   replyStatus.textContent = replyError || (sending ? 'Sending reply…' : request?.phase === 'waiting'
-    ? 'Waiting for AI…' : request?.phase === 'working' ? request.label + ' is working…'
+    ? 'Queued for AI' : request?.phase === 'working' ? request.label + ' is working…'
       : '');
 }
 
 openAIReply = (noteId, label) => {
-  replyTarget = noteId;
+  showPanel(null);
   replyOpener = editorRoot.activeElement;
-  replyEditor = undefined;
+  if (replyTarget !== noteId) {
+    replyTarget = noteId;
+    replyEditor = undefined;
+    replyInput.value = replyDrafts.get(noteId) ?? '';
+    replyError = '';
+    displayedMessages = undefined;
+    replyMessages.scrollTop = 0;
+  }
   replyNote.textContent = label;
-  replyInput.value = '';
-  replyError = '';
-  displayedMessages = undefined;
+  replyPanel.hidden = false;
   renderAIReply();
-  replyDialog.showModal();
-  replyClose.focus();
+  replyClose.focus({ preventScroll: true });
 };
 function dismissReplyMenus(target) {
   for (const menu of replyMessages.querySelectorAll('.ai-reply-menu[open]')) {
     if (!target || !menu.contains(target)) menu.open = false;
   }
 }
-replyDialog.addEventListener('click', event => dismissReplyMenus(event.target));
+document.addEventListener('click', event => dismissReplyMenus(event.target));
 replyMessages.addEventListener('scroll', () => dismissReplyMenus());
 window.addEventListener('resize', () => dismissReplyMenus());
-replyClose.onclick = () => replyDialog.close();
-replyDialog.addEventListener('close', () => {
+function closeAIReply(restoreFocus = false) {
+  if (replyPanel.hidden) return;
   const noteId = replyTarget;
+  replyPanel.hidden = true;
   replyTarget = undefined;
   replyEditor = undefined;
-  const trigger = replyOpener?.isConnected ? replyOpener
-    : noteId && editorRoot.querySelector(`[data-note-reply="${CSS.escape(noteId)}"]`);
-  trigger?.focus({ preventScroll: true });
+  dismissReplyMenus();
+  if (restoreFocus) {
+    const trigger = replyOpener?.isConnected && replyOpener.getClientRects().length ? replyOpener
+      : editorRoot.querySelector(`[data-note-reply="${CSS.escape(noteId)}"]`);
+    trigger?.focus({ preventScroll: true });
+  }
+  replyOpener = undefined;
+}
+replyClose.onclick = () => closeAIReply(true);
+replyPanel.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || event.defaultPrevented) return;
+  event.preventDefault();
+  closeAIReply(true);
 });
-replyInput.oninput = () => { replyError = ''; renderAIReply(); };
+replyInput.oninput = () => {
+  replyDrafts.set(replyTarget, replyInput.value);
+  replyError = '';
+  renderAIReply();
+};
 async function sendNoteMessage(askAI) {
   if (!replyTarget || replyForm.hidden || (askAI ? replyAsk.hidden || replyAsk.disabled : replySend.disabled)) return;
   const noteId = replyTarget;
-  const prompt = replyInput.value.trim();
+  const draft = replyInput.value;
+  const prompt = draft.trim();
   sendingReplies.add(noteId);
   renderAIReply();
   try {
     const result = askAI ? await liveBoard.askAI(noteId, prompt || undefined)
       : liveBoard ? await liveBoard.comment(noteId, prompt) : postLocalReply(noteId, prompt);
-    if (replyTarget !== noteId) return;
-    if (result.ok) replyInput.value = '';
-    else replyError = result.message;
+    if (result.ok && replyDrafts.get(noteId) === draft) {
+      replyDrafts.delete(noteId);
+      if (replyTarget === noteId) replyInput.value = '';
+    }
+    if (!result.ok && replyTarget === noteId) replyError = result.message;
   } catch {
     if (replyTarget === noteId) replyError = 'Could not send the reply.';
   } finally {
@@ -949,7 +996,6 @@ commentButton.type = 'button';
 commentButton.className = 'note-action';
 commentButton.textContent = 'Comment';
 commentButton.dataset.noteEmpty = '';
-commentButton.setAttribute('aria-haspopup', 'dialog');
 commentButton.onclick = () => {
   const note = MiniFlow.parse(editor.getProject().source).nodes.find(node => node.id === selectedNoteId);
   if (note) openAIReply(note.id, note.label);
@@ -960,14 +1006,13 @@ askButton.className = 'note-action';
 askButton.dataset.askAi = '';
 askButton.textContent = 'Ask AI';
 askButton.title = 'Send this note and its conversation to the AI guest';
-let connectedAI = 0;
 noteActions.append(askButton, commentButton);
 askButton.onclick = async () => {
   if (!liveBoard?.ready() || !selectedNoteId || askButton.disabled) return;
   askButton.disabled = true;
   try {
     const result = await liveBoard.askAI(selectedNoteId);
-    liveNotice.textContent = result.ok ? 'An AI guest received the note.' : result.message;
+    liveNotice.textContent = result.ok ? 'Added to the AI queue.' : result.message;
   } catch {
     liveNotice.textContent = 'Could not send the note to an AI guest.';
   } finally {
@@ -975,13 +1020,12 @@ askButton.onclick = async () => {
   }
 };
 refreshAskAI = () => {
-  askButton.hidden = connectedAI === 0;
+  askButton.hidden = !liveBoard?.ready();
   editor.setNoteAction(noteActions, !joiningLive || Boolean(liveBoard?.ready()), { below: true });
 };
 refreshAskAI();
 updateNoteRequestBadges();
 function showGuestCounts(counts) {
-  connectedAI = counts?.ai ?? 0;
   renderAIReply();
   refreshAskAI();
   guestCounter.hidden = !counts;
@@ -1027,6 +1071,7 @@ syncSavedProjects = () => { savedProjects.syncActive(); gistBackups.refresh(); }
 autosaveProject = savedProjects.autosave;
 
 function showPanel(active) {
+  if (active) closeAIReply();
   for (const { button, panel } of panels) {
     panel.hidden = panel !== active;
     button.setAttribute('aria-expanded', String(panel === active));
@@ -1158,7 +1203,8 @@ function showNetworkStatus(status) {
 function ended() {
   traceLiveStage('ended');
   logLiveDebug('ended');
-  if (replyDialog.open) replyDialog.close();
+  closeAIReply();
+  replyDrafts.clear();
   const wasGuest = joiningLive;
   joiningLive = false;
   liveBoard = undefined;
