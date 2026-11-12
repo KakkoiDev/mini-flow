@@ -55,7 +55,6 @@ header :is([data-panel],#open-saved-projects)[aria-expanded=true]{background:#e4
 header button:focus-visible{outline:2px solid #087f71;outline-offset:2px}
 #save-status:empty,#live-notice:empty{display:none}
 #save-status,#live-notice{order:1;flex-basis:100%;font-size:12px;color:#4c6660}
-#workspace{position:relative;display:flex;flex:1;min-height:0}
 #editor{flex:1;min-width:0;min-height:0;--mini-flow-height:100%}
 #editor > div{height:100%}
 @media(max-width:550px){header{gap:3px;padding:5px 8px}h1{font-size:18px}
@@ -80,80 +79,34 @@ dialog form{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
 dialog button{font:inherit;padding:8px 12px;min-height:44px;border:1px solid #ded9d2;border-radius:8px;background:#fffdfb;color:inherit;cursor:pointer}
 dialog #apply-proposal{background:#e4f4ee;border-color:#a7cfc4}
 dialog button:disabled{opacity:.5;cursor:default}
-#ai-reply{box-sizing:border-box;display:flex;flex:0 0 clamp(330px,34vw,460px);min-height:0;flex-direction:column;
-  overflow:auto;overscroll-behavior:contain;padding:0 14px 14px;border-left:1px solid #e7e2dc;background:#fffdfb}
-#ai-reply[hidden]{display:none}
-#ai-reply header{flex:none;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;
-  background:transparent;border-bottom:1px solid #e7e2dc}
-#ai-reply h2{margin:0;font-size:15px;font-weight:700}
-#ai-reply :is(header button,form button,.ai-reply-edit-actions button){font:inherit;font-size:13px;min-height:36px;padding:6px 10px;border:1px solid #ded9d2;
-  border-radius:8px;background:#fffdfb;color:inherit;cursor:pointer}
-#ai-reply button:disabled{opacity:.5;cursor:default}
-#ai-reply #ai-reply-close{display:grid;place-items:center;width:36px;padding:0;border-color:transparent;background:transparent}
-#ai-reply-close svg{width:18px;height:18px}
-@media(max-width:849px){
-  #workspace{flex-direction:column}
-  #ai-reply{flex:0 0 54%;border-left:0;border-top:1px solid #e7e2dc}
-}
-#ai-reply-note{font-size:14px;color:#4c6660;max-height:20dvh;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap}
-.ai-thread-actions,.ai-reply-edit-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px}
-.ai-reply-meta{display:flex;align-items:center;gap:8px;min-height:30px}
-.ai-reply-meta small{color:#52625e}
-.ai-reply-menu{position:relative;margin-left:auto}
-.ai-reply-menu summary{cursor:pointer;list-style:none;border-radius:6px;min-width:32px;min-height:30px;text-align:center;line-height:30px}
-.ai-reply-menu summary::-webkit-details-marker{display:none}
-.ai-reply-menu summary:hover,.ai-reply-menu[open] summary{background:#fffdfb}
-.ai-reply-menu div{position:fixed;z-index:2;display:grid;min-width:110px;padding:4px;background:#fffdfb;border:1px solid #ded9d2;border-radius:8px;box-shadow:0 4px 12px #2a242019}
-.ai-reply-menu div:not([data-positioned]){visibility:hidden}
-.ai-reply-menu button{justify-content:flex-start;border:0;padding:6px 10px}
-.ai-reply-delete{color:#9c2c25}
-.ai-reply-edit-actions{margin-top:8px}
-#ai-reply-messages{flex:1;list-style:none;margin:12px 0 0;padding:0;min-height:0;overflow:auto;display:grid;align-content:start;gap:8px;scrollbar-gutter:stable}
-#ai-reply-messages li{padding:9px 12px;background:#f2eee8;border-radius:8px;overflow-wrap:anywhere}
-#ai-reply-messages li[data-role=assistant]{background:#e4f4ee}
-#ai-reply-messages strong{font-size:12px}
-#ai-reply-messages p{white-space:pre-wrap;margin:3px 0 0}
-#ai-reply-form{flex:none;display:grid;grid-template-columns:minmax(0,1fr);justify-content:stretch;gap:7px;margin-top:12px;padding-top:12px;border-top:1px solid #e7e2dc}
-#ai-reply-form[hidden]{display:none}
-#ai-reply textarea{max-height:25dvh;box-sizing:border-box;width:100%;font:inherit;padding:8px;border:1px solid #b8b2aa;border-radius:8px;resize:vertical}
-#ai-reply-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
-#ai-reply-ask{background:#e4f4ee}
-#ai-reply-status{font-size:13px;color:#4c6660;margin:0}
-#ai-reply-status:empty{display:none}
-#ai-reply-form button[type=submit]{background:#087f71;color:white}
-#ai-reply-form button[type=submit]:disabled{background:#f2eee8;color:#52625e}
-#ai-reply-status[data-error]{color:#9c2c25}
+dialog button:hover:not(:disabled){border-color:#b8b2aa}
+dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid #087f71;outline-offset:2px}
 </style>
 <main>
   <header><h1><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M3 19a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" /><path d="M19 7a2 2 0 1 0 0 -4a2 2 0 0 0 0 4" /><path d="M11 19h5.5a3.5 3.5 0 0 0 0 -7h-8a3.5 3.5 0 0 1 0 -7h4.5" /></svg>Mini Flow</h1><button id="blank"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M12 5l0 14" /><path d="M5 12l14 0" /></svg><span>Start blank</span></button><button id="share"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M9 15l6 -6" /><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464" /><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463" /></svg><span>Copy link</span></button><span id="save-status" role="status"></span></header>
-  <div id="workspace">
-    <div id="editor"></div>
-    <aside id="ai-reply" aria-labelledby="ai-reply-title" hidden>
-      <header>
-        <h2 id="ai-reply-title">Note conversation</h2>
-        <div class="ai-thread-actions">
-          <button id="ai-reply-retry" type="button" hidden>Retry AI request</button>
-          <button id="ai-reply-ask" type="button" title="Send the conversation and any draft to the AI guest" hidden>Ask AI</button>
-          <button id="ai-reply-close" type="button" aria-label="Close note conversation">
-            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <path d="m6 6 12 12M18 6 6 18"/>
-            </svg>
-          </button>
-        </div>
-      </header>
-      <p id="ai-reply-note" hidden></p>
-      <ol id="ai-reply-messages" aria-label="Comments"></ol>
-      <p id="ai-reply-status" role="status"></p>
-      <form id="ai-reply-form" hidden>
-        <label for="ai-reply-input">Comment</label>
-        <textarea id="ai-reply-input" rows="3" maxlength="1000"></textarea>
-        <div id="ai-reply-actions">
-          <button type="submit">Post comment</button>
-        </div>
-      </form>
-    </aside>
-  </div>
+  <div id="editor"></div>
 </main>
+<template id="conversation-panel-template">
+  <aside id="ai-reply" class="panel workspace-panel" aria-labelledby="ai-reply-title" hidden>
+    <div class="workspace-panel-heading">
+      <h2 id="ai-reply-title">Note conversation</h2>
+      <div class="ai-thread-actions">
+        <button id="ai-reply-retry" type="button" hidden>Retry AI request</button>
+        <button id="ai-reply-ask" type="button" title="Send the conversation and any draft to the AI guest" hidden>Ask AI</button>
+      </div>
+    </div>
+    <p id="ai-reply-note" hidden></p>
+    <ol id="ai-reply-messages" aria-label="Comments"></ol>
+    <p id="ai-reply-status" role="status"></p>
+    <form id="ai-reply-form" hidden>
+      <label for="ai-reply-input">Comment</label>
+      <textarea id="ai-reply-input" rows="3" maxlength="1000"></textarea>
+      <div id="ai-reply-actions">
+        <button type="submit">Post comment</button>
+      </div>
+    </form>
+  </aside>
+</template>
 <dialog id="live-session" aria-labelledby="live-title">
   <h2 id="live-title">Live session</h2>
   <p id="live-status" role="status">Invite people or agents to edit this board with you.</p>
@@ -182,12 +135,49 @@ dialog button:disabled{opacity:.5;cursor:default}
 <template id="workspace-panel-template">
   <style>
     .workspace-panel {overscroll-behavior:contain}
+    .workspace-panel :where(button:not(.workspace-panel-close)) {min-height:36px;border-color:#ded9d2}
+    .workspace-panel :where(button:hover:not(:disabled)) {background:#f0ece6}
+    .workspace-panel :is(input,textarea,select,summary):focus-visible {
+      outline:2px solid var(--mf-accent);outline-offset:2px
+    }
     .workspace-panel-heading {position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;
       gap:12px;padding:10px 14px;border-bottom:1px solid #e7e2dc;background:var(--mf-surface)}
     .workspace-panel-heading h2 {margin:0;font-size:15px;font-weight:700}
     .workspace-panel-close {display:grid;place-items:center;width:36px;height:36px;padding:0;border-color:transparent;background:transparent}
     .workspace-panel-close:hover {background:#f0ece6}
     .workspace-panel-close svg {width:18px;height:18px}
+    #ai-reply{display:flex;flex-direction:column}
+    #ai-reply > :not(.workspace-panel-heading){margin-inline:14px}
+    #ai-reply .workspace-panel-heading{flex:none;flex-wrap:wrap;gap:8px}
+    #ai-reply .ai-thread-actions{flex:1}
+    #ai-reply [data-role=status]{color:var(--mf-stroke)}
+    #ai-reply-note{font-size:14px;color:#4c6660;max-height:20dvh;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap}
+    .ai-thread-actions,.ai-reply-edit-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px}
+    .ai-reply-meta{display:flex;align-items:center;gap:8px;min-height:30px}
+    .ai-reply-meta small{color:#52625e}
+    #ai-reply .ai-reply-menu{position:relative;margin-left:auto;padding:0;border:0;background:transparent}
+    .ai-reply-menu summary{cursor:pointer;list-style:none;border-radius:6px;min-width:32px;min-height:30px;text-align:center;line-height:30px}
+    .ai-reply-menu summary::-webkit-details-marker{display:none}
+    .ai-reply-menu summary:hover,.ai-reply-menu[open] summary{background:#fffdfb}
+    .ai-reply-menu div{position:fixed;z-index:2;display:grid;min-width:110px;padding:4px;background:#fffdfb;border:1px solid #ded9d2;border-radius:8px;box-shadow:0 4px 12px #2a242019}
+    .ai-reply-menu div:not([data-positioned]){visibility:hidden}
+    #ai-reply .ai-reply-menu button{text-align:left;border:0;padding:6px 10px}
+    .ai-reply-delete{color:#9c2c25}
+    .ai-reply-edit-actions{margin-top:8px}
+    #ai-reply-messages{flex:1;list-style:none;margin:12px 0 0;padding:0;min-height:0;overflow:auto;display:grid;align-content:start;gap:8px;scrollbar-gutter:stable;overscroll-behavior:contain}
+    #ai-reply-messages li{padding:9px 12px;background:#f2eee8;border-radius:8px;overflow-wrap:anywhere}
+    #ai-reply-messages li[data-role=assistant]{background:#e4f4ee}
+    #ai-reply-messages strong{font-size:12px}
+    #ai-reply-messages p{white-space:pre-wrap;margin:3px 0 0}
+    #ai-reply-form{flex:none;display:grid;grid-template-columns:minmax(0,1fr);justify-content:stretch;gap:7px;margin-block:12px 14px;padding-top:12px;border-top:1px solid #e7e2dc}
+    #ai-reply textarea{min-height:0;max-height:25dvh;margin:0;box-sizing:border-box;width:100%;font:inherit;padding:8px;border:1px solid #b8b2aa;border-radius:8px;resize:vertical}
+    #ai-reply-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+    #ai-reply-ask{background:#e4f4ee;border-color:#a7cfc4}
+    #ai-reply-status{font-size:13px;color:#4c6660;margin:0}
+    #ai-reply-status:empty{display:none}
+    #ai-reply-form button[type=submit]{background:var(--mf-accent);border-color:var(--mf-accent);color:white}
+    #ai-reply-form button[type=submit]:disabled{background:#f2eee8;border-color:#ded9d2;color:#52625e}
+    #ai-reply-status[data-error]{color:#9c2c25}
     .projects-body {padding:14px}
     #saved-project-form {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 8px;align-items:end}
     #saved-project-form label {grid-column:1/-1;font-size:13px;font-weight:650}
@@ -199,7 +189,7 @@ dialog button:disabled{opacity:.5;cursor:default}
     [data-gist-backups] small:not([hidden]) {display:block;margin-top:8px}
     .gist-actions {display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
     [data-gist-backups] .gist-auto {display:flex;align-items:center;gap:8px;margin-top:12px}
-    [data-gist-backups] [data-gist-auto] {width:auto;margin:0;accent-color:#087f71}
+    [data-gist-backups] .gist-auto input {width:auto;margin:0;accent-color:#087f71}
     [data-gist-picker]:not([hidden]) {display:grid;gap:10px;margin-top:14px;padding:12px;
       border:1px solid #ded9d2;border-radius:8px;background:var(--mf-surface)}
     [data-gist-picker] label {margin:0;gap:6px;font-weight:650}
@@ -207,8 +197,8 @@ dialog button:disabled{opacity:.5;cursor:default}
       border-radius:6px;background:#fff;color:inherit;font:inherit;font-weight:400}
     [data-gist-picker] select:focus-visible {outline:2px solid #087f71;outline-offset:2px}
     [data-gist-picker] button {justify-self:start;min-height:36px;background:#e4f4ee;border-color:#a7cfc4}
-    [data-gist-status] {margin:8px 0 0;font-size:12px}
-    [data-gist-status]:empty {display:none}
+    :is([data-gist-status],[data-gist-sync-status]) {margin:8px 0 0;font-size:12px;color:var(--mf-stroke)}
+    :is([data-gist-status],[data-gist-sync-status]):empty {display:none}
     #show-save-project {min-height:38px;border-color:#ded9d2;margin-bottom:10px}
     #save-project {min-height:40px;background:#e4f4ee;border-color:#a7cfc4}
     #saved-project-status {margin:10px 0 0;font-size:13px;color:var(--mf-stroke);overflow-wrap:anywhere}
@@ -755,16 +745,22 @@ projectsButton.inert = joiningLive;
 panelButton.before(projectsButton);
 
 const editorRoot = editorHost.firstElementChild.shadowRoot;
-const replyPanel = document.querySelector('#ai-reply');
-const replyClose = document.querySelector('#ai-reply-close');
-const replyNote = document.querySelector('#ai-reply-note');
-const replyMessages = document.querySelector('#ai-reply-messages');
-const replyStatus = document.querySelector('#ai-reply-status');
-const replyForm = document.querySelector('#ai-reply-form');
-const replyInput = document.querySelector('#ai-reply-input');
+const panelTemplate = document.querySelector('#workspace-panel-template').content.cloneNode(true);
+const headingTemplate = panelTemplate.querySelector('.workspace-panel-heading');
+editorRoot.append(panelTemplate.querySelector('style'));
+const replyPanel = document.querySelector('#conversation-panel-template').content.firstElementChild.cloneNode(true);
+const replyClose = headingTemplate.querySelector('.workspace-panel-close').cloneNode(true);
+replyClose.setAttribute('aria-label', 'Close note conversation');
+replyPanel.querySelector('.ai-thread-actions').append(replyClose);
+editorRoot.querySelector('.panel').after(replyPanel);
+const replyNote = replyPanel.querySelector('#ai-reply-note');
+const replyMessages = replyPanel.querySelector('#ai-reply-messages');
+const replyStatus = replyPanel.querySelector('#ai-reply-status');
+const replyForm = replyPanel.querySelector('#ai-reply-form');
+const replyInput = replyPanel.querySelector('#ai-reply-input');
 const replySend = replyForm.querySelector('[type=submit]');
-const replyAsk = document.querySelector('#ai-reply-ask');
-const replyRetry = document.querySelector('#ai-reply-retry');
+const replyAsk = replyPanel.querySelector('#ai-reply-ask');
+const replyRetry = replyPanel.querySelector('#ai-reply-retry');
 const sendingReplies = new Set();
 const replyDrafts = new Map();
 let replyTarget;
@@ -959,7 +955,7 @@ function renderAIReply() {
   const key = JSON.stringify([messages, replyEditor?.replyId, replyEditor?.remove, replyForm.hidden]);
   if (key !== displayedMessages) {
     displayedMessages = key;
-    const focused = document.activeElement;
+    const focused = editorRoot.activeElement;
     const selection = replyMessages.contains(focused) && focused instanceof HTMLTextAreaElement
       ? [focused.selectionStart, focused.selectionEnd] : null;
     const scroll = replyMessages.scrollTop;
@@ -1005,7 +1001,7 @@ function dismissReplyMenus(target) {
     if (!target || !menu.contains(target)) menu.open = false;
   }
 }
-document.addEventListener('click', event => dismissReplyMenus(event.target));
+document.addEventListener('click', event => dismissReplyMenus(event.composedPath()[0]));
 replyMessages.addEventListener('scroll', () => dismissReplyMenus());
 window.addEventListener('resize', () => dismissReplyMenus());
 function closeAIReply(restoreFocus = false) {
@@ -1024,6 +1020,7 @@ function closeAIReply(restoreFocus = false) {
 }
 replyClose.onclick = () => closeAIReply(true);
 replyPanel.addEventListener('keydown', event => {
+  event.stopPropagation();
   if (event.key !== 'Escape' || event.defaultPrevented) return;
   event.preventDefault();
   closeAIReply(true);
@@ -1137,9 +1134,6 @@ projectsPanel.querySelector('#show-save-project').onclick = () => {
   projectsPanel.querySelector('#saved-project-form').hidden = false;
   projectsPanel.querySelector('#saved-project-name').focus();
 };
-const panelTemplate = document.querySelector('#workspace-panel-template').content.cloneNode(true);
-const headingTemplate = panelTemplate.querySelector('.workspace-panel-heading');
-editorRoot.append(panelTemplate.querySelector('style'));
 const panels = [
   { button: projectsButton, panel: projectsPanel, title: 'Projects' },
   { button: panelButton, panel: codePanel, title: 'Code & export' }
@@ -1196,7 +1190,8 @@ for (const { button, panel, title } of panels) {
   };
   panel.prepend(heading);
   panel.addEventListener('keydown', event => {
-    if (event.key === 'Escape') {
+    event.stopPropagation();
+    if (event.key === 'Escape' && !event.defaultPrevented) {
       event.preventDefault();
       close.click();
     }
