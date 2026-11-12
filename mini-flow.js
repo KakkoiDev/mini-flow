@@ -177,7 +177,6 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .peer-activity-row > :first-child {min-width:0;text-align:left}
         .peer-activity button {pointer-events:auto;padding:2px 4px;margin:-2px -4px;min-height:24px;
           border:0;background:none;color:inherit;font:inherit;text-decoration:underline;text-underline-offset:2px}
-        .peer-activity button:hover {background:#e4f4ee}
         .peer-activity button.peer-activity-cancel {flex:none;margin:0;padding:0;width:28px;height:28px;
           font-size:18px;line-height:1;text-align:center;text-decoration:none}
         .note-actions {position:absolute;z-index:2;display:flex;gap:4px}
