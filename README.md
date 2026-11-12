@@ -194,8 +194,8 @@ public demo's instance, and the optional `onSend` callback connects host-owned
 chat delivery.
 
 Agents can also send an **Apply edit** link containing a base board, proposed
-board, and summary. Mini Flow reviews the proposal before applying it as one
-Undo step. See [Apply edit links](./agent-guide.md#apply-edit-links).
+board, and summary. Switch between the current and proposed canvases, or expand
+the Mermaid diff, before applying the change as one Undo step. See [Apply edit links](./agent-guide.md#apply-edit-links).
 
 WebMCP-capable browsers can use `get_board` and `apply_board_edit` on the open
 board. See the [Site tools guide](./agent-guide.md#webmcp-site-tools).
@@ -223,14 +223,14 @@ the reply count in that spot opens the same conversation. Use a reply's **⋯**
 menu to edit or delete it. Guests can manage their own replies during the live
 session. The host can manage any reply, including after its author leaves.
 Replies keep the original author label and show when the host edited them.
-When an AI guest joins, **Ask AI** beside the note or in the conversation header
-sends the note and conversation to that guest.
+During a live session, **Ask AI** beside the note or in the conversation header
+queues the request until an AI guest is ready.
 Type a follow-up before clicking **Ask AI** to include it in the request.
 The note shows when it is waiting, who claimed it, and a compact result.
 Conversations survive reload in the same tab and are included in saved projects
-and Gist snapshots. The board link shares the diagram alone. Each note keeps
-its latest 12 messages. After a host reload, start a fresh live session to
-share the saved conversation again.
+and Gist snapshots. The board link shares the diagram alone. Mini Flow keeps the
+full comment history, and undoing a note deletion restores its comments.
+AI requests include the latest 12 prior messages as context.
 Only the first AI guest to claim the request gets it from
 `wait_for_ai_request`. The AI invite asks the agent to repeat the call
 on timeouts and after each result until the session disconnects or you ask it
@@ -239,8 +239,8 @@ to stop. Listening runs during an active agent turn.
 Participants see draft text, drag movement, and tool icons as they edit.
 Live guests get a separate note color, and notes return to yellow when the
 session ends. AI guests can report progress with `report_ai_activity` and
-publish small batches as they finish them. Every accepted batch is visible
-immediately.
+propose small batches as they finish them. The host can preview each batch on
+the canvas and apply or decline it. Approved edits appear immediately.
 
 ## GitHub Gist backups
 
@@ -274,9 +274,18 @@ editing their own copy. Mini Flow switches the guest's URL to a snapshot and
 enables local Undo and Redo. During a connection interruption, guests can use
 **Leave session** to keep editing a copy while the host is away.
 
-Live sessions load the pinned p2p-core browser module and use its online
-transport. Sessions require both tabs to stay connected and end when the host
-closes or reloads the page. GitHub Pages continues to host the editor.
+Live sessions use p2p-core. A host reload in the same tab restores the board,
+comments, invite, and AI queue. Open guest tabs reconnect. Work that was in
+progress becomes **Interrupted**. Applied edits stay on the board. Open the note
+to review the last applied batch and choose **Retry AI request**, or cancel it
+from the queue. **End session** clears recovery and closes the room explicitly.
+
+To keep one saved project current across devices, connect it to the same Gist
+on each device and enable **Sync this open project across devices**. Mini Flow
+checks for updates every 20 seconds while the project is visible. Sync pauses
+during live sessions and while the editor is busy. If the copies diverge, Mini
+Flow pauses and lets you choose **Keep this board** or **Use latest cloud copy**.
+Gist access and visibility are the same for sync and backups.
 
 
 Run the live-session regression with `node --test tests/live-session.test.mjs`.
@@ -316,5 +325,8 @@ optional WebSocket relay. Mini Flow can still be served by GitHub Pages.
 The hosted Mini Flow app uses the Cloudflare relay at
 `wss://p2p-core-cloudflare.kakkoidev.workers.dev`. For your own deployment,
 set `liveRelayUrl` to your relay URL or leave it empty to disable the fallback.
-Use a relay you trust because it can read forwarded messages. You can reuse
-the same relay for other p2p-core apps by adding their origins to its allowlist.
+Mini Flow encrypts and authenticates application payloads in the browser with
+AES-GCM. The key is derived from the private invite with HKDF. The relay sees
+routing metadata. Anyone with the invite can join the room. Reload both sides
+to use the encrypted protocol. You can reuse the relay for other p2p-core apps
+by adding their origins to its allowlist.

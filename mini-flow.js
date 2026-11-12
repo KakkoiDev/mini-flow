@@ -112,6 +112,7 @@ SOFTWARE.
       if (Object.hasOwn(positions, node.id)) [node.x, node.y] = positions[node.id];
     }
     const undoStack = [], redoStack = [];
+    const usedNodeIds = new Set(graph.nodes.map(node => node.id));
     const snapshot = () => JSON.stringify(graph, (key, value) =>
       key === 'labelX' || key === 'labelY' ? undefined : value);
     let current = snapshot();
@@ -544,8 +545,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .map(([noteId, request]) => [request.label, noteId]));
       const notes = new Map(graph.nodes.filter(node => node.type === 'note').map(node => [node.id, node.label]));
       const queued = Object.entries(aiRequests)
-        .filter(([id, request]) => request.phase === 'waiting' && notes.has(id))
-        .map(([id]) => ['Queued · ' + notes.get(id), id]);
+        .filter(([id, request]) => ['waiting', 'interrupted'].includes(request.phase) && notes.has(id))
+        .map(([id, request]) => [(request.phase === 'interrupted' ? 'Interrupted · ' : 'Queued · ') + notes.get(id), id]);
       const activities = peerPresence.filter(peer => peer.activity)
         .map(peer => [peer.label + ' · ' + peer.activity, noteByAgent.get(peer.label)]);
       const rows = [...queued, ...activities];
@@ -695,6 +696,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         redoStack.length = 0;
       }
       current = next;
+      for (const node of graph.nodes) usedNodeIds.add(node.id);
       undoButton.disabled = !undoStack.length;
       redoButton.disabled = !redoStack.length;
       layoutButton.disabled = !graph.nodes.length;
@@ -1219,7 +1221,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
             ? request.author.replace(' ', '') + ' · ' : '';
           const summary = result ? author + request.label : '';
           const count = request.replyCount ? request.replyCount + (request.replyCount === 1 ? ' comment' : ' comments') : '';
-          const status = result ? (summary.length > 36 ? summary.slice(0, 35) + '…' : summary)
+          const status = request.phase === 'interrupted' ? 'AI interrupted' : result ? (summary.length > 36 ? summary.slice(0, 35) + '…' : summary)
             : waiting ? 'Queued for AI' : (request.label ?? request) + ' working…';
           const label = comments ? count || 'Comments' : [status, count].filter(Boolean).join(' · ');
           const interactive = Boolean(onAIReply) && (result || request.hasThread);
@@ -1464,7 +1466,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     function addShape(button, x, y) {
       const type = button.dataset.shape;
       let id;
-      do { id = 'N' + serial++; } while (graph.nodes.some(node => node.id === id));
+      do { id = 'N' + serial++; } while (usedNodeIds.has(id) || graph.nodes.some(node => node.id === id));
       const node = { id, type, label: type === 'terminal' ? 'Start' : type === 'step' ? 'Step' : type === 'decision' ? 'Decision' : type === 'note' ? 'Note' : extraShapes[type].label ?? type, x, y };
       node.x = coordinate(node.x);
       node.y = coordinate(node.y);

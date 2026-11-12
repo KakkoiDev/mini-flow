@@ -89,7 +89,7 @@ const applyLink = original.href;
 Send the link to the user. Opening it in a new tab loads the base board and
 opens a review dialog. In an existing Mini Flow tab, paste the link into the
 address bar to review the proposal against the current board. The user can
-inspect the Mermaid source before applying. Apply highlights the changes and
+switch between the current and proposed canvases and inspect the Mermaid diff before applying. Apply highlights the changes and
 creates one Undo step. Mini Flow checks the base again on Apply and blocks
 the edit if the board in that tab has changed. A new tab works on the shared
 copy encoded in the link.
@@ -114,7 +114,7 @@ A regular board link opens a snapshot.
 
 - `get_board` returns `{ tabId, revision, project }` for the current browser
   instance. Use its revision for the edit on that same instance.
-- `apply_board_edit` validates and applies a batch as one undoable update.
+- `apply_board_edit` proposes a batch for review. Approval applies it as one undoable update.
 - `register_live_agent` identifies the current guest as AI after the host
   acknowledges it. Repeat calls keep the same guest identity and count.
 - `wait_for_ai_request` waits for **Ask AI** on a selected note. The host
@@ -127,7 +127,7 @@ A regular board link opens a snapshot.
 - `report_ai_activity` takes `{ message }` and shows a short progress
   update on the board. When building a diagram in multiple steps, report
   activity, then call `apply_board_edit` for each coherent batch as it is
-  ready. Use the revision from each successful response for the next batch.
+  ready. Wait for the host to approve each batch and use the revision from the successful response for the next batch.
   A reported activity keeps the claim open across batches. When finished,
   send an empty message with an optional `result` reply to close the
   claim and show the outcome on the note.

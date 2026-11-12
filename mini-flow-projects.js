@@ -396,7 +396,24 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
       updateSaveButton();
     }
   };
-  return { refresh, syncActive, syncBackupTimes, async linkGist(gist, active, autoBackup = false) {
+  return { refresh, syncActive, syncBackupTimes, async applyRemote(project, active, canApply) {
+    return enqueue(async () => {
+      if (getActive() !== active || active.deleted || !canApply()) throw new Error('The board changed during sync. Try again.');
+      const previous = JSON.stringify(normalize(editor.getProject()));
+      const record = await writeProject(active.name, project, active);
+      active.revision = record.revision;
+      if (getActive() !== active || !canApply() || JSON.stringify(normalize(editor.getProject())) !== previous) {
+        throw new Error('The board changed during sync. Your current edits are still open.');
+      }
+      opening = true;
+      try {
+        editor.setProject(project, { message: 'Applied cloud changes.' });
+        queuedSnapshots.set(active, JSON.stringify(project));
+        setActive(record, { reuse: true, silent: true });
+      } finally { opening = false; }
+      void refresh().catch(error => onError(error.message));
+    });
+  }, async linkGist(gist, active, autoBackup = false) {
     await enqueue(async () => {
       if (!active || getActive() !== active || active.deleted) throw new Error('Open the project you want to connect.');
       const record = await writeProject(active.name, normalize(editor.getProject()), active, gist, autoBackup);

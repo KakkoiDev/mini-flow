@@ -1,3 +1,5 @@
+const syncFile = /^mini-flow-sync-([a-f0-9-]{36})\.json$/;
+const syncInterval = 20_000;
 const interval = 5 * 60 * 1000;
 const idPattern = /^[0-9a-f]{5,64}$/i;
 const snapshotPattern = /^mini-flow-(\d{8}T\d{9}Z)-([0-9a-f]{64})\.json$/;
@@ -53,32 +55,64 @@ export async function backUpGist(id, token, backup) {
   return (await saveGistSnapshot(id, token, backup)).changed;
 }
 
-async function readSnapshot(id, token, name) {
-  const gist = await gistRequest(id, token);
-  const file = gist.files?.[name];
-  if (!file || !snapshotPattern.test(name)) throw new Error('This backup is no longer available.');
+async function readGistFile(id, file) {
   let text = file.content;
   if (file.truncated) {
     const url = new URL(file.raw_url);
     if (url.origin !== 'https://gist.githubusercontent.com' || !url.pathname.split('/').includes(id)) {
-      throw new Error('GitHub returned an unexpected backup URL.');
+      throw new Error('GitHub returned an unexpected file URL.');
     }
     const response = await fetch(url, { redirect: 'error' });
-    if (!response.ok) throw new Error('Could not read the backup file.');
+    if (!response.ok) throw new Error('Could not read the Gist file.');
     text = await response.text();
   }
-  const backup = JSON.parse(text);
+  return JSON.parse(text);
+}
+
+async function readSnapshot(id, token, name) {
+  const gist = await gistRequest(id, token);
+  const file = gist.files?.[name];
+  if (!file || !snapshotPattern.test(name)) throw new Error('This backup is no longer available.');
+  const backup = await readGistFile(id, file);
   if (backup?.version !== 1 || typeof backup.name !== 'string' || !backup.project) {
     throw new Error('This file is not a Mini Flow backup.');
   }
   return backup;
 }
 
-export function setupGistBackups({ panel, getActive, getProject, canBackUp, link, openProject, onBackupChange }) {
+const covers = (clock, other) => Object.entries(other).every(([device, revision]) => (clock[device] ?? 0) >= revision);
+
+async function syncHeads(id, token) {
+  const gist = await gistRequest(id, token);
+  const records = await Promise.all(Object.entries(gist.files ?? {}).filter(([name]) => syncFile.test(name))
+    .map(async ([name, file]) => {
+      const device = syncFile.exec(name)[1];
+      const head = await readGistFile(id, file);
+      if (head?.version !== 1 || !head.project || !head.clock ||
+        !Number.isSafeInteger(head.clock[device]) || !Number.isFinite(head.time) ||
+        !Object.entries(head.clock).every(([key, revision]) =>
+          syncFile.test('mini-flow-sync-' + key + '.json') && Number.isSafeInteger(revision) && revision > 0)) {
+        throw new Error('A Mini Flow sync copy in this Gist is invalid.');
+      }
+      return head;
+    }));
+  return records.filter(head => !records.some(other => other !== head &&
+    covers(other.clock, head.clock) && !covers(head.clock, other.clock))).sort((a, b) => b.time - a.time);
+}
+
+async function projectHash(project) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(project)));
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export function setupGistBackups({ panel, getActive, getProject, canBackUp, link, openProject, onBackupChange, canSync, applySyncedProject }) {
   const get = key => panel.querySelector('[data-gist-' + key + ']');
   const address = get('id'), token = get('token'), status = get('status');
   const picker = get('picker'), select = get('snapshot'), load = get('load');
   const lastBackup = get('last-backup'), backupTime = get('backup-time'), autoBackup = get('auto');
+  const syncEnabled = get('sync-enabled'), syncNow = get('sync-now'), syncStatus = get('sync-status');
+  const syncChoices = get('sync-choices');
+  let conflict;
   const credentials = new Map(), backupTimes = new Map();
   const backedUp = new WeakMap();
   let current, currentGist, tokenGist, foundId, busy = false;
@@ -95,6 +129,9 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
   }
 
   function tokenKey(id) { return 'mini-flow-gist-token:' + id; }
+  const syncKey = id => 'mini-flow-gist-sync:' + id;
+  const syncBaseKey = id => 'mini-flow-gist-sync-base:' + id;
+  const deviceKey = 'mini-flow-gist-sync-device';
   function timeKey(id) { return 'mini-flow-gist-last-backup:' + id; }
 
   function savedToken(id) {
@@ -128,6 +165,8 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
     const id = active?.gist;
     if (current !== active || currentGist !== id) {
       if (current !== active) status.textContent = '';
+      conflict = undefined;
+      syncStatus.textContent = '';
       current = active;
       currentGist = tokenGist = id;
       address.value = id ?? '';
@@ -144,6 +183,11 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
       backupTime.removeAttribute('datetime');
       backupTime.textContent = 'No backup recorded yet';
     }
+    syncEnabled.checked = Boolean(id && readStored('localStorage', syncKey(id)) === 'on');
+    syncEnabled.disabled = busy || !id;
+    syncNow.disabled = busy || !syncEnabled.checked;
+    syncChoices.hidden = !conflict;
+    for (const button of syncChoices.querySelectorAll('button')) button.disabled = busy;
     get('connect').disabled = busy || !active;
     autoBackup.disabled = busy || !active;
     get('sync').disabled = busy || !active?.gist;
@@ -184,6 +228,85 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
     if (isCurrent && getActive() === active) status.textContent = message;
     return message;
   }
+
+  async function syncProject(choice) {
+    const active = getActive();
+    const id = active?.gist;
+    if (!id || !syncEnabled.checked) return;
+    const access = savedToken(id);
+    if (!access) {
+      syncStatus.textContent = 'Enter the GitHub token and connect this project to resume sync.';
+      return;
+    }
+    if (!canSync()) {
+      syncStatus.textContent = 'Sync paused while the board is being edited or shared live.';
+      return;
+    }
+    const sync = async () => {
+      const local = getProject();
+      const localHash = await projectHash(local);
+      const heads = await syncHeads(id, access);
+      const remote = heads[0];
+      const remoteHash = remote && await projectHash(remote.project);
+      if (getActive() !== active || !canSync() || await projectHash(getProject()) !== localHash) return;
+      const previous = JSON.parse(readStored('localStorage', syncBaseKey(id)) ?? 'null');
+      const cloudChanged = remoteHash && remoteHash !== previous?.hash;
+      const localChanged = localHash !== previous?.hash;
+      const diverged = heads.length > 1 && (await Promise.all(heads.map(head => projectHash(head.project))))
+        .some(hash => hash !== remoteHash);
+      const conflictKey = JSON.stringify([localHash, heads.map(head => head.clock)]);
+      if (choice && conflict !== conflictKey) choice = undefined;
+      if (getActive() !== active || !canSync() || await projectHash(getProject()) !== localHash) return;
+      if (!choice && (diverged || (cloudChanged && localChanged && remoteHash !== localHash))) {
+        conflict = conflictKey;
+        syncStatus.textContent = 'This board and the Gist have different edits. Choose which copy to keep.';
+        return;
+      }
+      const pull = choice === 'cloud' || (cloudChanged && !localChanged);
+      const project = pull ? remote.project : local;
+      const hash = pull ? remoteHash : localHash;
+      if (pull && hash !== localHash) await applySyncedProject(project, active, local);
+      if (!remote || choice || hash !== remoteHash) {
+        let device = readStored('localStorage', deviceKey);
+        if (!device) {
+          device = crypto.randomUUID();
+          writeStored('localStorage', deviceKey, device);
+        }
+        const clock = {};
+        for (const head of heads) for (const [key, revision] of Object.entries(head.clock)) {
+          clock[key] = Math.max(clock[key] ?? 0, revision);
+        }
+        clock[device] = (clock[device] ?? 0) + 1;
+        const name = 'mini-flow-sync-' + device + '.json';
+        await gistRequest(id, access, { files: { [name]: {
+          content: JSON.stringify({ version: 1, clock, time: Date.now(), project })
+        } } });
+      }
+      writeStored('localStorage', syncBaseKey(id), JSON.stringify({ hash }));
+      conflict = undefined;
+      syncStatus.textContent = pull ? 'Cloud changes applied.' : 'Project synced.';
+    };
+    try {
+      if (navigator.locks) await navigator.locks.request('mini-flow-gist-sync:' + id, sync);
+      else await sync();
+    } catch (error) { syncStatus.textContent = error.message; }
+  }
+
+  syncEnabled.onchange = () => {
+    const id = getActive()?.gist;
+    if (!id) return;
+    writeStored('localStorage', syncKey(id), syncEnabled.checked ? 'on' : undefined);
+    conflict = undefined;
+    syncStatus.textContent = '';
+    refresh();
+    if (syncEnabled.checked) return run(() => syncProject());
+  };
+  syncNow.onclick = () => run(() => syncProject());
+  get('sync-local').onclick = () => run(() => syncProject('local'));
+  get('sync-cloud').onclick = () => run(() => syncProject('cloud'));
+  setInterval(() => {
+    if (syncEnabled.checked && !conflict && !document.hidden) return run(() => syncProject());
+  }, syncInterval);
 
   get('connect').onclick = () => run(async () => {
     const active = getActive();
@@ -231,6 +354,8 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
     await link(null, active);
     credentials.delete(id);
     writeStored('sessionStorage', tokenKey(id), undefined);
+    writeStored('localStorage', syncKey(id), undefined);
+    writeStored('localStorage', syncBaseKey(id), undefined);
     address.value = token.value = '';
     picker.hidden = true;
     status.textContent = 'Gist disconnected.';

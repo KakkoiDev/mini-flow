@@ -247,3 +247,127 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     secondGuest.session.stop();
   }
 });
+
+test('reopens the room with full conversations and an interrupted AI request', async () => {
+  const { deriveRoomKey, secureRoom } = await import('../mini-flow-secure-room.js');
+  const network = createTestNetwork();
+  const invite = { room: 'recover', password: 'private-room-key' };
+  const key = await deriveRoomKey(invite);
+  const diagram = (label = 'Initial', ids = ['N1', 'N2']) => ({
+    version: 1,
+    source: `flowchart TD\n    %% mini-flow ${JSON.stringify({ notes: ids.map(id => ({ id, label })), bends: [] })}`,
+    positions: Object.fromEntries(ids.map((id, index) => [id, [index * 200, 0]]))
+  });
+  let snapshot;
+  let decide;
+  let reviewStarted;
+  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+  function open(host, restored) {
+    let project = restored?.project ?? diagram();
+    let requests = {};
+    const threads = new Map();
+    const room = secureRoom(joinRoom({ app: 'mini-flow-live-recovery-test', ...invite, network, protocol: 4,
+      kinds: ['read', 'state', 'edit', 'end', 'presence', 'agent', 'ask'],
+      profile: { role: host ? 'host' : 'editor' },
+      acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host') }), key);
+    const session = createLiveSession({ room, host, getProject: () => project, setProject: next => { project = next; },
+      normalize: structuredClone, canAccept: () => true, onStatus() {}, onEnd() {},
+      noteIds: value => Object.keys(value.positions),
+      readNote: (value, id) => Object.hasOwn(value.positions, id) ? { id, text: 'Review ' + id, target: null } : null,
+      initialQueue: restored?.queue, initialThreads: restored?.threads,
+      onAIRequests: next => { requests = next; },
+      onAIThread: (id, messages) => messages ? threads.set(id, messages) : threads.delete(id),
+      onCheckpoint: next => { snapshot = structuredClone(next); },
+      ...(host && { onAIProposal: proposal => new Promise(resolve => {
+        decide = resolve;
+        reviewStarted(proposal);
+      }) })
+    });
+    return { session, threads, requests: () => requests, project: () => project, setProject(next) { project = next; session.changed(); } };
+  }
+  async function until(predicate) {
+    for (let i = 0; i < 100; i++) {
+      await network.settle();
+      if (predicate()) return;
+      await pause(10);
+    }
+    assert.fail('Live state did not converge');
+  }
+
+  let host = open(true);
+  const guest = open(false);
+  try {
+    await until(() => guest.session.ready());
+    for (let i = 0; i < 18; i++) assert.equal((await host.session.comment('N1', 'Comment ' + i)).ok, true);
+    await until(() => guest.threads.get('N1')?.length === 18);
+    host.setProject(diagram('Initial', ['N2']));
+    await until(() => !guest.threads.has('N1'));
+    host.setProject(diagram());
+    await until(() => guest.threads.get('N1')?.length === 18);
+
+    assert.equal((await guest.session.registerAgent()).ok, true);
+    await host.session.askAI('N1');
+    const first = (await guest.session.waitForAIRequest(0, 1000)).request;
+    assert.equal(first.note.id, 'N1');
+    assert.equal(first.thread.length, 12);
+    assert.equal(guest.session.reportAIActivity('Editing').ok, true);
+    const review = new Promise(resolve => { reviewStarted = resolve; });
+    const edit = guest.session.submitAIEdit(diagram('Applied batch'), 'First batch');
+    assert.equal((await review).project.source, diagram('Applied batch').source);
+    assert.deepEqual(host.project(), diagram());
+    decide(true);
+    assert.deepEqual(await edit, { ok: true });
+    await host.session.askAI('N2');
+    host.session.suspend();
+    await until(() => !guest.session.ready());
+    assert.deepEqual(snapshot.queue.map(item => [item.noteId, item.interrupted]), [['N1', true], ['N2', false]]);
+    const next = guest.session.waitForAIRequest(first.sequence, 1000);
+    host = open(true, snapshot);
+    assert.equal(host.requests().N1.phase, 'interrupted');
+    assert.match(host.requests().N1.label, /First batch/);
+    const queued = (await next).request;
+    assert.equal(queued.note.id, 'N2');
+    assert.deepEqual(guest.project(), diagram('Applied batch'));
+    await until(() => guest.threads.get('N1')?.length === 18);
+
+    const rejectedReview = new Promise(resolve => { reviewStarted = resolve; });
+    const rejectedEdit = guest.session.submitAIEdit(diagram('Declined'), 'Decline me');
+    await rejectedReview;
+    decide(false);
+    assert.equal((await rejectedEdit).reason, 'edit_declined');
+    assert.deepEqual(host.project(), diagram('Applied batch'));
+
+    assert.equal(host.session.retryAIRequest('N1'), true);
+    guest.session.reportAIActivity('', 'Finished');
+    const retried = (await guest.session.waitForAIRequest(queued.sequence, 1000)).request;
+    assert.equal(retried.note.id, 'N1');
+    assert.notEqual(retried.id, first.id);
+    host.session.stop();
+    await until(() => !guest.session.ready());
+  } finally {
+    host.session.stop();
+    guest.session.stop();
+  }
+});
+
+test('encrypts payloads, binds the sender and kind, and rejects replay', async () => {
+  const { deriveRoomKey, secureRoom } = await import('../mini-flow-secure-room.js');
+  const key = await deriveRoomKey({ room: 'test', password: 'test secret' });
+  const callbacks = new Map();
+  let sent;
+  const sender = secureRoom({ selfId: 'host', send(_kind, packet) { sent = packet; } }, key);
+  const receiver = secureRoom({ selfId: 'guest', peer: () => true,
+    onMessage(kind, callback) { callbacks.set(kind, callback); } }, key);
+  const accepted = [];
+  receiver.onMessage('state', value => accepted.push(value));
+  receiver.onMessage('edit', value => accepted.push(value));
+  const board = { source: 'Confidential board' };
+  await sender.send('state', board, 'guest');
+  assert.equal(JSON.stringify(sent).includes(board.source), false);
+  callbacks.get('edit')(sent, 'host');
+  callbacks.get('state')(sent, 'impostor');
+  callbacks.get('state')(sent, 'host');
+  callbacks.get('state')(sent, 'host');
+  await new Promise(resolve => setTimeout(resolve, 40));
+  assert.deepEqual(accepted, [board]);
+});

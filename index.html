@@ -67,6 +67,10 @@ dialog{width:min(560px,calc(100% - 32px));max-height:85dvh;padding:22px;border:1
 dialog::backdrop{background:#242b2959}
 dialog h2{margin:0;font-size:20px}
 dialog p{margin:12px 0;overflow-wrap:anywhere}
+#edit-proposal{width:min(800px,calc(100% - 32px))}
+#proposal-preview{--mini-flow-height:clamp(170px,35dvh,360px);margin-top:8px}
+#proposal-preview-controls{display:flex;gap:6px}
+#proposal-preview-controls [aria-pressed=true]{background:#e4f4ee;border-color:#a7cfc4}
 dialog .diff{margin:12px 0;max-height:42dvh;overflow:auto;border:1px solid #e7e2dc;border-radius:8px;font:13px/1.5 ui-monospace,monospace}
 dialog .diff-line{display:flex;gap:8px;padding:2px 9px;white-space:pre-wrap;overflow-wrap:anywhere}
 dialog .diff-line span{flex:0 0 1em;user-select:none}
@@ -128,6 +132,7 @@ dialog button:disabled{opacity:.5;cursor:default}
       <header>
         <h2 id="ai-reply-title">Note conversation</h2>
         <div class="ai-thread-actions">
+          <button id="ai-reply-retry" type="button" hidden>Retry AI request</button>
           <button id="ai-reply-ask" type="button" title="Send the conversation and any draft to the AI guest" hidden>Ask AI</button>
           <button id="ai-reply-close" type="button" aria-label="Close note conversation">
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -274,6 +279,15 @@ dialog button:disabled{opacity:.5;cursor:default}
         </div>
         <small data-gist-last-backup hidden>Last backup in this Gist · <time data-gist-backup-time></time></small>
         <p data-gist-status role="status"></p>
+        <label class="gist-auto"><input data-gist-sync-enabled type="checkbox"> Sync this open project across devices</label>
+        <div class="gist-actions">
+          <button type="button" data-gist-sync-now>Sync now</button>
+          <div data-gist-sync-choices hidden>
+            <button type="button" data-gist-sync-local>Keep this board</button>
+            <button type="button" data-gist-sync-cloud>Use latest cloud copy</button>
+          </div>
+        </div>
+        <p data-gist-sync-status role="status"></p>
       </details>
       <ul id="saved-project-list" aria-label="Projects saved in this browser"></ul>
     </div>
@@ -283,14 +297,21 @@ dialog button:disabled{opacity:.5;cursor:default}
   <h2 id="proposal-title">Apply diagram edit?</h2>
   <p id="proposal-message"></p>
   <p id="proposal-status" role="status"></p>
-  <div id="proposal-diff" class="diff" role="region" aria-label="Diagram changes" tabindex="0"></div>
+  <div id="proposal-preview-controls" aria-label="Canvas preview">
+    <button type="button" data-preview-side="base" aria-pressed="false">Current board</button>
+    <button type="button" data-preview-side="project" aria-pressed="true">Proposed board</button>
+  </div>
+  <div id="proposal-preview" role="region" aria-label="Diagram preview"></div>
+  <details><summary>Mermaid changes</summary>
+    <div id="proposal-diff" class="diff" role="region" aria-label="Diagram changes" tabindex="0"></div>
+  </details>
   <form method="dialog">
     <button value="cancel" autofocus>Cancel</button>
     <button id="apply-proposal" value="apply" type="button">Apply edit</button>
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=unread-comments"></script>
+<script src="./mini-flow.js?v=live-recovery"></script>
 <script type="module">
 const example = `flowchart TD
     A([Prompt In])
@@ -465,9 +486,20 @@ function save(source, positions) {
     catch { message.textContent = 'Could not update the share link.'; }
   }
 }
-const initialProposal = readProposal();
-const saved = joiningLive ? { source: 'flowchart TD', positions: {} } : initialProposal?.base ?? restore();
-let noteThreads = threadsFor(saved?.source ?? example, saved?.threads);
+const liveRecoveryKey = 'mini-flow-host-session-v1';
+function readLiveRecovery() {
+  try {
+    const data = JSON.parse(sessionStorage.getItem(liveRecoveryKey));
+    if (data?.invite?.room !== history.state?.miniFlowHostRoom ||
+      !readLiveInvite('#live=' + data?.invite?.room + '.' + data?.invite?.password) ||
+      !Array.isArray(data.queue)) return null;
+    return { ...data, project: normalizeProject(data.project) };
+  } catch { return null; }
+}
+const liveRecovery = !joiningLive && readLiveRecovery();
+const initialProposal = liveRecovery ? null : readProposal();
+const saved = joiningLive ? { source: 'flowchart TD', positions: {} } : liveRecovery?.project ?? initialProposal?.base ?? restore();
+let noteThreads = threadsFor(saved?.source ?? example, liveRecovery?.threads ?? saved?.threads);
 const editorHost = document.querySelector('#editor');
 const liveNotice = document.createElement('span');
 let selectedNoteId;
@@ -478,10 +510,10 @@ const editor = MiniFlow.mount(editorHost, saved?.source ?? example,
       if (!joiningLive) {
         liveNotice.textContent = '';
         save(source, positions);
-        if (!liveBoard) noteThreads = threadsFor(source, [...noteThreads]);
         autosaveProject?.(includeThreads({ version: 1, source, positions }));
       }
       liveBoard?.changed();
+      if (replyTarget && !Object.hasOwn(positions, replyTarget)) closeAIReply();
     }, onPresence: presence => liveBoard?.updatePresence(presence),
     onAIReply: (id, label) => openAIReply?.(id, label),
     onCancelAIRequest: joiningLive ? undefined : id => liveBoard?.cancelAIRequest(id),
@@ -602,6 +634,34 @@ function renderProposalDiff(current, proposed) {
   }
   document.querySelector('#proposal-diff').replaceChildren(fragment);
 }
+let proposalPreview;
+function renderProposalPreview(side) {
+  const project = pendingProposal?.[side];
+  if (!project) return;
+  for (const button of proposalDialog.querySelectorAll('[data-preview-side]')) {
+    button.setAttribute('aria-pressed', String(button.dataset.previewSide === side));
+  }
+  proposalPreview?.destroy();
+  proposalPreview = MiniFlow.mount(document.querySelector('#proposal-preview'), project.source, project.positions, {
+    features: { create: false, connect: false, delete: false, edit: false, move: false, notes: false, bend: false,
+      reconnect: false, shortcuts: false, history: false, laser: false, source: false, exports: false, project: false, snap: false }
+  });
+  proposalPreview.fit();
+}
+for (const button of proposalDialog.querySelectorAll('[data-preview-side]')) {
+  button.onclick = () => renderProposalPreview(button.dataset.previewSide);
+}
+function reviewLiveProposal(proposal) {
+  if (pendingProposal || proposalDialog.open || proposal.signal.aborted) return false;
+  return new Promise(resolve => {
+    const abort = () => proposalDialog.close('cancel');
+    proposal.signal.addEventListener('abort', abort, { once: true });
+    reviewProposal({ ...proposal, liveDecision(approved) {
+      proposal.signal.removeEventListener('abort', abort);
+      resolve(approved);
+    } });
+  });
+}
 function reviewProposal(proposal) {
   if (!proposal) return;
   pendingProposal = proposal;
@@ -609,12 +669,17 @@ function reviewProposal(proposal) {
   renderProposalDiff(editor.getProject(), proposal.project);
   applyButton.disabled = !isCurrent(proposal.base);
   proposalStatus.textContent = applyButton.disabled ? 'This board has changed. Ask for an edit based on the current board.' : '';
-  if (!proposalDialog.open) proposalDialog.showModal();
+  if (!proposalDialog.open) { proposalDialog.returnValue = ''; proposalDialog.showModal(); }
+  renderProposalPreview('project');
 }
 applyButton.onclick = () => {
   if (!pendingProposal || !isCurrent(pendingProposal.base)) {
     applyButton.disabled = true;
     proposalStatus.textContent = 'This board has changed. Ask for an edit based on the current board.';
+    return;
+  }
+  if (pendingProposal.liveDecision) {
+    proposalDialog.close('apply');
     return;
   }
   const { project, message } = pendingProposal;
@@ -626,7 +691,11 @@ applyButton.onclick = () => {
   }
 };
 proposalDialog.addEventListener('close', () => {
+  const decision = pendingProposal?.liveDecision;
   pendingProposal = undefined;
+  proposalPreview?.destroy();
+  proposalPreview = undefined;
+  if (decision) { decision(proposalDialog.returnValue === 'apply'); return; }
   if (location.hash.startsWith(proposalPrefix)) {
     const { source, positions } = editor.getProject();
     const hash = prefix + encodeURIComponent(JSON.stringify({ source, positions }));
@@ -639,7 +708,7 @@ window.addEventListener('hashchange', () => {
     return;
   }
   const proposal = readProposal();
-  if (proposal) reviewProposal(proposal);
+  if (proposal && !pendingProposal?.liveDecision) reviewProposal(proposal);
   else if (proposalDialog.open) proposalDialog.close();
 });
 reviewProposal(initialProposal);
@@ -674,9 +743,9 @@ document.querySelector('#share').onclick = async () => {
 };
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=saved-note-conversations';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { canManageReply, changeThreadReply, connectLiveBoard, maxAnswerLength, maxReplyLength, maxThreadMessages, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=comment-labels';
-import { setupGistBackups } from './mini-flow-gist.js?v=project-backups';
-import { setupSavedProjects } from './mini-flow-projects.js?v=gist-actions';
+import { canManageReply, changeThreadReply, connectLiveBoard, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=live-recovery';
+import { setupGistBackups } from './mini-flow-gist.js?v=project-sync';
+import { setupSavedProjects } from './mini-flow-projects.js?v=project-sync';
 
 const projectsButton = document.createElement('button');
 projectsButton.id = 'open-saved-projects';
@@ -695,6 +764,7 @@ const replyForm = document.querySelector('#ai-reply-form');
 const replyInput = document.querySelector('#ai-reply-input');
 const replySend = replyForm.querySelector('[type=submit]');
 const replyAsk = document.querySelector('#ai-reply-ask');
+const replyRetry = document.querySelector('#ai-reply-retry');
 const sendingReplies = new Set();
 const replyDrafts = new Map();
 let replyTarget;
@@ -881,7 +951,7 @@ function renderAIReply() {
   if (!replyTarget) return;
   const thread = noteThreads.get(replyTarget);
   const request = noteRequests[replyTarget];
-  const active = request?.phase === 'waiting' || request?.phase === 'working';
+  const active = ['waiting', 'working', 'interrupted'].includes(request?.phase);
   replyNote.hidden = thread?.some(message => message.original) ?? false;
   const messages = thread ?? (request?.phase === 'result'
     ? [{ role: 'assistant', author: request.author ?? 'AI', text: request.label }] : []);
@@ -906,10 +976,11 @@ function renderAIReply() {
   replySend.disabled = sending || !replyInput.value.trim();
   replyAsk.hidden = !liveBoard?.ready() || replyForm.hidden;
   replyAsk.disabled = active || sending;
+  replyRetry.hidden = !liveBoard?.host || request?.phase !== 'interrupted';
   replyStatus.toggleAttribute('data-error', Boolean(replyError));
   replyStatus.textContent = replyError || (sending ? 'Sending comment…' : request?.phase === 'waiting'
     ? 'Queued for AI' : request?.phase === 'working' ? request.label + ' is working…'
-      : '');
+      : request?.phase === 'interrupted' ? request.label + '. Review the board before retrying.' : '');
 }
 
 openAIReply = (noteId, label) => {
@@ -989,6 +1060,7 @@ replyForm.onsubmit = event => {
   void sendNoteMessage(false);
 };
 replyAsk.onclick = () => sendNoteMessage(true);
+replyRetry.onclick = () => liveBoard?.retryAIRequest(replyTarget);
 function persistNoteThreads() {
   if (joiningLive) {
     autosaveProject?.(currentSavedProject());
@@ -1001,7 +1073,7 @@ function persistNoteThreads() {
 
 function postLocalReply(noteId, text) {
   if (!text || text.length > maxReplyLength) return { ok: false, message: 'Enter a comment of up to 1000 characters.' };
-  const messages = [...(noteThreads.get(noteId) ?? []), { role: 'user', author: 'You', text, replyId: crypto.randomUUID().replaceAll('-', '') }].slice(-maxThreadMessages);
+  const messages = [...(noteThreads.get(noteId) ?? []), { role: 'user', author: 'You', text, replyId: crypto.randomUUID().replaceAll('-', '') }];
   noteThreads.set(noteId, messages);
   updateNoteRequestBadges();
   persistNoteThreads();
@@ -1083,6 +1155,12 @@ const gistBackups = setupGistBackups({
   getActive: () => activeSavedProject,
   getProject: () => normalizeSavedProject(currentSavedProject()),
   canBackUp: () => !editor.isInteracting() && (!joiningLive || Boolean(liveBoard?.ready())),
+  canSync: () => !liveBoard && !joiningLive && !editor.isInteracting(),
+  applySyncedProject(project, active, previous) {
+    return savedProjects.applyRemote(normalizeSavedProject(project), active, () =>
+      !liveBoard && !joiningLive && !editor.isInteracting() &&
+      JSON.stringify(normalizeSavedProject(currentSavedProject())) === JSON.stringify(previous));
+  },
   link: savedProjects.linkGist,
   onBackupChange: savedProjects.syncBackupTimes,
   openProject(project) {
@@ -1231,6 +1309,12 @@ function ended() {
   closeAIReply();
   replyDrafts.clear();
   const wasGuest = joiningLive;
+  if (!wasGuest) {
+    try {
+      sessionStorage.removeItem(liveRecoveryKey);
+      history.replaceState({ ...history.state, miniFlowHostRoom: null }, '');
+    } catch {}
+  }
   joiningLive = false;
   liveBoard = undefined;
   refreshAskAI();
@@ -1260,9 +1344,12 @@ function ended() {
     showStatus('Session ended.');
   }
 }
-async function startLive(invite, host) {
+async function startLive(invite, host, recovery) {
   startSession.disabled = true;
-  if (host) liveNotice.textContent = '';
+  if (host) {
+    liveNotice.textContent = '';
+    history.replaceState({ ...history.state, miniFlowHostRoom: invite.room }, '');
+  }
   if (debugEnabled) {
     debugAttempt = { started: performance.now(), role: host ? 'host' : 'guest', stages: [] };
     debugPanel.hidden = false;
@@ -1275,10 +1362,16 @@ async function startLive(invite, host) {
   try {
     liveBoard = await connectLiveBoard(invite, host, {
       getProject: editor.getProject, setProject: editor.setProject, normalize: normalizeProject,
-      canAccept: () => !editor.isInteracting(), onStatus: showStatus, onEnd: ended,
+      canAccept: () => !editor.isInteracting(), onAIProposal: host ? reviewLiveProposal : undefined, onStatus: showStatus, onEnd: ended,
       onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts,
       onNetworkStatus: showNetworkStatus, debug: debugEnabled,
-      onNoteColors: editor.setNoteColors, initialThreads: [...noteThreads],
+      onNoteColors: editor.setNoteColors,
+      initialThreads: [...noteThreads],
+      initialQueue: recovery?.queue,
+      onCheckpoint(snapshot) {
+        try { sessionStorage.setItem(liveRecoveryKey, JSON.stringify({ ...snapshot, invite })); }
+        catch { liveNotice.textContent = 'Live session recovery could not be saved in this tab.'; }
+      },
       onAIRequests(next) {
         noteRequests = next;
         updateNoteRequestBadges();
@@ -1286,7 +1379,7 @@ async function startLive(invite, host) {
       },
       onAIThread(noteId, messages) {
         if (messages) noteThreads.set(noteId, messages);
-        else noteThreads.delete(noteId);
+        else if (!host || Object.hasOwn(editor.getProject().positions, noteId)) noteThreads.delete(noteId);
         updateNoteRequestBadges();
         if (replyTarget === noteId) renderAIReply();
         persistNoteThreads();
@@ -1302,6 +1395,7 @@ async function startLive(invite, host) {
           : typeof note.target === 'string' ? { type: 'node', id: note.target } : null };
       }
     });
+    liveBoard.checkpoint();
     if (debugAttempt) debugAttempt.network = liveBoard.debugReport;
     refreshAskAI();
     liveToggle.dataset.active = '';
@@ -1338,7 +1432,10 @@ liveToggle.onclick = () => liveDialog.showModal();
 startSession.onclick = () => startLive(newLiveInvite(), true);
 endSession.onclick = () => liveBoard?.stop();
 window.addEventListener('pagehide', () => {
-  if (liveBoard?.host) liveBoard.stop();
+  if (liveBoard?.host) liveBoard.suspend();
+});
+window.addEventListener('pageshow', event => {
+  if (event.persisted && readLiveRecovery()) location.reload();
 });
 copyInvite.onclick = async () => {
   try {
@@ -1355,7 +1452,7 @@ copyAIInvite.onclick = async () => {
     await navigator.clipboard.writeText([
       'Join this Mini Flow live session as an AI guest using WebMCP.',
       'Open the invite in a browser with WebMCP tool access. Wait for Live · Connected, call register_live_agent with {}, then use get_board and wait_for_ai_request.',
-      'Keep listening until the session disconnects or I ask you to stop. A null request is a timeout or an unclaimed request. Call wait_for_ai_request again using the last handled sequence as after (start at 0). After answering or applying an edit, report the result and immediately resume waiting instead of ending your turn.',
+      'Keep listening until the session ends or I ask you to stop. A null request can mean the host is reconnecting. Call wait_for_ai_request again using the last handled sequence as after (start at 0). Wait for the host to review proposed edits before continuing. If your work is interrupted, wait for a new request. After reporting a result, immediately resume waiting.',
       inviteInput.value
     ].join('\n\n'));
     copyAIInvite.textContent = 'AI invite copied';
@@ -1368,6 +1465,8 @@ if (joiningLive) {
   const invite = readLiveInvite(location.hash);
   if (invite) startLive(invite, false);
   else showStatus('This live invite is invalid.');
+} else if (liveRecovery) {
+  startLive(liveRecovery.invite, true, liveRecovery);
 }
 
 registerMiniFlowTools(editor, undefined, undefined, {
@@ -1377,13 +1476,19 @@ registerMiniFlowTools(editor, undefined, undefined, {
   reportAIActivity: joiningLive ? (message, result) => liveBoard?.reportAIActivity(message, result) ??
     { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' } : undefined,
   isReady: () => !joiningLive || Boolean(liveBoard?.ready()),
-  commitProject(project, message) {
+  async commitProject(project, message) {
     if (joiningLive) {
       if (!liveBoard) return { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' };
       return liveBoard.submitAIEdit(project, message);
     }
     if (editor.isInteracting()) {
       return { ok: false, reason: 'host_editing', message: 'The editor is busy. Read the board before retrying.' };
+    }
+    const base = normalizeProject(editor.getProject());
+    const approved = await reviewLiveProposal({ base, project: normalizeProject(project), message, signal: AbortSignal.timeout(90_000) });
+    if (!approved) return { ok: false, reason: 'edit_declined', message: 'The proposed edit was declined or its review expired.' };
+    if (!isCurrent(base) || editor.isInteracting()) {
+      return { ok: false, reason: 'revision_conflict', message: 'The board changed during review.' };
     }
     editor.setProject(project, { message });
     return { ok: true };
