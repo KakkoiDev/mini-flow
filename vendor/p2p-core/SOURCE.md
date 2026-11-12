@@ -1,1 +1,1 @@
-Vendored browser modules from [KakkoiDev/p2p-core](https://github.com/KakkoiDev/p2p-core/tree/2162a4e96a5b69df89a276fe694ae2d326f86448). The included Trystero 0.21.5 bundle contains the relay reconnect and opt-in diagnostics patches.
+Vendored browser modules from [KakkoiDev/p2p-core](https://github.com/KakkoiDev/p2p-core/tree/1c94f23dd7d0514e46a25b760533d30f128f6072). The included Trystero 0.21.5 bundle contains the relay reconnect and opt-in diagnostics patches.

@@ -1,8 +1,32 @@
 const MAX_EVENTS = 600;
 
-export function createDebugReport({ app, mode, version, protocol, roomFingerprint }) {
+function probeWebRTC(scope) {
+  const peerConnectionType = typeof scope.RTCPeerConnection;
+  const webkitPeerConnectionType = typeof scope.webkitRTCPeerConnection;
+  const result = { peerConnectionType, webkitPeerConnectionType, localDataChannel: 'api-unavailable' };
+  if (peerConnectionType !== 'function') return result;
+
+  let connection;
+  try {
+    // No offer, signaling, or ICE servers are needed to test the local API.
+    connection = new scope.RTCPeerConnection({ iceServers: [] });
+    connection.createDataChannel('p2p-core-debug');
+    result.localDataChannel = 'passed';
+  } catch (error) {
+    result.localDataChannel = connection ? 'data-channel-failed' : 'constructor-failed';
+    const knownNames = ['TypeError', 'NotSupportedError', 'NotAllowedError', 'SecurityError',
+      'InvalidStateError', 'OperationError', 'NotReadableError'];
+    result.errorName = knownNames.includes(error?.name) ? error.name : 'Error';
+  } finally {
+    try { connection?.close(); } catch { /* A debug probe must not interrupt joining. */ }
+  }
+  return result;
+}
+
+export function createDebugReport({ app, mode, version, protocol, roomFingerprint }, scope = globalThis) {
   const started = performance.now();
   const startedAt = new Date().toISOString();
+  const webRTCProbe = probeWebRTC(scope);
   const entries = [];
   const peers = new Map();
   let count = 0;
@@ -24,11 +48,12 @@ export function createDebugReport({ app, mode, version, protocol, roomFingerprin
         schemaVersion: 1, app, mode, version, protocol, roomFingerprint, startedAt,
         elapsedMs: Math.round(performance.now() - started),
         browser: {
-          userAgent: globalThis.navigator?.userAgent,
-          online: globalThis.navigator?.onLine,
-          secureContext: globalThis.isSecureContext,
-          webSocket: typeof globalThis.WebSocket === 'function',
-          webRTC: typeof globalThis.RTCPeerConnection === 'function',
+          userAgent: scope.navigator?.userAgent,
+          online: scope.navigator?.onLine,
+          secureContext: scope.isSecureContext,
+          webSocket: typeof scope.WebSocket === 'function',
+          webRTC: webRTCProbe.peerConnectionType === 'function',
+          webRTCProbe,
         },
         omittedEvents: Math.max(0, count - MAX_EVENTS),
         events,

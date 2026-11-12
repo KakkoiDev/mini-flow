@@ -284,5 +284,6 @@ diagnostics** on both devices. The console also logs a report at the
 snapshot.
 
 The reports include browser and relay information, WebRTC negotiation, and
-whether Mini Flow received the board. They omit invite credentials, board
-content, and raw ICE addresses.
+whether Mini Flow received the board. `browser.webRTCProbe` records whether
+the peer connection API exists and can create a local data channel. The
+reports omit invite credentials, board content, and raw ICE addresses.
