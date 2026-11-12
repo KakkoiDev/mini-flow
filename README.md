@@ -245,8 +245,10 @@ Open a saved project and expand **GitHub Gist backup** in Projects.
 While the tab is open, Mini Flow checks for changes every
 five minutes. **Back up now** saves a changed snapshot immediately. Each
 snapshot has its own file, so edits from different machines can be opened
-independently. The token is kept in memory until reload. **Disconnect** stops
-new backups from this project.
+independently. The panel shows the last snapshot time recorded for that Gist.
+The token stays masked and is kept in the current tab's session storage so
+backups resume after reload. It is sent to GitHub for Gist API requests.
+**Disconnect** stops backups from this project and clears the saved token.
 
 On another machine, paste the Gist link and choose **Find backups**. Select a
 snapshot to open it as a working copy. Use **Save as Project** to give it a local

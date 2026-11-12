@@ -186,9 +186,18 @@ test('a saved project backs up to a Gist and opens on another tab', async ({ pag
   await page.getByLabel('GitHub token for backups').fill('test-token');
   await page.getByRole('button', { name: 'Connect project', exact: true }).click();
   await expect(page.getByText('Gist backup saved.', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('GitHub token for backups')).toHaveValue('');
+  const backupTime = page.locator('[data-gist-backup-time]');
+  await expect(backupTime).toHaveAttribute('datetime', /Z$/);
+  const savedAt = await backupTime.getAttribute('datetime');
+  await page.reload();
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await page.getByText('GitHub Gist backup', { exact: true }).click();
+  await expect(page.getByLabel('GitHub token for backups')).toHaveValue('test-token');
+  await expect(page.getByLabel('GitHub token for backups')).toHaveAttribute('type', 'password');
+  await expect(backupTime).toHaveAttribute('datetime', savedAt);
   await page.getByRole('button', { name: 'Back up now', exact: true }).click();
   await expect(page.getByText('Gist backup is up to date.', { exact: true })).toBeVisible();
+  await expect(backupTime).toHaveAttribute('datetime', savedAt);
   expect(Object.keys(files)).toHaveLength(2);
   expect(files['README.md'].content).toBe('Keep this file');
 
@@ -201,6 +210,10 @@ test('a saved project backs up to a Gist and opens on another tab', async ({ pag
   await restored.getByRole('button', { name: 'Open snapshot', exact: true }).click();
   await expect(restored.getByText('Opened “Gist example” as a working copy.', { exact: true })).toBeVisible();
   expect(await restored.evaluate(() => miniFlowEditor.getProject())).toEqual(original);
+  await page.getByRole('button', { name: 'Disconnect', exact: true }).click();
+  await expect(page.getByLabel('GitHub token for backups')).toHaveValue('');
+  await expect(backupTime).toBeHidden();
+  expect(await page.evaluate(id => sessionStorage.getItem('mini-flow-gist-token:' + id), id)).toBeNull();
 });
 
 test('review and apply an edit link as one undo step', async ({ page }) => {

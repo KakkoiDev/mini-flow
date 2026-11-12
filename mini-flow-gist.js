@@ -31,16 +31,26 @@ function snapshots(gist) {
   return Object.keys(gist.files ?? {}).filter(name => snapshotPattern.test(name)).sort().reverse();
 }
 
-export async function backUpGist(id, token, backup) {
+function snapshotTime(name) {
+  return snapshotPattern.exec(name)[1].replace(/^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)(\d{3})Z$/, '$1-$2-$3T$4:$5:$6.$7Z');
+}
+
+async function saveGistSnapshot(id, token, backup) {
   const content = JSON.stringify(backup);
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content));
   const hash = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
   const gist = await gistRequest(id, token);
-  if (snapshots(gist)[0]?.endsWith('-' + hash + '.json')) return false;
-  const timestamp = new Date().toISOString().replace(/[-:.]/g, '');
+  const latest = snapshots(gist)[0];
+  if (latest?.endsWith('-' + hash + '.json')) return { changed: false, time: snapshotTime(latest) };
+  const time = new Date().toISOString();
+  const timestamp = time.replace(/[-:.]/g, '');
   const filename = 'mini-flow-' + timestamp + '-' + hash + '.json';
   await gistRequest(id, token, { files: { [filename]: { content } } });
-  return true;
+  return { changed: true, time };
+}
+
+export async function backUpGist(id, token, backup) {
+  return (await saveGistSnapshot(id, token, backup)).changed;
 }
 
 async function readSnapshot(id, token, name) {
@@ -68,17 +78,64 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
   const get = key => panel.querySelector('[data-gist-' + key + ']');
   const address = get('id'), token = get('token'), status = get('status');
   const picker = get('picker'), select = get('snapshot'), load = get('load');
-  const credentials = new Map();
+  const lastBackup = get('last-backup'), backupTime = get('backup-time');
+  const credentials = new Map(), backupTimes = new Map();
   const backedUp = new WeakMap();
-  let current, foundId, busy = false;
+  let current, currentGist, tokenGist, foundId, busy = false;
+
+  function readStored(storage, key) {
+    try { return globalThis[storage].getItem(key) ?? undefined; } catch {}
+  }
+
+  function writeStored(storage, key, value) {
+    try {
+      if (value === undefined) globalThis[storage].removeItem(key);
+      else globalThis[storage].setItem(key, value);
+    } catch {}
+  }
+
+  function tokenKey(id) { return 'mini-flow-gist-token:' + id; }
+  function timeKey(id) { return 'mini-flow-gist-last-backup:' + id; }
+
+  function savedToken(id) {
+    return id && (credentials.get(id) ?? readStored('sessionStorage', tokenKey(id)));
+  }
+
+  function enteredGist() {
+    try { return gistId(address.value); } catch {}
+  }
+
+  function accessFor(id) {
+    return ((!tokenGist || tokenGist === id) && token.value.trim()) || savedToken(id);
+  }
+
+  address.addEventListener('input', () => {
+    const id = enteredGist();
+    if ((tokenGist && tokenGist !== id) || !token.value) token.value = savedToken(id) ?? '';
+    tokenGist = id;
+  });
+  token.addEventListener('input', () => { tokenGist = enteredGist(); });
 
   function refresh() {
     const active = getActive();
-    if (current !== active) {
+    const id = active?.gist;
+    if (current !== active || currentGist !== id) {
+      if (current !== active) status.textContent = '';
       current = active;
-      address.value = active?.gist ?? '';
-      status.textContent = '';
+      currentGist = tokenGist = id;
+      address.value = id ?? '';
+      token.value = savedToken(id) ?? '';
       picker.hidden = load.hidden = true;
+    }
+    const time = id && (backupTimes.get(id) ?? readStored('localStorage', timeKey(id)));
+    const date = time && new Date(time);
+    lastBackup.hidden = !id;
+    if (date && Number.isFinite(date.getTime())) {
+      backupTime.dateTime = time;
+      backupTime.textContent = date.toLocaleString();
+    } else {
+      backupTime.removeAttribute('datetime');
+      backupTime.textContent = 'No backup recorded yet';
     }
     get('connect').disabled = busy || !active;
     get('sync').disabled = busy || !active?.gist;
@@ -105,7 +162,12 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
     const data = { version: 1, name: active.name, project: getProject() };
     const key = JSON.stringify([id, data]);
     if (automatic && backedUp.get(active) === key) return;
-    const changed = await backUpGist(id, access, data);
+    const { changed, time } = await saveGistSnapshot(id, access, data);
+    credentials.set(id, access);
+    writeStored('sessionStorage', tokenKey(id), access);
+    if (tokenGist === id && !token.value) token.value = access;
+    backupTimes.set(id, time);
+    writeStored('localStorage', timeKey(id), time);
     backedUp.set(active, key);
     if (getActive() === active) status.textContent = changed ? 'Gist backup saved.' : 'Gist backup is up to date.';
   }
@@ -114,23 +176,19 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
     const active = getActive();
     if (!active) throw new Error('Save or open a local project first.');
     const id = gistId(address.value);
-    const access = token.value.trim() || credentials.get(id);
+    const access = accessFor(id);
     if (!access) throw new Error('Enter a GitHub token with Gists write permission.');
     await gistRequest(id, access);
     await link(id, active);
-    credentials.set(id, access);
-    token.value = '';
     if (getActive() === active) await backup(active, access);
   });
   get('sync').onclick = () => run(async () => {
     const active = getActive();
     if (!active?.gist) throw new Error('Connect this project to a Gist first.');
     if (gistId(address.value) !== active.gist) throw new Error('Connect the entered Gist before backing up to it.');
-    const access = token.value.trim() || credentials.get(active.gist);
+    const access = accessFor(active.gist);
     if (!access) throw new Error('Enter a GitHub token to resume backups.');
     await backup(active, access);
-    credentials.set(active.gist, access);
-    token.value = '';
   });
   get('disconnect').onclick = () => run(async () => {
     const active = getActive();
@@ -138,6 +196,7 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
     const id = active.gist;
     await link(null, active);
     credentials.delete(id);
+    writeStored('sessionStorage', tokenKey(id), undefined);
     address.value = token.value = '';
     picker.hidden = load.hidden = true;
     status.textContent = 'Gist disconnected.';
@@ -145,13 +204,12 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
   get('open').onclick = () => run(async () => {
     picker.hidden = load.hidden = true;
     const id = gistId(address.value);
-    const gist = await gistRequest(id, token.value.trim() || credentials.get(id));
+    const gist = await gistRequest(id, accessFor(id));
     const names = snapshots(gist);
     if (!names.length) throw new Error('No Mini Flow backups found in this Gist.');
     foundId = id;
     select.replaceChildren(...names.map(name => {
-      const date = snapshotPattern.exec(name)[1];
-      const time = date.replace(/^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)(\d{3})Z$/, '$1-$2-$3T$4:$5:$6.$7Z');
+      const time = snapshotTime(name);
       return new Option(new Date(time).toLocaleString() + ' · ' + name.slice(-12, -5), name);
     }));
     picker.hidden = load.hidden = false;
@@ -160,13 +218,13 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
   load.onclick = () => run(async () => {
     const id = gistId(address.value);
     if (id !== foundId) throw new Error('Find backups for the entered Gist first.');
-    const item = await readSnapshot(id, token.value.trim() || credentials.get(id), select.value);
+    const item = await readSnapshot(id, accessFor(id), select.value);
     openProject(item.project);
     status.textContent = 'Opened “' + item.name + '” as a working copy.';
   });
   setInterval(() => {
     const active = getActive();
-    const access = credentials.get(active?.gist);
+    const access = savedToken(active?.gist);
     if (access) run(() => backup(active, access, true));
   }, interval);
   refresh();
