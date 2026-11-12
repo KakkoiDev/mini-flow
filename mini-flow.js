@@ -413,10 +413,13 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     function positionNoteAction() {
       if (!noteAction) return;
       const node = selected?.type === 'note' ? selected : null;
+      const request = node && aiRequests[node.id];
       const active = node && ['waiting', 'working'].includes(aiRequests[node.id]?.phase);
       const ask = noteAction.querySelector('[data-ask-ai]');
       if (ask) ask.disabled = Boolean(active);
-      noteAction.hidden = !node || !noteActionAvailable || Boolean(editing || drag);
+      const hasConversationBadge = request && (request.hasThread || request.phase === 'result');
+      noteAction.hidden = !node || !noteActionAvailable || Boolean(editing || drag) ||
+        Boolean(noteActionBelow && hasConversationBadge);
       if (noteAction.hidden) return;
       const right = (node.x + radius(node) - cameraX) * zoom;
       const upper = (node.y - height(node) - cameraY) * zoom;
@@ -425,16 +428,18 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         noteAction.hidden = true;
         return;
       }
-      const left = right - 8;
-      const top = upper - noteAction.offsetHeight + 7;
+      const left = noteActionBelow ? right - noteAction.offsetWidth + 8 * zoom : right - 8;
+      const top = noteActionBelow ? upper + (2 * height(node) + 6) * zoom : upper - noteAction.offsetHeight + 7;
       noteAction.style.left = Math.max(4, Math.min(left, viewport.clientWidth - noteAction.offsetWidth - 4)) + 'px';
       noteAction.style.top = Math.max(4, Math.min(top, viewport.clientHeight - noteAction.offsetHeight - 4)) + 'px';
     }
     let noteActionAvailable = false;
-    function setNoteAction(button, available) {
+    let noteActionBelow = false;
+    function setNoteAction(button, available, { below = false } = {}) {
       if (noteAction !== button) viewport.append(button);
       noteAction = button;
       noteActionAvailable = available;
+      noteActionBelow = below;
       positionNoteAction();
     }
     function setAIRequests(next) {
@@ -1127,11 +1132,11 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           const count = request.replyCount ? request.replyCount + (request.replyCount === 1 ? ' reply' : ' replies') : '';
           const status = result ? (summary.length > 36 ? summary.slice(0, 35) + '…' : summary)
             : waiting ? 'Waiting for AI…' : (request.label ?? request) + ' working…';
-          const label = comments ? count : [status, count].filter(Boolean).join(' · ');
+          const label = comments ? count || 'Comments' : [status, count].filter(Boolean).join(' · ');
           const interactive = Boolean(onAIReply) && (result || request.hasThread);
           const badgeWidth = label.length * 7 + (interactive ? 46 : 30);
           const badge = element('g', { class: interactive ? 'note-ai-mark note-ai-result' : 'note-ai-mark',
-            transform: `translate(${shown.x + Math.max(-w, w - badgeWidth + 8)} ${shown.y + (result || comments ? h + 6 : -h - 13)})`,
+            transform: `translate(${shown.x + Math.max(-w, w - badgeWidth + 8)} ${shown.y + (result || comments || (noteActionBelow && interactive) ? h + 6 : -h - 13)})`,
             role: interactive ? 'button' : 'img', 'aria-label': interactive ? 'Open note conversation: ' + (summary && count ? summary + ' · ' + count : summary || label) : result ? summary : label });
           if (result || interactive) badge.append(element('title', {}, summary || label));
           badge.append(element('rect', { width: badgeWidth, height: 26, rx: 9, fill: palette.surface, stroke: palette.accent }));

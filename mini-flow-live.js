@@ -2,7 +2,7 @@ const kinds = ['read', 'state', 'edit', 'end', 'presence', 'agent', 'ask'];
 const maxGuests = 8;
 export const maxThreadMessages = 12;
 export const maxReplyLength = 1000;
-const maxAnswerLength = 2000;
+export const maxAnswerLength = 2000;
 // Set to your trusted Cloudflare relay's wss:// origin to enable fallback.
 const liveRelayUrl = 'wss://p2p-core-cloudflare.kakkoidev.workers.dev';
 const invitePattern = /^#live=([a-f0-9]{32})\.([a-f0-9]{32})$/;
@@ -13,12 +13,41 @@ export function readLiveInvite(hash) {
   return match && { room: match[1], password: match[2] };
 }
 
-export function readThreadMessages(messages) {
+export function readThreadMessages(messages, assignIds = false) {
   if (!Array.isArray(messages) || !messages.length || messages.length > maxThreadMessages) return null;
   if (!messages.every(message => ['user', 'assistant', 'status'].includes(message?.role) &&
     typeof message.author === 'string' && message.author.length <= 32 &&
     typeof message.text === 'string' && message.text.length <= 4000)) return null;
-  return messages.map(({ role, author, text, original }) => ({ role, author, text, ...(original === true && { original }) }));
+  return messages.map(message => {
+    const { role, author, text, original, replyId, owner, edited } = message;
+    const validId = typeof replyId === 'string' && /^[a-f0-9]{32}$/.test(replyId);
+    return { role, author, text,
+      ...(original === true && { original }),
+      ...((validId || assignIds) && { replyId: validId ? replyId : id() }),
+      ...(typeof owner === 'string' && owner.length <= 128 && { owner }),
+      ...(['author', 'host'].includes(edited) && { edited })
+    };
+  });
+}
+
+export function canManageReply(message, host, selfId) {
+  return Boolean(message?.replyId && !message.original &&
+    (host ? message.role !== 'status' : message.role === 'user' && selfId && message.owner === selfId));
+}
+
+export function changeThreadReply(messages, { replyId, previousText, text }, host, selfId) {
+  const message = messages.find(item => item.replyId === replyId);
+  if (!message) return failure('reply_missing', 'This reply is no longer in the conversation.');
+  if (!canManageReply(message, host, selfId)) return failure('reply_forbidden', 'You can only change your own replies.');
+  if (message.text !== previousText) return failure('reply_changed', 'This reply changed. Reopen it to try again.');
+  if (text === null) return { ok: true, messages: messages.filter(item => item !== message) };
+  const limit = message.role === 'assistant' ? maxAnswerLength : maxReplyLength;
+  if (typeof text !== 'string' || !text.trim() || text.length > limit) {
+    return failure('invalid_reply', 'Enter a reply of up to ' + limit + ' characters.');
+  }
+  if (text.trim() === message.text) return { ok: true, messages };
+  const edited = host && (!selfId || message.owner !== selfId) && !['Host', 'You'].includes(message.author) ? 'host' : 'author';
+  return { ok: true, messages: messages.map(item => item === message ? { ...item, text: text.trim(), edited } : item) };
 }
 
 export function createLiveSession({ room, host, getProject, setProject, normalize, canAccept, onStatus, onEnd,
@@ -48,6 +77,14 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   const offers = new Map();
   const results = new Map();
   const threads = new Map(host ? initialThreads : []);
+  let nextGuestNumber = 0;
+  function reserveGuestNumbers(entries) {
+    for (const messages of entries.values()) for (const { author } of messages) {
+      const number = Number(author.match(/^(?:Guest|AI) (\d+)$/)?.[1]);
+      if (Number.isSafeInteger(number)) nextGuestNumber = Math.max(nextGuestNumber, number);
+    }
+  }
+  reserveGuestNumbers(threads);
   const pendingClaims = new Map();
   let requestSequence = 0;
 
@@ -56,12 +93,31 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     send('ask', { type: 'thread', noteId, messages }, to).catch(() => {});
   }
 
-  function appendThread(noteId, message) {
-    const messages = [...(threads.get(noteId) ?? []), message].slice(-maxThreadMessages);
-    threads.delete(noteId);
-    threads.set(noteId, messages);
-    onAIThread(noteId, messages);
+  function updateThread(noteId, messages) {
+    if (messages.length) threads.set(noteId, messages);
+    else threads.delete(noteId);
+    onAIThread(noteId, messages.length ? messages : null);
     publishThread(noteId);
+  }
+
+  function appendThread(noteId, message) {
+    updateThread(noteId, [...(threads.get(noteId) ?? []), { ...message, replyId: id() }].slice(-maxThreadMessages));
+  }
+
+  function manageReply(noteId, from, change) {
+    const messages = threads.get(noteId) ?? [];
+    const result = changeThreadReply(messages, change, from === room.selfId, from);
+    if (!result.ok) return result;
+    const latest = messages.findLast(message => message.role === 'assistant');
+    const preview = results.get(noteId);
+    if (latest?.replyId === change.replyId && preview?.author === latest.author && preview.label === latest.text.slice(0, 200)) {
+      const edited = result.messages.find(message => message.replyId === change.replyId);
+      if (edited) results.set(noteId, { ...preview, label: edited.text.slice(0, 200) });
+      else results.delete(noteId);
+      publishPresence();
+    }
+    updateThread(noteId, result.messages);
+    return { ok: true };
   }
 
   function finishOffer(requestId, label, author) {
@@ -153,7 +209,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     const expire = () => finishOffer(requestId, 'No AI claimed the request');
     offers.set(requestId, { noteId, agents: new Set(agents), timer: setTimeout(expire, 90000) });
     if (!thread || prompt !== undefined) {
-      appendThread(noteId, { role: 'user', author: requester, text, ...(!thread && prompt === undefined && { original: true }) });
+      appendThread(noteId, { role: 'user', author: requester, owner: from, text, ...(!thread && prompt === undefined && { original: true }) });
     }
     publishPresence();
     return new Promise(resolve => {
@@ -176,17 +232,21 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (typeof text !== 'string' || !text.trim() || text.length > maxReplyLength) {
       return failure('invalid_reply', 'Enter a reply of up to 1000 characters.');
     }
-    appendThread(noteId, { role: 'user', author: guests.get(from)?.label ?? 'Host', text: text.trim() });
+    appendThread(noteId, { role: 'user', author: guests.get(from)?.label ?? 'Host', owner: from, text: text.trim() });
     return { ok: true };
+  }
+
+  function handleNoteMessage(type, noteId, from, value) {
+    if (type === 'comment') return appendComment(noteId, from, value);
+    if (type === 'manage_reply') return manageReply(noteId, from, value ?? {});
+    return forwardAIRequest(noteId, from, value);
   }
 
   function submitNoteMessage(type, noteId, prompt) {
     if (closed || !state || (!host && !hostPeer)) {
       return Promise.resolve(failure('live_not_ready', 'The live board is disconnected.'));
     }
-    if (host) return Promise.resolve(type === 'comment'
-      ? appendComment(noteId, room.selfId, prompt)
-      : forwardAIRequest(noteId, room.selfId, prompt));
+    if (host) return Promise.resolve(handleNoteMessage(type, noteId, room.selfId, prompt));
     if (pendingAsks.size >= 8) return Promise.resolve(failure('too_many_requests', 'Wait for a pending request to finish.'));
     return new Promise(resolve => {
       const requestId = id();
@@ -358,8 +418,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (closed) return;
     if (host) {
       if (guests.has(from) || guests.size >= maxGuests) return;
-      const numbers = new Set(Array.from(guests.values(), guest => guest.number));
-      const number = Array.from({ length: maxGuests }, (_, i) => i + 1).find(i => !numbers.has(i));
+      const number = ++nextGuestNumber;
       guests.set(from, { number, color: ++nextColor, label: `Guest ${number}`, presence: { point: null, focus: null } });
       publish({}, from);
       for (const noteId of threads.keys()) publishThread(noteId, from);
@@ -536,12 +595,10 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
         if (delivery?.agents.has(from)) delivery.finish({ ok: true });
         return;
       }
-      if (!guests.has(from) || !['request', 'comment'].includes(data?.type) ||
+      if (!guests.has(from) || !['request', 'comment', 'manage_reply'].includes(data?.type) ||
           typeof data.noteId !== 'string' || data.noteId.length > 128 ||
           typeof data.requestId !== 'string' || data.requestId.length !== 32) return;
-      const result = data.type === 'comment'
-        ? appendComment(data.noteId, from, data.prompt)
-        : await forwardAIRequest(data.noteId, from, data.prompt);
+      const result = await handleNoteMessage(data.type, data.noteId, from, data.prompt);
       await send('ask', { type: 'result', requestId: data.requestId, result }, from).catch(() => {});
     } else if (from === hostPeer && data?.type === 'result') {
       pendingAsks.get(data.requestId)?.(data.result);
@@ -603,6 +660,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   available();
   return {
     host,
+    canManageReply: message => canManageReply(message, host, room.selfId),
     ready: () => !closed && (host || Boolean(hostPeer && state && !pending && !localDirty && canAccept())),
     changed() {
       if (closed || applying) return;
@@ -645,6 +703,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     },
     askAI: (noteId, prompt) => submitNoteMessage('request', noteId, prompt),
     comment: (noteId, text) => submitNoteMessage('comment', noteId, text),
+    manageReply: (noteId, change) => submitNoteMessage('manage_reply', noteId, change),
     replaceThreads(next) {
       if (!host || closed) return;
       for (const requestId of offers.keys()) finishOffer(requestId);
@@ -653,6 +712,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       const changed = new Set([...threads.keys(), ...next.keys()]);
       threads.clear();
       for (const [noteId, messages] of next) threads.set(noteId, messages);
+      reserveGuestNumbers(threads);
       for (const noteId of changed) publishThread(noteId);
     },
     waitForAIRequest,
