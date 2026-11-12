@@ -127,9 +127,25 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.equal(host.requests().N1.label, fullReply.slice(0, 200));
     assert.equal(host.threads.get('N1').at(-1).text, fullReply);
     assert.deepEqual(secondGuest.threads.get('N1'), host.threads.get('N1'));
+    // A person can click Ask AI in the only browser tab registered as an AI guest.
+    let droppedDelivery = false;
+    network.drop(({ kind, data }) => {
+      if (kind !== 'ask' || data.type !== 'delivery' || droppedDelivery) return false;
+      droppedDelivery = true;
+      return true;
+    });
+    assert.deepEqual(await guest.session.askAI('N1'), { ok: true });
+    const requestedLocally = await wait({ after: next.request.sequence, timeoutMs: 2500 });
+    assert.equal(droppedDelivery, true);
+    assert.equal(requestedLocally.request?.note.id, 'N1');
+    assert.equal(requestedLocally.request.requester, 'AI 1');
+    network.drop(null);
+    assert.deepEqual(guest.session.reportAIActivity('', 'Received the request'), { ok: true });
+    await network.settle();
+    assert.equal(host.requests().N1.phase, 'result');
     assert.deepEqual(await secondGuest.session.registerAgent(), { ok: true });
     const competing = [
-      wait({ after: next.request.sequence, timeoutMs: 1000 }),
+      wait({ after: requestedLocally.request.sequence, timeoutMs: 1000 }),
       secondGuest.session.waitForAIRequest(0, 1000)
     ];
     assert.deepEqual(await host.session.askAI('N1'), { ok: true });

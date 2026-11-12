@@ -79,6 +79,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   const requestWaiters = new Set();
   const pendingAsks = new Map();
   const offers = new Map();
+  let offerRetryTimer;
   const reviews = new Map();
   const epoch = host ? id() : undefined;
   let hostEpoch;
@@ -295,7 +296,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     const text = prompt?.trim() ?? thread?.findLast(message => message.role === 'user')?.text ?? note.text;
     const requestId = id();
     results.delete(noteId);
-    const offer = { noteId, from, agents: new Set(), note: { ...note, text }, requester, thread };
+    const offer = { noteId, agents: new Set(), note: { ...note, text }, requester, thread };
     offers.set(requestId, offer);
     if (!thread || prompt !== undefined) {
       appendThread(noteId, { role: 'user', author: requester, owner: from, text, ...(!thread && prompt === undefined && { original: true }) });
@@ -306,21 +307,28 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     return { ok: true };
   }
 
-  function dispatchOffers() {
+  function dispatchOffers(retry = false) {
+    if (closed) return;
     const queue = [...offers];
     const working = new Set(queue.map(([, offer]) => offer.winner));
+    let hasUnclaimedDelivery = false;
     for (const [peer, guest] of guests) {
       if (!guest.agent || working.has(peer)) continue;
-      const next = queue.find(([, offer]) => !offer.winner && !offer.interrupted && offer.from !== peer);
+      const next = queue.find(([, offer]) => !offer.winner && !offer.interrupted);
       if (!next) continue;
+      hasUnclaimedDelivery = true;
       const [requestId, offer] = next;
-      if (offer.agents.has(peer)) continue;
+      if (offer.agents.has(peer) && !retry) continue;
       offer.agents.add(peer);
       const thread = offer.thread ?? threads.get(offer.noteId);
       send('ask', { type: 'delivery', requestId, note: offer.note, requester: offer.requester,
         ...(thread && { thread: thread.slice(-agentContextMessages) }),
-        ...(offer.lastEdit && { lastAppliedEdit: offer.lastEdit }) }, peer).catch(() => offer.agents.delete(peer));
+        ...(offer.lastEdit && { lastAppliedEdit: offer.lastEdit }) }, peer).catch(() => {});
     }
+    if (hasUnclaimedDelivery && !offerRetryTimer) offerRetryTimer = setTimeout(() => {
+      offerRetryTimer = undefined;
+      dispatchOffers(true);
+    }, 1500);
   }
 
   function appendComment(noteId, from, text) {
@@ -717,7 +725,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       guest.label = `AI ${guest.number}`;
       onGuestCounts(guestCounts());
       publishPresence();
-      send('agent', true, from).then(dispatchOffers).catch(() => {});
+      send('agent', true, from).then(() => dispatchOffers()).catch(() => {});
     } else if (from === hostPeer) {
       agentRegistered = true;
       finishAgentRegistration(true);
@@ -800,6 +808,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     closed = true;
     clearTimeout(flushTimer);
     clearTimeout(presenceTimer);
+    clearTimeout(offerRetryTimer);
     for (const review of reviews.values()) review.abort();
     let departure;
     if (host && guests.size && notify) {

@@ -301,7 +301,7 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid #087f7
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=live-recovery"></script>
+<script src="./mini-flow.js?v=live-queue-retry"></script>
 <script type="module">
 const example = `flowchart TD
     A([Prompt In])
@@ -733,7 +733,7 @@ document.querySelector('#share').onclick = async () => {
 };
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=saved-note-conversations';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { canManageReply, changeThreadReply, connectLiveBoard, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=live-recovery';
+import { canManageReply, changeThreadReply, connectLiveBoard, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=live-queue-retry';
 import { setupGistBackups } from './mini-flow-gist.js?v=project-sync-revisions';
 import { setupSavedProjects } from './mini-flow-projects.js?v=project-sync-revisions';
 
