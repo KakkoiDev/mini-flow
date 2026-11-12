@@ -116,7 +116,16 @@ dialog button:disabled{opacity:.5;cursor:default}
     [data-gist-backups] label {display:grid;gap:4px;margin-top:8px;font-size:13px}
     [data-gist-backups] input,[data-gist-backups] select {width:100%;min-width:0}
     [data-gist-backups] small:not([hidden]) {display:block;margin-top:8px}
-    .gist-actions {display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+    .gist-actions {display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+    [data-gist-backups] .gist-auto {display:flex;align-items:center;gap:8px;margin-top:12px}
+    [data-gist-backups] [data-gist-auto] {width:auto;margin:0;accent-color:#087f71}
+    [data-gist-picker]:not([hidden]) {display:grid;gap:10px;margin-top:14px;padding:12px;
+      border:1px solid #ded9d2;border-radius:8px;background:var(--mf-surface)}
+    [data-gist-picker] label {margin:0;gap:6px;font-weight:650}
+    [data-gist-picker] select {min-height:40px;padding:7px 10px;border:1px solid #ded9d2;
+      border-radius:6px;background:#fff;color:inherit;font:inherit;font-weight:400}
+    [data-gist-picker] select:focus-visible {outline:2px solid #087f71;outline-offset:2px}
+    [data-gist-picker] button {justify-self:start;min-height:36px;background:#e4f4ee;border-color:#a7cfc4}
     [data-gist-status] {margin:8px 0 0;font-size:12px}
     [data-gist-status]:empty {display:none}
     #show-save-project {min-height:38px;border-color:#ded9d2;margin-bottom:10px}
@@ -131,6 +140,9 @@ dialog button:disabled{opacity:.5;cursor:default}
     #saved-project-list small {display:block;margin-top:2px;color:var(--mf-stroke);font-size:12px}
     #saved-project-list button {flex:none;min-height:36px;border-color:#ded9d2}
     .project-row-actions {display:flex;gap:5px}
+    .project-gist-actions {display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;flex-basis:100%}
+    .project-gist-actions a {color:#175b50;font-size:13px}
+    .project-gist-actions small {flex-basis:100%}
     .project-row-actions button:not(:first-child) {background:transparent;border-color:transparent;font-size:13px}
     .project-action-form {flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
     .project-action-form label {width:100%;font-size:13px}
@@ -173,14 +185,17 @@ dialog button:disabled{opacity:.5;cursor:default}
         <small><a href="https://github.com/settings/personal-access-tokens/new?name=Mini+Flow+Gist+backups&amp;gists=write" target="_blank" rel="noopener noreferrer">Create a fine-grained token</a>. Use the account that owns the Gist and grant <strong>Account permissions → Gists → Read and write</strong>. No repository permissions are needed.</small>
         <label>GitHub token for backups <input data-gist-token type="password" autocomplete="off"></label>
         <small>Anyone with the Gist link can read its backups. Mini Flow keeps the token in this tab’s browser session storage across reloads and sends it to GitHub for backups. Disconnect clears the saved token.</small>
+        <label class="gist-auto"><input data-gist-auto type="checkbox"> Back up automatically while this project is open</label>
         <div class="gist-actions">
           <button type="button" data-gist-connect>Connect project</button>
           <button type="button" data-gist-sync>Back up now</button>
           <button type="button" data-gist-open>Find backups</button>
           <button type="button" data-gist-disconnect hidden>Disconnect</button>
         </div>
-        <label data-gist-picker hidden>Snapshot <select data-gist-snapshot></select></label>
-        <button type="button" data-gist-load hidden>Open snapshot</button>
+        <div data-gist-picker hidden>
+          <label>Snapshot <select data-gist-snapshot></select></label>
+          <button type="button" data-gist-load>Open snapshot</button>
+        </div>
         <small data-gist-last-backup hidden>Last backup in this Gist · <time data-gist-backup-time></time></small>
         <p data-gist-status role="status"></p>
       </details>
@@ -236,7 +251,7 @@ let activeSavedProject = joiningLive ? null : history.state?.miniFlowSavedProjec
 let syncSavedProjects;
 let autosaveProject;
 function setActiveSavedProject(record, { reuse = false, silent = false } = {}) {
-  if (!reuse) activeSavedProject = record ? { name: record.name, revision: record.revision, gist: record.gist } : null;
+  if (!reuse) activeSavedProject = record ? { name: record.name, revision: record.revision, gist: record.gist, autoBackup: record.autoBackup } : null;
   if (record && !joiningLive) {
     const { source, positions } = editor.getProject();
     if (!silent) {
@@ -530,8 +545,8 @@ document.querySelector('#share').onclick = async () => {
 <script type="module">
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=keep-listening';
 import { connectLiveBoard, newLiveInvite, readLiveInvite } from './mini-flow-live.js?v=ai-result-author';
-import { setupGistBackups } from './mini-flow-gist.js?v=remember-backup';
-import { setupSavedProjects } from './mini-flow-projects.js?v=7';
+import { setupGistBackups } from './mini-flow-gist.js?v=project-backups';
+import { setupSavedProjects } from './mini-flow-projects.js?v=gist-actions';
 
 const projectsButton = document.createElement('button');
 projectsButton.id = 'open-saved-projects';
@@ -591,13 +606,16 @@ const panels = [
 ];
 const savedProjects = setupSavedProjects({ panel: projectsPanel, editor,
   normalize: normalizeProject, getActive: () => activeSavedProject, setActive: setActiveSavedProject,
-  onError: text => { message.textContent = text; } });
+  onError: text => { message.textContent = text; },
+  onBackup: record => gistBackups.backupProject(record),
+  getBackupTime: id => gistBackups.getBackupTime(id) });
 const gistBackups = setupGistBackups({
   panel: projectsPanel.querySelector('[data-gist-backups]'),
   getActive: () => activeSavedProject,
   getProject: () => normalizeProject(editor.getProject()),
   canBackUp: () => !editor.isInteracting() && (!joiningLive || Boolean(liveBoard?.ready())),
   link: savedProjects.linkGist,
+  onBackupChange: savedProjects.syncBackupTimes,
   openProject(project) {
     if (liveBoard || editor.isInteracting()) throw new Error('End the live session or finish editing before opening a backup.');
     const restored = normalizeProject(project);

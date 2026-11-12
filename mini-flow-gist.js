@@ -74,11 +74,11 @@ async function readSnapshot(id, token, name) {
   return backup;
 }
 
-export function setupGistBackups({ panel, getActive, getProject, canBackUp, link, openProject }) {
+export function setupGistBackups({ panel, getActive, getProject, canBackUp, link, openProject, onBackupChange }) {
   const get = key => panel.querySelector('[data-gist-' + key + ']');
   const address = get('id'), token = get('token'), status = get('status');
   const picker = get('picker'), select = get('snapshot'), load = get('load');
-  const lastBackup = get('last-backup'), backupTime = get('backup-time');
+  const lastBackup = get('last-backup'), backupTime = get('backup-time'), autoBackup = get('auto');
   const credentials = new Map(), backupTimes = new Map();
   const backedUp = new WeakMap();
   let current, currentGist, tokenGist, foundId, busy = false;
@@ -113,8 +113,15 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
     const id = enteredGist();
     if ((tokenGist && tokenGist !== id) || !token.value) token.value = savedToken(id) ?? '';
     tokenGist = id;
+    autoBackup.checked = Boolean(id && id === currentGist && current?.autoBackup !== false);
+    picker.hidden = true;
   });
   token.addEventListener('input', () => { tokenGist = enteredGist(); });
+
+  function getBackupTime(id) {
+    const time = id && (backupTimes.get(id) ?? readStored('localStorage', timeKey(id)));
+    return time && Number.isFinite(Date.parse(time)) ? time : undefined;
+  }
 
   function refresh() {
     const active = getActive();
@@ -125,19 +132,20 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
       currentGist = tokenGist = id;
       address.value = id ?? '';
       token.value = savedToken(id) ?? '';
-      picker.hidden = load.hidden = true;
+      autoBackup.checked = Boolean(id && active?.autoBackup !== false);
+      picker.hidden = true;
     }
-    const time = id && (backupTimes.get(id) ?? readStored('localStorage', timeKey(id)));
-    const date = time && new Date(time);
+    const time = getBackupTime(id);
     lastBackup.hidden = !id;
-    if (date && Number.isFinite(date.getTime())) {
+    if (time) {
       backupTime.dateTime = time;
-      backupTime.textContent = date.toLocaleString();
+      backupTime.textContent = new Date(time).toLocaleString();
     } else {
       backupTime.removeAttribute('datetime');
       backupTime.textContent = 'No backup recorded yet';
     }
     get('connect').disabled = busy || !active;
+    autoBackup.disabled = busy || !active;
     get('sync').disabled = busy || !active?.gist;
     get('disconnect').hidden = !active?.gist;
     get('disconnect').disabled = busy;
@@ -153,13 +161,15 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
     finally { busy = false; refresh(); }
   }
 
-  async function backup(active, access, automatic = false) {
-    if (!canBackUp()) {
+  async function backup(record, access, automatic = false) {
+    const active = getActive();
+    const isCurrent = active?.name === record.name;
+    if (isCurrent && !canBackUp()) {
       if (!automatic) throw new Error('Finish editing before backing up.');
       return;
     }
-    const id = active.gist;
-    const data = { version: 1, name: active.name, project: getProject() };
+    const id = record.gist;
+    const data = { version: 1, name: record.name, project: isCurrent ? getProject() : record.project };
     const key = JSON.stringify([id, data]);
     if (automatic && backedUp.get(active) === key) return;
     const { changed, time } = await saveGistSnapshot(id, access, data);
@@ -168,8 +178,11 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
     if (tokenGist === id && !token.value) token.value = access;
     backupTimes.set(id, time);
     writeStored('localStorage', timeKey(id), time);
-    backedUp.set(active, key);
-    if (getActive() === active) status.textContent = changed ? 'Gist backup saved.' : 'Gist backup is up to date.';
+    if (isCurrent) backedUp.set(active, key);
+    onBackupChange();
+    const message = changed ? 'Gist backup saved.' : 'Gist backup is up to date.';
+    if (isCurrent && getActive() === active) status.textContent = message;
+    return message;
   }
 
   get('connect').onclick = () => run(async () => {
@@ -178,9 +191,30 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
     const id = gistId(address.value);
     const access = accessFor(id);
     if (!access) throw new Error('Enter a GitHub token with Gists write permission.');
-    await gistRequest(id, access);
-    await link(id, active);
-    if (getActive() === active) await backup(active, access);
+    const gist = await gistRequest(id, access);
+    await link(id, active, autoBackup.checked);
+    credentials.set(id, access);
+    writeStored('sessionStorage', tokenKey(id), access);
+    if (getActive() === active) {
+      token.value = access;
+      status.textContent = 'Gist connected. Use Back up now to save a snapshot.';
+    }
+    const latest = snapshots(gist)[0];
+    if (latest) {
+      const time = snapshotTime(latest);
+      backupTimes.set(id, time);
+      writeStored('localStorage', timeKey(id), time);
+      onBackupChange();
+    }
+  });
+  autoBackup.addEventListener('change', () => {
+    const active = getActive();
+    if (!active?.gist || enteredGist() !== active.gist) return;
+    const enabled = autoBackup.checked;
+    return run(async () => {
+      try { await link(active.gist, active, enabled); }
+      finally { autoBackup.checked = active.autoBackup !== false; }
+    });
   });
   get('sync').onclick = () => run(async () => {
     const active = getActive();
@@ -198,11 +232,11 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
     credentials.delete(id);
     writeStored('sessionStorage', tokenKey(id), undefined);
     address.value = token.value = '';
-    picker.hidden = load.hidden = true;
+    picker.hidden = true;
     status.textContent = 'Gist disconnected.';
   });
   get('open').onclick = () => run(async () => {
-    picker.hidden = load.hidden = true;
+    picker.hidden = true;
     const id = gistId(address.value);
     const gist = await gistRequest(id, accessFor(id));
     const names = snapshots(gist);
@@ -212,7 +246,7 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
       const time = snapshotTime(name);
       return new Option(new Date(time).toLocaleString() + ' · ' + name.slice(-12, -5), name);
     }));
-    picker.hidden = load.hidden = false;
+    picker.hidden = false;
     status.textContent = '';
   });
   load.onclick = () => run(async () => {
@@ -225,8 +259,16 @@ export function setupGistBackups({ panel, getActive, getProject, canBackUp, link
   setInterval(() => {
     const active = getActive();
     const access = savedToken(active?.gist);
-    if (access) run(() => backup(active, access, true));
+    if (access && active.autoBackup !== false) return run(() => backup(active, access, true));
   }, interval);
   refresh();
-  return { refresh };
+  return { refresh, getBackupTime, async backupProject(record) {
+    if (busy) throw new Error('A Gist action is already running.');
+    const access = enteredGist() === record.gist ? accessFor(record.gist) : savedToken(record.gist);
+    if (!access) throw new Error('Open this project and enter its GitHub token to back it up.');
+    busy = true;
+    refresh();
+    try { return await backup(record, access); }
+    finally { busy = false; refresh(); }
+  } };
 }

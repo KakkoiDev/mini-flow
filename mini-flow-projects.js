@@ -33,8 +33,8 @@ function readProjects() {
   });
 }
 
-function writeProject(name, project, active, gist = active?.name === name ? active.gist : undefined) {
-  const record = { name, project, revision: crypto.randomUUID(), updatedAt: Date.now(), ...(gist ? { gist } : {}) };
+function writeProject(name, project, active, gist = active?.name === name ? active.gist : undefined, autoBackup = active?.autoBackup) {
+  const record = { name, project, revision: crypto.randomUUID(), updatedAt: Date.now(), ...(gist ? { gist, autoBackup } : {}) };
   return projects('readwrite', (store, done, abort) => {
     const existing = store.get(name);
     existing.onsuccess = () => {
@@ -46,8 +46,18 @@ function writeProject(name, project, active, gist = active?.name === name ? acti
         abort(new Error('This project changed in another tab. Save your board under a different name to keep both copies.'));
         return;
       }
-      const write = store.put(record);
-      write.onsuccess = () => done(record);
+      function save() {
+        const write = store.put(record);
+        write.onsuccess = () => done(record);
+      }
+      if (gist && existing.result?.gist !== gist) {
+        const linked = store.getAll();
+        linked.onsuccess = () => {
+          if (linked.result.some(item => item.name !== name && item.gist === gist)) {
+            abort(new Error('This Gist is already linked to another saved project in this browser.'));
+          } else save();
+        };
+      } else save();
     };
   });
 }
@@ -74,7 +84,7 @@ function manageProject(record, newName) {
   });
 }
 
-export function setupSavedProjects({ panel, editor, normalize, getActive, setActive, onError }) {
+export function setupSavedProjects({ panel, editor, normalize, getActive, setActive, onError, onBackup, getBackupTime }) {
   const form = panel.querySelector('#saved-project-form');
   const nameField = form.elements.name;
   const saveButton = panel.querySelector('#save-project');
@@ -216,6 +226,18 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
     };
   }
 
+  function syncBackupTimes() {
+    for (const { record, backupTime } of rows.values()) {
+      if (!backupTime) continue;
+      const timestamp = getBackupTime(record.gist);
+      if (timestamp) setSavedTime(backupTime, Date.parse(timestamp));
+      else {
+        backupTime.removeAttribute('datetime');
+        backupTime.textContent = 'No backup yet';
+      }
+    }
+  }
+
   function updateRow({ record, title, open, remove, time }) {
     title.textContent = record.name;
     title.dataset.projectName = record.name;
@@ -293,9 +315,38 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
       updateRow(entry);
       actions.append(open, remove);
       row.append(details, actions);
+      if (record.gist) {
+        const backupRow = document.createElement('div');
+        backupRow.className = 'project-gist-actions';
+        const backup = makeButton('Back up to Gist', async () => {
+          backup.disabled = true;
+          try {
+            await writes;
+            const latest = (await readProjects()).find(item => item.name === record.name);
+            if (!latest || latest.gist !== record.gist) throw new Error('Reopen this project to refresh its Gist settings.');
+            message.textContent = await onBackup(latest);
+          } catch (error) {
+            message.textContent = error.message;
+          } finally {
+            backup.disabled = false;
+          }
+        }, record.name);
+        const gistLink = document.createElement('a');
+        gistLink.href = 'https://gist.github.com/' + encodeURIComponent(record.gist);
+        gistLink.target = '_blank';
+        gistLink.rel = 'noopener noreferrer';
+        gistLink.textContent = 'Open Gist';
+        const lastBackup = document.createElement('small');
+        const backupTime = document.createElement('time');
+        lastBackup.append('Last backup · ', backupTime);
+        entry.backupTime = backupTime;
+        backupRow.append(backup, gistLink, lastBackup);
+        row.append(backupRow);
+      }
       list.append(row);
     }
     markCurrentProject();
+    syncBackupTimes();
   }
 
   function markCurrentProject() {
@@ -345,11 +396,11 @@ export function setupSavedProjects({ panel, editor, normalize, getActive, setAct
       updateSaveButton();
     }
   };
-  return { refresh, syncActive, async linkGist(gist, active) {
+  return { refresh, syncActive, syncBackupTimes, async linkGist(gist, active, autoBackup = false) {
     await enqueue(async () => {
       if (!active || getActive() !== active || active.deleted) throw new Error('Open the project you want to connect.');
-      const record = await writeProject(active.name, normalize(editor.getProject()), active, gist);
-      Object.assign(active, { revision: record.revision, gist });
+      const record = await writeProject(active.name, normalize(editor.getProject()), active, gist, autoBackup);
+      Object.assign(active, { revision: record.revision, gist, autoBackup });
       if (getActive() === active) setActive(record, { reuse: true });
     });
     await refresh();

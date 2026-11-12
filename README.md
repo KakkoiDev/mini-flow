@@ -242,18 +242,21 @@ Open a saved project and expand **GitHub Gist backup** in Projects.
    Read and write**. No repository permissions are needed.
 3. Paste the token into Mini Flow and choose **Connect project**.
 
-While the tab is open, Mini Flow checks for changes every
-five minutes. **Back up now** saves a changed snapshot immediately. Each
-snapshot has its own file, so edits from different machines can be opened
-independently. The panel shows the last snapshot time recorded for that Gist.
+Use a dedicated Gist for each project. A connected project shows **Back up to
+Gist**, **Open Gist**, and the last backup time in the project list. Each backup
+saves a snapshot of that project. New connections start with manual backups.
+You can enable automatic checks every five minutes while the project is open.
+Existing connections retain their previous automatic backup setting.
+
 The token stays masked and is kept in the current tab's session storage so
-backups resume after reload. It is sent to GitHub for Gist API requests.
+you can keep backing up after reload. It is sent to GitHub for Gist API requests.
 **Disconnect** stops backups from this project and clears the saved token.
 
 On another machine, paste the Gist link and choose **Find backups**. Select a
 snapshot to open it as a working copy. Use **Save as Project** to give it a local
 name, then connect that project to the same Gist to continue backing up.
-Anyone with the Gist link can read its backups.
+Anyone with the Gist link can read its backups. For joint editing, share a
+live-session link. The host can back up the shared board with their own token.
 
 When the host ends the session or a guest leaves, the guest can continue
 editing their own copy. Mini Flow switches the guest's URL to a snapshot and

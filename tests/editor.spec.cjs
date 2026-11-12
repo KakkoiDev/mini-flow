@@ -184,8 +184,14 @@ test('a saved project backs up to a Gist and opens on another tab', async ({ pag
   await page.getByText('GitHub Gist backup', { exact: true }).click();
   await page.getByLabel('Gist URL or ID').fill(id);
   await page.getByLabel('GitHub token for backups').fill('test-token');
+  await expect(page.getByRole('checkbox', { name: /Back up automatically/ })).not.toBeChecked();
   await page.getByRole('button', { name: 'Connect project', exact: true }).click();
-  await expect(page.getByText('Gist backup saved.', { exact: true })).toBeVisible();
+  const rowBackup = page.getByRole('button', { name: 'Back up to Gist Gist example', exact: true });
+  await expect(rowBackup).toBeVisible();
+  expect(Object.keys(files)).toHaveLength(1);
+  await expect(page.getByRole('link', { name: 'Open Gist', exact: true })).toHaveAttribute('href', 'https://gist.github.com/' + id);
+  await rowBackup.click();
+  await expect(page.locator('[data-gist-status]')).toHaveText('Gist backup saved.');
   const backupTime = page.locator('[data-gist-backup-time]');
   await expect(backupTime).toHaveAttribute('datetime', /Z$/);
   const savedAt = await backupTime.getAttribute('datetime');
@@ -195,6 +201,7 @@ test('a saved project backs up to a Gist and opens on another tab', async ({ pag
   await expect(page.getByLabel('GitHub token for backups')).toHaveValue('test-token');
   await expect(page.getByLabel('GitHub token for backups')).toHaveAttribute('type', 'password');
   await expect(backupTime).toHaveAttribute('datetime', savedAt);
+  await expect(page.getByRole('checkbox', { name: /Back up automatically/ })).not.toBeChecked();
   await page.getByRole('button', { name: 'Back up now', exact: true }).click();
   await expect(page.getByText('Gist backup is up to date.', { exact: true })).toBeVisible();
   await expect(backupTime).toHaveAttribute('datetime', savedAt);
