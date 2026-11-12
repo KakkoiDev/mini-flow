@@ -218,13 +218,13 @@ The host owns Undo and Redo, and accepted edits
 and Undo or Redo sync to everyone. If edits conflict, the guest sees the current
 board and can retry.
 
-Select a sticky note and open **Comments** below it. After someone replies,
+Select a sticky note and click **Comment** below it. After someone replies,
 the reply count in that spot opens the same conversation. Use a reply's **⋯**
 menu to edit or delete it. Guests can manage their own replies during the live
 session. The host can manage any reply, including after its author leaves.
 Replies keep the original author label and show when the host edited them.
-When an AI guest joins, **Ask AI** in the conversation header sends the note and
-the conversation to that guest.
+When an AI guest joins, **Ask AI** beside the note or in the conversation header
+sends the note and conversation to that guest.
 Type a follow-up before clicking **Ask AI** to include it in the request.
 The note shows when it is waiting, who claimed it, and a compact result.
 Conversations survive reload in the same tab and are included in saved projects

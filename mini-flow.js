@@ -417,9 +417,12 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       const active = node && ['waiting', 'working'].includes(aiRequests[node.id]?.phase);
       const ask = noteAction.querySelector('[data-ask-ai]');
       if (ask) ask.disabled = Boolean(active);
-      const hasConversationBadge = request && (request.hasThread || request.phase === 'result');
+      const badge = noteActionBelow && node && (request?.hasThread || request?.phase === 'result')
+        ? svg.querySelector(`[data-note-reply="${CSS.escape(node.id)}"]`) : null;
+      const emptyAction = noteAction.querySelector('[data-note-empty]');
+      if (emptyAction) emptyAction.hidden = Boolean(badge);
       noteAction.hidden = !node || !noteActionAvailable || Boolean(editing || drag) ||
-        Boolean(noteActionBelow && hasConversationBadge);
+        Boolean(badge && (!ask || ask.hidden));
       if (noteAction.hidden) return;
       const right = (node.x + radius(node) - cameraX) * zoom;
       const upper = (node.y - height(node) - cameraY) * zoom;
@@ -428,8 +431,18 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         noteAction.hidden = true;
         return;
       }
-      const left = noteActionBelow ? right - noteAction.offsetWidth + 8 * zoom : right - 8;
-      const top = noteActionBelow ? upper + (2 * height(node) + 6) * zoom : upper - noteAction.offsetHeight + 7;
+      let left = noteActionBelow ? right - noteAction.offsetWidth + 8 * zoom : right - 8;
+      let top = noteActionBelow ? upper + (2 * height(node) + 6) * zoom : upper - noteAction.offsetHeight + 7;
+      if (badge) {
+        const bounds = badge.getBoundingClientRect();
+        const frame = viewport.getBoundingClientRect();
+        left = bounds.left - frame.left - noteAction.offsetWidth - 4;
+        top = (bounds.top + bounds.bottom - noteAction.offsetHeight) / 2 - frame.top;
+        if (left < 4) {
+          left = bounds.left - frame.left;
+          top = bounds.bottom - frame.top + 4;
+        }
+      }
       noteAction.style.left = Math.max(4, Math.min(left, viewport.clientWidth - noteAction.offsetWidth - 4)) + 'px';
       noteAction.style.top = Math.max(4, Math.min(top, viewport.clientHeight - noteAction.offsetHeight - 4)) + 'px';
     }
@@ -986,6 +999,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         defs.append(marker);
       }
       svg.append(defs);
+      const conversationBadges = [];
       const drafts = includeDrafts ? remoteDrafts : [];
       const nodeDrafts = new Map(drafts.filter(draft => draft.position).map(draft => [draft.id, draft]));
       const edgeDrafts = new Map(drafts.filter(draft => draft.type === 'edge').map(draft => [draft.index, draft]));
@@ -1173,7 +1187,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           });
         }
         svg.append(group);
-        if (aiBadge) svg.append(aiBadge);
+        if (aiBadge) conversationBadges.push(aiBadge);
         if (focus === node) group.focus();
       }
       for (const draft of nodeDrafts.values()) {
@@ -1190,6 +1204,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         labelText({ 'text-anchor': 'middle' }, node.label));
         svg.append(ghost);
       }
+      svg.append(...conversationBadges);
       positionBendControls();
       positionNoteAction();
       renderPresence();

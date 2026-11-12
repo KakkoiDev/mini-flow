@@ -86,7 +86,8 @@ dialog button:disabled{opacity:.5;cursor:default}
 .ai-reply-menu summary{cursor:pointer;list-style:none;border-radius:6px;min-width:32px;min-height:30px;text-align:center;line-height:30px}
 .ai-reply-menu summary::-webkit-details-marker{display:none}
 .ai-reply-menu summary:hover,.ai-reply-menu[open] summary{background:#fffdfb}
-.ai-reply-menu div{display:grid;min-width:110px;padding:4px;background:#fffdfb;border:1px solid #ded9d2;border-radius:8px;box-shadow:0 4px 12px #2a242019}
+.ai-reply-menu div{position:fixed;z-index:2;display:grid;min-width:110px;padding:4px;background:#fffdfb;border:1px solid #ded9d2;border-radius:8px;box-shadow:0 4px 12px #2a242019}
+.ai-reply-menu div:not([data-positioned]){visibility:hidden}
 .ai-reply-menu button{justify-content:flex-start;border:0;padding:6px 10px}
 .ai-reply-delete{color:#9c2c25}
 .ai-reply-edit-actions{margin-top:8px}
@@ -270,7 +271,7 @@ dialog button:disabled{opacity:.5;cursor:default}
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=reply-management"></script>
+<script src="./mini-flow.js?v=reply-overlay"></script>
 <script type="module">
 const example = `flowchart TD
     A([Prompt In])
@@ -759,6 +760,28 @@ function renderThreadMessage(message) {
   trigger.textContent = '⋯';
   trigger.setAttribute('aria-label', 'Reply actions for ' + message.author);
   const options = document.createElement('div');
+  menu.addEventListener('toggle', () => {
+    if (!menu.open) {
+      delete options.dataset.positioned;
+      return;
+    }
+    for (const other of replyMessages.querySelectorAll('.ai-reply-menu[open]')) {
+      if (other !== menu) other.open = false;
+    }
+    const anchor = trigger.getBoundingClientRect();
+    const gap = 4;
+    const top = anchor.bottom + gap + options.offsetHeight <= window.innerHeight - 8
+      ? anchor.bottom + gap : anchor.top - gap - options.offsetHeight;
+    options.style.top = Math.max(8, top) + 'px';
+    options.style.left = Math.max(8, anchor.right - options.offsetWidth) + 'px';
+    options.dataset.positioned = '';
+  });
+  menu.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !menu.open) return;
+    event.preventDefault();
+    menu.open = false;
+    trigger.focus();
+  });
   function begin(remove) {
     replyError = '';
     replyEditor = { replyId: message.replyId, previousText: message.text, text: message.text, remove };
@@ -852,6 +875,14 @@ openAIReply = (noteId, label) => {
   replyDialog.showModal();
   replyClose.focus();
 };
+function dismissReplyMenus(target) {
+  for (const menu of replyMessages.querySelectorAll('.ai-reply-menu[open]')) {
+    if (!target || !menu.contains(target)) menu.open = false;
+  }
+}
+replyDialog.addEventListener('click', event => dismissReplyMenus(event.target));
+replyMessages.addEventListener('scroll', () => dismissReplyMenus());
+window.addEventListener('resize', () => dismissReplyMenus());
 replyClose.onclick = () => replyDialog.close();
 replyDialog.addEventListener('close', () => {
   const noteId = replyTarget;
@@ -916,15 +947,35 @@ noteActions.className = 'note-actions';
 const commentButton = document.createElement('button');
 commentButton.type = 'button';
 commentButton.className = 'note-action';
-commentButton.textContent = 'Comments';
+commentButton.textContent = 'Comment';
+commentButton.dataset.noteEmpty = '';
 commentButton.setAttribute('aria-haspopup', 'dialog');
 commentButton.onclick = () => {
   const note = MiniFlow.parse(editor.getProject().source).nodes.find(node => node.id === selectedNoteId);
   if (note) openAIReply(note.id, note.label);
 };
+const askButton = document.createElement('button');
+askButton.type = 'button';
+askButton.className = 'note-action';
+askButton.dataset.askAi = '';
+askButton.textContent = 'Ask AI';
+askButton.title = 'Send this note and its conversation to the AI guest';
 let connectedAI = 0;
-noteActions.append(commentButton);
+noteActions.append(askButton, commentButton);
+askButton.onclick = async () => {
+  if (!liveBoard?.ready() || !selectedNoteId || askButton.disabled) return;
+  askButton.disabled = true;
+  try {
+    const result = await liveBoard.askAI(selectedNoteId);
+    liveNotice.textContent = result.ok ? 'An AI guest received the note.' : result.message;
+  } catch {
+    liveNotice.textContent = 'Could not send the note to an AI guest.';
+  } finally {
+    refreshAskAI();
+  }
+};
 refreshAskAI = () => {
+  askButton.hidden = connectedAI === 0;
   editor.setNoteAction(noteActions, !joiningLive || Boolean(liveBoard?.ready()), { below: true });
 };
 refreshAskAI();
