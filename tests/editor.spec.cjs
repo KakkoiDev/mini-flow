@@ -4,6 +4,25 @@ test.beforeEach(async ({ page }) => {
   await page.goto('http://127.0.0.1:8765/');
 });
 
+test('copies a direct AI guest invite and resets its label after three seconds', async ({ page }) => {
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: {
+      async writeText(value) { window.copiedAIInvite = value; }
+    } });
+  });
+  await page.clock.install();
+  await page.getByRole('button', { name: 'Live session', exact: true }).click();
+  await page.getByRole('button', { name: 'Start live session' }).click();
+  await page.getByText('AI guests', { exact: true }).click();
+  await page.getByRole('button', { name: 'Copy AI invite' }).click();
+  await expect(page.getByRole('button', { name: 'AI invite copied' })).toBeVisible();
+  const invite = await page.evaluate(() => window.copiedAIInvite);
+  expect(invite).toContain('await window.miniFlowLiveAI.register_live_agent({})');
+  expect(invite).toContain('wait_for_ai_request');
+  await page.clock.fastForward(3000);
+  await expect(page.getByRole('button', { name: 'Copy AI invite' })).toBeVisible();
+});
+
 test('collapses the custom relay and toggles AI approval in the live dialog', async ({ page }) => {
   await page.getByRole('button', { name: 'Live session', exact: true }).click();
   const relay = page.getByRole('textbox', { name: 'Relay URL' });

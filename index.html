@@ -746,7 +746,7 @@ document.querySelector('#share').onclick = async () => {
     message.textContent = joiningLive ? 'Could not copy the board link.' : 'Copy the link from your address bar.';
   }
 };
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=live-retry-relay';
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=live-guest-api';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
 import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=live-retry-relay';
 import { setupGistBackups } from './mini-flow-gist.js?v=project-sync-revisions';
@@ -1255,6 +1255,7 @@ let connectionTimer;
 let liveNetwork;
 let connectionWaited = false;
 let copiedTimer;
+let aiCopiedTimer;
 
 function liveDebugReport() {
   if (!debugAttempt) return null;
@@ -1358,6 +1359,7 @@ function ended() {
   liveNetworkStatus.hidden = true;
   clearTimeout(connectionTimer);
   clearTimeout(copiedTimer);
+  clearTimeout(aiCopiedTimer);
   copyInvite.textContent = 'Copy invite';
   copyAIInvite.textContent = 'Copy AI invite';
   aiOptions.open = false;
@@ -1513,13 +1515,16 @@ copyInvite.onclick = async () => {
 copyAIInvite.onclick = async () => {
   try {
     await navigator.clipboard.writeText([
-      'Join this Mini Flow live session as an AI guest using WebMCP.',
-      'Open the invite in a browser with WebMCP tool access. When it says Live · Connected, call register_live_agent({}). Use one tab and one waiter. If tools are missing, use the browser’s documented WebMCP access or report the blocker.',
-      'Call wait_for_ai_request({after: 0}). On null, wait again with the same cursor. For a claimed request, read get_board once, use note.target and request.thread, then answer or apply the smallest requested edit using that revision. A successful single edit finishes the request. For longer work, report progress before five minutes of silence and finish with report_ai_activity({message: "", result: "…"}). To report a failure, include failed: true. If the request is cancelled, wait for the next one. If the host declines the edit or a retry fails, report the failure. On a revision conflict, reread once before retrying.',
-      'After handling a request, immediately wait again with after set to its sequence. Keep listening until the session ends or I ask you to stop.',
-      inviteInput.value
+      'Join this Mini Flow board as an AI guest now:\n' + inviteInput.value,
+      'The live board is in that browser tab. Use its tools to read and edit it. You can start immediately without a local checkout or an MCP server.',
+      'Connect: Open the link in one tab and wait for Live · Connected. If your browser lists page WebMCP tools, call register_live_agent with {} on that tab. Otherwise, use your browser’s JavaScript evaluator in the page context and run `await window.miniFlowLiveAI.register_live_agent({})`. Each tool below is also a method with the same name and arguments on window.miniFlowLiveAI. The methods return JavaScript objects. If neither method is available, report the blocker.',
+      'Listen: Call wait_for_ai_request with {"after":0,"timeoutMs":12000}. Keep one wait in flight. If request is null, call again with the same after value. Act only when a request is returned.',
+      'Answer: Use request.note.text, request.note.target, and request.thread. For a reply, call report_ai_activity with {"message":"","result":"<short answer>"}. For an edit, call get_board with {} once, then apply_board_edit with {"revision":"<from get_board>","edits":[{"op":"rename_node","id":"<target ID>","label":"<new label>"}],"message":"<short summary>"}. Make the smallest requested change. Wait for the edit result if the host reviews it. A successful single edit closes the request. If a longer task needs progress, send {"message":"<progress>"} to report_ai_activity before five minutes of silence, then finish with an empty message and a result. If blocked, send {"message":"","failed":true,"result":"<reason>"}. On a revision conflict, reread once. On cancellation, resume listening.',
+      'Repeat: After handling a request, immediately call wait_for_ai_request with after set to request.sequence. Stay in the same tab until the session ends or I ask you to stop.'
     ].join('\n\n'));
     copyAIInvite.textContent = 'AI invite copied';
+    clearTimeout(aiCopiedTimer);
+    aiCopiedTimer = setTimeout(() => { copyAIInvite.textContent = 'Copy AI invite'; }, 3000);
   } catch {
     showStatus('Could not copy the AI invite.');
   }
@@ -1534,6 +1539,7 @@ if (joiningLive) {
 }
 
 registerMiniFlowTools(editor, undefined, undefined, {
+  exposeTools: joiningLive ? tools => { window.miniFlowLiveAI = tools; } : undefined,
   registerAgent: joiningLive ? () => liveBoard?.registerAgent() ?? { ok: false, reason: 'live_not_ready' } : undefined,
   waitForAIRequest: joiningLive ? (after, timeoutMs) => liveBoard?.waitForAIRequest(after, timeoutMs) ??
     { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' } : undefined,

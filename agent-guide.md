@@ -108,13 +108,19 @@ editing link, so keep it within the session.
 
 ## Fast path for live AI guests
 
-1. Open the invite in one WebMCP-capable tab. When it says **Live · Connected**, call `register_live_agent({})` once. Discover tools through the browser's documented WebMCP interface. If that interface is unavailable, report the blocker.
+1. Open the invite in one browser tab. When it says **Live · Connected**, call `register_live_agent({})` through the browser's page WebMCP tools or run `await window.miniFlowLiveAI.register_live_agent({})` through its page JavaScript evaluator. The live board is in the tab and needs no local checkout or standalone MCP server.
 2. Call `wait_for_ai_request({"after":0})`. Keep one wait in flight. A null result means wait again with the same cursor. Historical timeout messages in `request.thread` are context. A newly claimed request is active.
 3. For an edit, call `get_board` once. Use `request.note.target` to find the target and `request.thread` to resolve follow-ups. If the user asks to rename one node, issue one `rename_node`. Use the returned revision. A successful single batch closes the request automatically.
 4. For longer work, call `report_ai_activity({"message":"…"})` when you make progress and before five minutes of silence. Finish with `{"message":"","result":"…"}`. If blocked, send `{"message":"","failed":true,"result":"<specific reason>"}` so the requester can retry. Use an empty message and a result for answer-only requests too.
 5. On a revision conflict, reread once and retry if the requested edit still applies. On cancellation, wait for the next request. If the host declines the edit or the retry fails, report the failure and resume waiting. After each handled request, pass its `sequence` as `after`.
 
 ## WebMCP site tools
+
+On a live guest tab, each tool below is also available as a method on
+`window.miniFlowLiveAI`, with the same argument object and a JavaScript object
+as the result. For example, run
+`await window.miniFlowLiveAI.wait_for_ai_request({ after: 0, timeoutMs: 12000 })`
+in the page context.
 
 Use a live invite to join the user's existing board from a separate browser.
 For direct tab control, attach the exact tab through the browser picker.

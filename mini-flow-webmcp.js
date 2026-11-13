@@ -100,8 +100,10 @@ function applyEdits(project, edits, library) {
 }
 
 export async function registerMiniFlowTools(editor, library = globalThis.MiniFlow, context = document.modelContext, options = {}) {
+  const definitions = [];
+  const registry = { registerTool: tool => { definitions.push(tool); } };
   await registerRevisionedBoardTools({
-    context, editSchema, tabId: options.tabId, isReady: options.isReady,
+    context: registry, editSchema, tabId: options.tabId, isReady: options.isReady,
     getProject: () => editor.getProject(),
     applyEdits: (project, edits) => applyEdits(project, edits, library),
     commitProject: options.commitProject ?? ((project, message) => {
@@ -111,8 +113,8 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
     readDescription: 'Read the Mini Flow diagram in this tab. Returns its tab ID, revision, and project, including node positions and Mermaid metadata for notes and bends. Read before applying edits.',
     editDescription: 'Edit the Mini Flow diagram in this tab. Use the revision from get_board on this same tab. Applies the full batch as one Undo step and highlights changes. A revision conflict leaves the board untouched.'
   });
-  if (typeof context?.registerTool === 'function' && options.registerAgent) {
-    await context.registerTool({
+  if (options.registerAgent) {
+    registry.registerTool({
       name: 'register_live_agent',
       description: 'Identify this connected browser guest as an AI agent. Open the live invite in a browser with WebMCP access, wait for Live · Connected, then call this tool before editing.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -120,8 +122,8 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
       execute: () => options.registerAgent()
     });
   }
-  if (typeof context?.registerTool === 'function' && options.waitForAIRequest) {
-    await context.registerTool({
+  if (options.waitForAIRequest) {
+    registry.registerTool({
       name: 'wait_for_ai_request',
       description: 'Wait for Ask AI and claim the request exclusively. Only the first AI acknowledged by the host gets the task. Pass the last handled sequence as after (start at 0). Use get_board to verify the current target. On a follow-up, use the preceding messages in request.thread as context. On a null request, wait again with the same cursor. After reporting each result, immediately wait again with the handled sequence as after. Keep listening until the live session disconnects or the user asks you to stop.',
       inputSchema: {
@@ -134,8 +136,8 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
       execute: ({ after, timeoutMs } = {}) => options.waitForAIRequest(after, timeoutMs)
     });
   }
-  if (typeof context?.registerTool === 'function' && options.reportAIActivity) {
-    await context.registerTool({
+  if (options.reportAIActivity) {
+    registry.registerTool({
       name: 'report_ai_activity',
       description: 'Send a short message to show progress and renew the five-minute idle timeout. Finish with an empty message and optional result. To mark a request failed and show Retry, send an empty message, failed: true, and the reason in result.',
       inputSchema: { type: 'object', additionalProperties: false, required: ['message'],
@@ -143,5 +145,8 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
       execute: ({ message, result, failed } = {}) => options.reportAIActivity(message, result, failed)
     });
   }
+  options.exposeTools?.(Object.freeze(Object.fromEntries(definitions.map(({ name, execute }) => [name, execute]))));
+  if (typeof context?.registerTool !== 'function') return;
+  for (const tool of definitions) await context.registerTool(tool);
 }
 

@@ -56,8 +56,10 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.deepEqual(secondGuest.getProject(), host.getProject());
 
     const tools = new Map();
+    let pageTools;
     await registerMiniFlowTools(guest, MiniFlow, { registerTool: tool => tools.set(tool.name, tool.execute) }, {
       tabId: 'guest', isReady: guest.session.ready, commitProject: guest.session.submitAIEdit,
+      exposeTools: api => { pageTools = api; },
       registerAgent: guest.session.registerAgent, waitForAIRequest: guest.session.waitForAIRequest
     });
     assert.deepEqual(host.counts(), { human: 2, ai: 0 });
@@ -68,7 +70,8 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.match(guestComment.replyId, /^[a-f0-9]{32}$/);
     assert.deepEqual(await host.session.askAI('N1'), { ok: true });
     assert.equal(host.requests().N1.phase, 'waiting');
-    assert.deepEqual(await tools.get('register_live_agent')({}), { ok: true });
+    assert.equal(pageTools.wait_for_ai_request, tools.get('wait_for_ai_request'));
+    assert.deepEqual(await pageTools.register_live_agent({}), { ok: true });
     await network.settle();
     assert.deepEqual(host.counts(), { human: 1, ai: 1 });
     assert.deepEqual(secondGuest.counts(), host.counts());
