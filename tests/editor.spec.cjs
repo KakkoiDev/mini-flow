@@ -11,7 +11,7 @@ test('opens a live invite in an existing Mini Flow tab', async ({ page }) => {
     return { hash: liveInviteHash(invite), relay: invite.relay };
   });
   await page.evaluate(hash => { location.hash = hash; }, hash);
-  await expect.poll(() => page.evaluate(() => typeof window.miniFlowLiveAI?.register_live_agent)).toBe('function');
+  await page.waitForFunction(() => typeof window.miniFlowLiveAI?.register_live_agent === 'function');
   await page.getByRole('button', { name: /Live session/ }).click();
   await page.getByText('Custom WebSocket relay', { exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Relay URL' })).toHaveValue(relay);
