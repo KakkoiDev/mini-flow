@@ -136,17 +136,17 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid #087f7
       <label id="live-ai-approval-setting" class="toggle-row" hidden>
         <input id="live-ai-approval" type="checkbox" role="switch" checked> Require approval for AI guest edits
       </label>
-      <label id="live-ai-idle-setting" class="toggle-row" hidden>
-        AI idle timeout
-        <select id="live-ai-idle">
-          <option value="5">5 minutes</option>
-          <option value="15">15 minutes</option>
-          <option value="30">30 minutes</option>
-        </select>
-      </label>
     </details>
     <p id="live-ai-approval-status" role="status" hidden></p>
   </div>
+  <label id="live-ai-idle-setting" class="toggle-row" hidden>
+    AI idle timeout
+    <select id="live-ai-idle">
+      <option value="5">5 minutes</option>
+      <option value="15">15 minutes</option>
+      <option value="30">30 minutes</option>
+    </select>
+  </label>
   <form method="dialog">
     <button id="live-start" type="button">Start live session</button>
     <button id="live-end" type="button" hidden>End session</button>
@@ -1261,6 +1261,12 @@ const aiApprovalSetting = document.querySelector('#live-ai-approval-setting');
 const aiApproval = document.querySelector('#live-ai-approval');
 const aiIdleSetting = document.querySelector('#live-ai-idle-setting');
 const aiIdleInput = document.querySelector('#live-ai-idle');
+const aiIdlePreference = 'mini-flow-ai-idle-minutes';
+try {
+  const preferred = localStorage.getItem(aiIdlePreference);
+  if (['5', '15', '30'].includes(preferred)) aiIdleInput.value = preferred;
+} catch {}
+aiIdleSetting.hidden = joiningLive;
 const aiApprovalStatus = document.querySelector('#live-ai-approval-status');
 const relaySetting = document.querySelector('#live-relay-setting');
 const relayInput = document.querySelector('#live-relay');
@@ -1383,7 +1389,7 @@ function ended() {
   copyAIInvite.textContent = 'Copy AI invite';
   aiOptions.open = false;
   aiApprovalSetting.hidden = true;
-  aiIdleSetting.hidden = true;
+  aiIdleSetting.hidden = false;
   aiApprovalStatus.hidden = true;
   relaySetting.hidden = false;
   relaySetting.open = false;
@@ -1434,7 +1440,7 @@ async function startLive(invite, host, recovery) {
       initialThreads: [...noteThreads],
       initialQueue: recovery?.queue,
       initialRequireAIApproval: recovery?.requireAIApproval,
-      initialAIIdleMinutes: recovery?.aiIdleMinutes,
+      initialAIIdleMinutes: recovery?.aiIdleMinutes ?? Number(aiIdleInput.value),
       onAIApprovalChange(required) {
         if (host) aiApproval.checked = required;
         aiApprovalStatus.hidden = required === null;
@@ -1482,7 +1488,7 @@ async function startLive(invite, host, recovery) {
     inviteInput.value = address.href;
     aiApprovalSetting.hidden = !host;
     aiIdleSetting.hidden = !host;
-    aiIdleInput.value = String(recovery?.aiIdleMinutes ?? 5);
+    if (recovery) aiIdleInput.value = String(recovery.aiIdleMinutes ?? 5);
     inviteRow.hidden = false;
     if (lacksLiveWebRTC()) logLiveDebug('WebRTC unavailable');
     connectionTimer = setTimeout(() => {
@@ -1518,7 +1524,10 @@ startSession.onclick = () => {
   }
 };
 endSession.onclick = () => liveBoard?.stop();
-aiIdleInput.onchange = () => liveBoard?.setAIIdleMinutes(Number(aiIdleInput.value));
+aiIdleInput.onchange = () => {
+  try { localStorage.setItem(aiIdlePreference, aiIdleInput.value); } catch {}
+  liveBoard?.setAIIdleMinutes(Number(aiIdleInput.value));
+};
 aiApproval.onchange = () => liveBoard?.setRequireAIApproval(aiApproval.checked);
 window.addEventListener('pagehide', () => {
   if (liveBoard?.host) liveBoard.suspend();

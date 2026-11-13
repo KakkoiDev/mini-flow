@@ -17,6 +17,22 @@ test('opens a live invite in an existing Mini Flow tab', async ({ page }) => {
   await expect(page.getByRole('textbox', { name: 'Relay URL' })).toHaveValue(relay);
 });
 
+test('remembers the host idle timeout selected before starting', async ({ page }) => {
+  const openLive = () => page.getByRole('button', { name: 'Live session', exact: true }).click();
+  const timeout = page.getByRole('combobox', { name: 'AI idle timeout' });
+  await openLive();
+  await expect(timeout).toHaveValue('5');
+  await timeout.selectOption('15');
+  await page.reload();
+  await openLive();
+  await expect(timeout).toHaveValue('15');
+  await page.getByRole('button', { name: 'Start live session' }).click();
+  await expect(page.getByRole('button', { name: 'End session' })).toBeVisible();
+  await expect(timeout).toHaveValue('15');
+  await page.getByRole('button', { name: 'End session' }).click();
+  await expect(timeout).toHaveValue('15');
+});
+
 test('copies a direct AI guest invite and resets its label after three seconds', async ({ page }) => {
   await page.evaluate(() => {
     Object.defineProperty(navigator, 'clipboard', { value: {
