@@ -118,8 +118,8 @@ editing link, so keep it within the session.
 
 On a live guest tab, each tool below is also available as a method on
 `window.miniFlowLiveAI`, with the same argument object and a JavaScript object
-as the result. For example, run
-`await window.miniFlowLiveAI.wait_for_ai_request({ after: 0, timeoutMs: 12000 })`
+as the result. Call `window.miniFlowLiveAI.help()` for the exact tool schemas. For example, run
+`await window.miniFlowLiveAI.wait_for_ai_request({ after: 0, timeoutMs: 10000 })`
 in the page context.
 
 Use a live invite to join the user's existing board from a separate browser.
@@ -135,7 +135,7 @@ A regular board link opens a snapshot.
   grants the request to one AI guest. The result contains the sequence,
   requester, note text, optional target, and preceding messages for a follow-up. Start with `after: 0` and read
   the board before acting, since the note may have changed. If the request
-  is null, wait again with the same cursor. After each result, immediately
+  is null, wait again with the same cursor. On `live_not_ready`, wait for the host to reconnect and keep your cursor. On `session_ended`, stop. After a page reload, register again and restart at zero. After each result, immediately
   wait again with `after` set to the handled sequence. Keep the turn active
   until the live session disconnects or the user asks you to stop.
 - `report_ai_activity` takes `{ message }` and shows a short progress

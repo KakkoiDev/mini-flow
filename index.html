@@ -346,7 +346,9 @@ const key = 'mini-flow-edit-v1';
 const draftThreadKey = 'mini-flow-draft-threads-v1';
 const prefix = '#flow=';
 const proposalPrefix = '#apply=';
-let joiningLive = location.hash.startsWith('#live=');
+const openedLiveInvite = location.hash.startsWith('#live=');
+let joiningLive = openedLiveInvite;
+let liveGuestEnded = false;
 let liveBoard;
 let activeSavedProject = joiningLive ? null : history.state?.miniFlowSavedProject;
 let syncSavedProjects;
@@ -746,9 +748,9 @@ document.querySelector('#share').onclick = async () => {
     message.textContent = joiningLive ? 'Could not copy the board link.' : 'Copy the link from your address bar.';
   }
 };
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=live-guest-api';
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=live-guest-guide';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=live-retry-relay';
+import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=live-guest-guide';
 import { setupGistBackups } from './mini-flow-gist.js?v=project-sync-revisions';
 import { setupSavedProjects } from './mini-flow-projects.js?v=project-sync-revisions';
 
@@ -1345,6 +1347,7 @@ function ended() {
   closeAIReply();
   replyDrafts.clear();
   const wasGuest = joiningLive;
+  if (wasGuest) liveGuestEnded = true;
   if (!wasGuest) {
     try {
       sessionStorage.removeItem(liveRecoveryKey);
@@ -1516,11 +1519,23 @@ copyAIInvite.onclick = async () => {
   try {
     await navigator.clipboard.writeText([
       'Join this Mini Flow board as an AI guest now:\n' + inviteInput.value,
-      'The live board is in that browser tab. Use its tools to read and edit it. You can start immediately without a local checkout or an MCP server.',
-      'Connect: Open the link in one tab and wait for Live · Connected. If your browser lists page WebMCP tools, call register_live_agent with {} on that tab. Otherwise, use your browser’s JavaScript evaluator in the page context and run `await window.miniFlowLiveAI.register_live_agent({})`. Each tool below is also a method with the same name and arguments on window.miniFlowLiveAI. The methods return JavaScript objects. If neither method is available, report the blocker.',
-      'Listen: Call wait_for_ai_request with {"after":0,"timeoutMs":12000}. Keep one wait in flight. If request is null, call again with the same after value. Act only when a request is returned.',
-      'Answer: Use request.note.text, request.note.target, and request.thread. For a reply, call report_ai_activity with {"message":"","result":"<short answer>"}. For an edit, call get_board with {} once, then apply_board_edit with {"revision":"<from get_board>","edits":[{"op":"rename_node","id":"<target ID>","label":"<new label>"}],"message":"<short summary>"}. Make the smallest requested change. Wait for the edit result if the host reviews it. A successful single edit closes the request. If a longer task needs progress, send {"message":"<progress>"} to report_ai_activity before five minutes of silence, then finish with an empty message and a result. If blocked, send {"message":"","failed":true,"result":"<reason>"}. On a revision conflict, reread once. On cancellation, resume listening.',
-      'Repeat: After handling a request, immediately call wait_for_ai_request with after set to request.sequence. Stay in the same tab until the session ends or I ask you to stop.'
+      'Use one browser tab for the live board. Keep this edit invite private. You need no local checkout or separate MCP server.',
+      '1. CONNECT. Open the link and wait for Live · Connected. Call the page WebMCP tool register_live_agent with {}. If your browser has no page tool binding, run `await window.miniFlowLiveAI.register_live_agent({})` in its page JavaScript evaluator. All the tools below are methods of that same object with identical arguments and plain object results. `window.miniFlowLiveAI.help()` lists their schemas. Expect {"ok":true}. If the host is connecting, wait and retry. After a page reload, register again and reset the cursor.',
+      '2. LISTEN. Start with cursor = 0. Call wait_for_ai_request with {"after":0,"timeoutMs":10000}, replacing after with the current cursor. Keep one wait in flight. A null request means wait again with the same cursor. On live_not_ready, pause 10 seconds and retry with the same cursor. After five minutes without a connection, report that the connection was lost and stop. On ai_not_connected, register again. On session_ended, stop. A returned request is your next job. Earlier timeout messages in its thread are history.',
+      '3. ANSWER. Read request.note.text and request.thread. Edit only when asked to change the board. For questions, messages addressed to someone else, or unclear requests, reply briefly in the note’s language using report_ai_activity with {"message":"","result":"<reply>"}. The target is null, {"type":"node","id":"A"}, or {"type":"arrow","from":"A","to":"B"}.',
+      '4. EDIT. Call get_board with {} once. Use its revision and project.source (Mermaid) and project.positions (node ID to [x,y]). Send apply_board_edit with {"revision":"<from get_board>","message":"<short summary>","edits":[...]}. Use only the changes requested. Supported edits:',
+      [
+        '{"op":"add_node","id":"C1","type":"terminal","label":"Start","position":[400,200]}',
+        '{"op":"add_node","id":"C2","type":"step","label":"Do the work","position":[400,310]}',
+        '{"op":"add_arrow","from":"C1","to":"C2"}',
+        '{"op":"rename_node","id":"C2","label":"New label"}',
+        '{"op":"move_node","id":"C2","position":[400,420]}',
+        '{"op":"delete_node","id":"C2"}'
+      ].join('\n'),
+      'The first three lines form one example batch. Node types are terminal, step, decision, and note. Use fresh IDs beginning with a letter. Add nodes before arrows, and connect only diagram blocks. Choose empty space based on project.positions, using roughly 110 px between rows and 220 px between branches. Arrow labels are optional. A batch allows up to 100 edits.',
+      'The edit call may wait for host review. If your page evaluator has a short timeout, run `(() => { window.miniFlowEditResult = null; window.miniFlowLiveAI.apply_board_edit(args).then(result => { window.miniFlowEditResult = result }, error => { window.miniFlowEditResult = {ok:false,message:String(error)} }); return "submitted" })()` with args set to your edit payload. Poll window.miniFlowEditResult in short calls until it is set. If a call times out, check the board before submitting again. On revision_conflict, reread and retry once if the change still applies. On ai_request_cancelled, move on. For edit_declined or another blocker, report_ai_activity with {"message":"","failed":true,"result":"<reason>"}.',
+      'A successful single edit closes the request automatically. For multiple batches, first call report_ai_activity with {"message":"<progress>"} to keep it open. Use each successful edit’s revision for the next batch, report progress before five minutes of silence, then close with {"message":"","result":"<what changed>"} once.',
+      '5. REPEAT. Set cursor = request.sequence and immediately listen again in the same tab. Stop when the session ends or I ask you to stop.'
     ].join('\n\n'));
     copyAIInvite.textContent = 'AI invite copied';
     clearTimeout(aiCopiedTimer);
@@ -1541,11 +1556,13 @@ if (joiningLive) {
 registerMiniFlowTools(editor, undefined, undefined, {
   exposeTools: joiningLive ? tools => { window.miniFlowLiveAI = tools; } : undefined,
   registerAgent: joiningLive ? () => liveBoard?.registerAgent() ?? { ok: false, reason: 'live_not_ready' } : undefined,
-  waitForAIRequest: joiningLive ? (after, timeoutMs) => liveBoard?.waitForAIRequest(after, timeoutMs) ??
-    { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' } : undefined,
+  waitForAIRequest: openedLiveInvite ? (after, timeoutMs) => liveGuestEnded
+    ? { ok: false, reason: 'session_ended', message: 'The live session ended.' }
+    : liveBoard?.waitForAIRequest(after, timeoutMs) ??
+      { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' } : undefined,
   reportAIActivity: joiningLive ? (message, result, failed) => liveBoard?.reportAIActivity(message, result, failed) ??
     { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' } : undefined,
-  isReady: () => !joiningLive || Boolean(liveBoard?.ready()),
+  isReady: () => !openedLiveInvite || (!liveGuestEnded && Boolean(liveBoard?.ready())),
   async commitProject(project, message) {
     if (joiningLive) {
       if (!liveBoard) return { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' };

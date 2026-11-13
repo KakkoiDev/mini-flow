@@ -18,7 +18,10 @@ test('copies a direct AI guest invite and resets its label after three seconds',
   await expect(page.getByRole('button', { name: 'AI invite copied' })).toBeVisible();
   const invite = await page.evaluate(() => window.copiedAIInvite);
   expect(invite).toContain('await window.miniFlowLiveAI.register_live_agent({})');
-  expect(invite).toContain('wait_for_ai_request');
+  expect(invite).toContain('{"after":0,"timeoutMs":10000}');
+  expect(invite).toContain('session_ended');
+  expect(invite).toContain('window.miniFlowLiveAI.help()');
+  expect(invite).toContain('"op":"add_arrow"');
   await page.clock.fastForward(3000);
   await expect(page.getByRole('button', { name: 'Copy AI invite' })).toBeVisible();
 });

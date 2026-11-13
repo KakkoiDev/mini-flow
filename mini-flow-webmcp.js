@@ -125,12 +125,12 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
   if (options.waitForAIRequest) {
     registry.registerTool({
       name: 'wait_for_ai_request',
-      description: 'Wait for Ask AI and claim the request exclusively. Only the first AI acknowledged by the host gets the task. Pass the last handled sequence as after (start at 0). Use get_board to verify the current target. On a follow-up, use the preceding messages in request.thread as context. On a null request, wait again with the same cursor. After reporting each result, immediately wait again with the handled sequence as after. Keep listening until the live session disconnects or the user asks you to stop.',
+      description: 'Wait for Ask AI and claim the request exclusively. Only the first AI acknowledged by the host gets the task. Pass the last handled sequence as after (start at 0). Use get_board to verify the current target. On a follow-up, use the preceding messages in request.thread as context. Use a 10000 ms wait. On null or live_not_ready, wait again with the same cursor. Stop on session_ended. After reporting each result, immediately wait again with the handled sequence as after. Keep listening until the live session disconnects or the user asks you to stop.',
       inputSchema: {
         type: 'object', additionalProperties: false,
         properties: {
           after: { type: 'integer', minimum: 0, default: 0 },
-          timeoutMs: { type: 'integer', minimum: 0, maximum: 15000, default: 12000 }
+          timeoutMs: { type: 'integer', minimum: 0, maximum: 15000, default: 10000 }
         }
       },
       execute: ({ after, timeoutMs } = {}) => options.waitForAIRequest(after, timeoutMs)
@@ -145,7 +145,14 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
       execute: ({ message, result, failed } = {}) => options.reportAIActivity(message, result, failed)
     });
   }
-  options.exposeTools?.(Object.freeze(Object.fromEntries(definitions.map(({ name, execute }) => [name, execute]))));
+  if (options.exposeTools) {
+    const methods = Object.fromEntries(definitions.map(({ name, execute }) => [name, execute]));
+    options.exposeTools(Object.freeze({
+      ...methods,
+      help: () => ({ tools: structuredClone(definitions.map(({ name, description, inputSchema }) =>
+        ({ name, description, inputSchema }))) })
+    }));
+  }
   if (typeof context?.registerTool !== 'function') return;
   for (const tool of definitions) await context.registerTool(tool);
 }

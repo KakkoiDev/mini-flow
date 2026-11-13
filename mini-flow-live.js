@@ -258,8 +258,10 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     offer.timer = setTimeout(() => interruptOffer(requestId, 'AI request timed out'), aiIdleTimeout);
   }
 
-  function waitForAIRequest(after = 0, timeoutMs = 12000) {
-    if (host || closed || !agentRegistered) {
+  function waitForAIRequest(after = 0, timeoutMs = 10000) {
+    if (closed) return Promise.resolve(failure('session_ended', 'The live session ended.'));
+    if (!host && !hostPeer) return Promise.resolve(failure('live_not_ready', 'Waiting for the host to reconnect.'));
+    if (host || !agentRegistered) {
       return Promise.resolve(failure('ai_not_connected', 'Register as a live AI guest first.'));
     }
     if (!Number.isSafeInteger(after) || after < 0 || !Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 15000) {
@@ -275,7 +277,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
         requestWaiters.delete(waiter);
         resolve(result);
       } };
-      const timer = setTimeout(() => waiter.finish({ ok: true, request: null }), timeoutMs);
+      const timer = setTimeout(() => waiter.finish(hostPeer ? { ok: true, request: null }
+        : failure('live_not_ready', 'Waiting for the host to reconnect.')), timeoutMs);
       requestWaiters.add(waiter);
     });
   }
@@ -311,7 +314,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
 
   function clearAIRequests(reconnecting = false) {
     const result = failure('live_disconnected', 'The live connection ended.');
-    if (!reconnecting) for (const waiter of requestWaiters) waiter.finish(result);
+    if (!reconnecting) for (const waiter of requestWaiters) waiter.finish(failure('session_ended', 'The live session ended.'));
     for (const finish of pendingAsks.values()) finish(result);
     for (const claim of pendingClaims.values()) claim.finish(false);
     for (const offer of offers.values()) clearTimeout(offer.timer);

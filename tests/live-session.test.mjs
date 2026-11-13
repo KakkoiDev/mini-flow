@@ -71,6 +71,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.deepEqual(await host.session.askAI('N1'), { ok: true });
     assert.equal(host.requests().N1.phase, 'waiting');
     assert.equal(pageTools.wait_for_ai_request, tools.get('wait_for_ai_request'));
+    assert.equal(pageTools.help().tools.find(tool => tool.name === 'wait_for_ai_request').inputSchema.properties.timeoutMs.default, 10000);
     assert.deepEqual(await pageTools.register_live_agent({}), { ok: true });
     await network.settle();
     assert.deepEqual(host.counts(), { human: 1, ai: 1 });
@@ -285,7 +286,8 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     const waitingWhenClosed = wait({ after: next.request.sequence, timeoutMs: 1000 });
     host.session.stop();
     await network.settle();
-    assert.equal((await waitingWhenClosed).reason, 'live_disconnected');
+    assert.equal((await waitingWhenClosed).reason, 'session_ended');
+    assert.equal((await wait()).reason, 'session_ended');
     assert.equal(guest.ended(), true);
     assert.deepEqual(host.colors(), {});
     assert.deepEqual(guest.colors(), {});
@@ -387,11 +389,12 @@ test('reopens the room with conversations, interrupted AI requests, and approval
     host.session.suspend();
     await until(() => !guest.session.ready());
     assert.deepEqual(snapshot.queue.map(item => [item.noteId, item.interrupted]), [['N1', true], ['N2', false]]);
-    const next = guest.session.waitForAIRequest(first.sequence, 1000);
+    assert.equal((await guest.session.waitForAIRequest(first.sequence, 1000)).reason, 'live_not_ready');
     host = open(true, snapshot);
     assert.equal(host.requests().N1.phase, 'interrupted');
     assert.match(host.requests().N1.label, /First batch/);
-    const queued = (await next).request;
+    await until(() => guest.session.ready());
+    const queued = (await guest.session.waitForAIRequest(first.sequence, 1000)).request;
     assert.equal(queued.note.id, 'N2');
     assert.deepEqual(guest.project(), diagram('Applied batch'));
     await until(() => guest.threads.get('N1')?.length === 18);
