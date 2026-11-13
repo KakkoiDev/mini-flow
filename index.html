@@ -347,6 +347,7 @@ const draftThreadKey = 'mini-flow-draft-threads-v1';
 const prefix = '#flow=';
 const proposalPrefix = '#apply=';
 const openedLiveInvite = location.hash.startsWith('#live=');
+const openedLiveHash = openedLiveInvite ? location.hash : null;
 let joiningLive = openedLiveInvite;
 let liveGuestEnded = false;
 let liveBoard;
@@ -711,6 +712,10 @@ proposalDialog.addEventListener('close', () => {
   }
 });
 window.addEventListener('hashchange', () => {
+  if (location.hash !== openedLiveHash && readLiveInvite(location.hash)) {
+    location.reload();
+    return;
+  }
   if (!location.hash.startsWith(proposalPrefix)) {
     if (proposalDialog.open) proposalDialog.close();
     return;
@@ -749,7 +754,7 @@ document.querySelector('#share').onclick = async () => {
     message.textContent = joiningLive ? 'Could not copy the board link.' : 'Copy the link from your address bar.';
   }
 };
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=live-guest-guide';
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=live-guest-errors';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
 import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=live-guest-guide';
 import { setupGistBackups } from './mini-flow-gist.js?v=project-sync-revisions';
@@ -1521,7 +1526,7 @@ copyAIInvite.onclick = async () => {
     await navigator.clipboard.writeText([
       'Join this Mini Flow board as an AI guest now:\n' + inviteInput.value,
       'Use one browser tab for the live board. Keep this edit invite private. You need no local checkout or separate MCP server.',
-      '1. CONNECT. Open the link and wait up to 60 seconds for Live · Connected. If it does not connect, report the connection problem. Call the page WebMCP tool register_live_agent with {}. If your browser has no page tool binding, run `await window.miniFlowLiveAI.register_live_agent({})` in its page JavaScript evaluator. All the tools below are methods of that same object with identical arguments and plain object results. `window.miniFlowLiveAI.help()` lists their schemas. Expect {"ok":true}. If the host is reconnecting, retry within the same 60-second window. After a page reload, register again and reset the cursor.',
+      '1. CONNECT. Open the link. Call the page WebMCP tool register_live_agent with {}. If your browser has no page tool binding, run `await window.miniFlowLiveAI.register_live_agent({})` in its page JavaScript evaluator. All the tools below are methods of that same object with identical arguments and plain object results. `window.miniFlowLiveAI.help()` lists their schemas. Registration returns {"ok":true} when connected. If the page API has not loaded or registration returns live_not_ready or agent_registration_failed, wait 2 seconds and retry for up to 60 seconds, then report the connection problem. After a page reload, register again and reset the cursor.',
       '2. LISTEN. Start with cursor = 0. Call wait_for_ai_request with {"after":0,"timeoutMs":10000}, replacing after with the current cursor. Keep one wait in flight. A null request means wait again with the same cursor. On live_not_ready, pause 10 seconds and retry with the same cursor. After five minutes without a connection, report that the connection was lost and stop. On ai_not_connected, register again. On session_ended, stop. A returned request is your next job. Earlier timeout messages in its thread are history.',
       '3. ANSWER. Read request.note.text and request.thread. Edit only when asked to change the board. For questions, messages addressed to someone else, or unclear requests, reply briefly in the note’s language using report_ai_activity with {"message":"","result":"<reply>"}. The target is null, {"type":"node","id":"A"}, or {"type":"arrow","from":"A","to":"B"}.',
       '4. EDIT. Call get_board with {} once. Use its revision and project.source (Mermaid) and project.positions (node ID to [x,y]). Send apply_board_edit with {"revision":"<from get_board>","message":"<short summary>","edits":[...]}. Use only the changes requested. Supported edits:',

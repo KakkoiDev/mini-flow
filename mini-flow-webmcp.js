@@ -86,14 +86,14 @@ function applyEdits(project, edits, library) {
         graph.edges.push({ from: edit.from, to: edit.to, label: edit.label ?? '' });
         break;
       default:
-        throw new Error('Unsupported edit operation.');
+        throw new Error('Unsupported edit operation. Use rename_node, delete_node, move_node, add_node, or add_arrow.');
     }
   }
   return { ...project, source: library.stringify(graph), positions };
 
   function setPosition({ id, position }) {
     if (!Array.isArray(position) || position.length !== 2 || !position.every(Number.isFinite)) {
-      throw new Error('A position must contain two finite coordinates.');
+      throw new Error('Position must be an array [x, y] of two finite numbers.');
     }
     positions[id] = [...position];
   }

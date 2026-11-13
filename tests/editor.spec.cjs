@@ -4,6 +4,19 @@ test.beforeEach(async ({ page }) => {
   await page.goto('http://127.0.0.1:8765/');
 });
 
+test('opens a live invite in an existing Mini Flow tab', async ({ page }) => {
+  const { hash, relay } = await page.evaluate(async () => {
+    const { liveInviteHash, newLiveInvite } = await import('./mini-flow-live.js');
+    const invite = newLiveInvite('wss://relay.example.org');
+    return { hash: liveInviteHash(invite), relay: invite.relay };
+  });
+  await page.evaluate(hash => { location.hash = hash; }, hash);
+  await expect.poll(() => page.evaluate(() => typeof window.miniFlowLiveAI?.register_live_agent)).toBe('function');
+  await page.getByRole('button', { name: /Live session/ }).click();
+  await page.getByText('Custom WebSocket relay', { exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Relay URL' })).toHaveValue(relay);
+});
+
 test('copies a direct AI guest invite and resets its label after three seconds', async ({ page }) => {
   await page.evaluate(() => {
     Object.defineProperty(navigator, 'clipboard', { value: {
@@ -20,7 +33,7 @@ test('copies a direct AI guest invite and resets its label after three seconds',
   expect(invite).toContain('await window.miniFlowLiveAI.register_live_agent({})');
   expect(invite).toContain('{"after":0,"timeoutMs":10000}');
   expect(invite).toContain('session_ended');
-  expect(invite).toContain('wait up to 60 seconds');
+  expect(invite).toContain('retry for up to 60 seconds');
   expect(invite).toContain('window.miniFlowLiveAI.help()');
   expect(invite).toContain('"op":"add_arrow"');
   await page.clock.fastForward(3000);
