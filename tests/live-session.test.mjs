@@ -264,7 +264,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
   }
 });
 
-test('reopens the room with full conversations and an interrupted AI request', async () => {
+test('reopens the room with conversations, interrupted AI requests, and approval settings', { timeout: 10000 }, async () => {
   const { deriveRoomKey, secureRoom } = await import('../mini-flow-secure-room.js');
   const network = createTestNetwork();
   const invite = { room: 'recover', password: 'private-room-key' };
@@ -281,6 +281,7 @@ test('reopens the room with full conversations and an interrupted AI request', a
   function open(host, restored) {
     let project = restored?.project ?? diagram();
     let requests = {};
+    let requireAIApproval;
     const threads = new Map();
     const room = secureRoom(joinRoom({ app: 'mini-flow-live-recovery-test', ...invite, network, protocol: 4,
       kinds: ['read', 'state', 'edit', 'end', 'presence', 'agent', 'ask'],
@@ -291,6 +292,8 @@ test('reopens the room with full conversations and an interrupted AI request', a
       noteIds: value => Object.keys(value.positions),
       readNote: (value, id) => Object.hasOwn(value.positions, id) ? { id, text: 'Review ' + id, target: null } : null,
       initialQueue: restored?.queue, initialThreads: restored?.threads,
+      initialRequireAIApproval: restored?.requireAIApproval,
+      onAIApprovalChange: required => { requireAIApproval = required; },
       onAIRequests: next => { requests = next; },
       onAIThread: (id, messages) => messages ? threads.set(id, messages) : threads.delete(id),
       onCheckpoint: next => { snapshot = structuredClone(next); },
@@ -299,7 +302,8 @@ test('reopens the room with full conversations and an interrupted AI request', a
         reviewStarted(proposal);
       }) })
     });
-    return { session, threads, requests: () => requests, project: () => project, setProject(next) { project = next; session.changed(); } };
+    return { session, threads, requests: () => requests, approval: () => requireAIApproval,
+      project: () => project, setProject(next) { project = next; session.changed(); } };
   }
   async function until(predicate) {
     for (let i = 0; i < 100; i++) {
@@ -314,6 +318,16 @@ test('reopens the room with full conversations and an interrupted AI request', a
   const guest = open(false);
   try {
     await until(() => guest.session.ready());
+    await until(() => guest.approval() === true);
+    guest.session.setRequireAIApproval(false);
+    assert.equal(host.approval(), true);
+
+    const unregisteredReview = new Promise(resolve => { reviewStarted = resolve; });
+    const unregisteredEdit = guest.session.submitAIEdit(diagram('Unregistered AI edit'), 'Unregistered AI edit');
+    await unregisteredReview;
+    decide(false);
+    assert.equal((await unregisteredEdit).reason, 'edit_declined');
+
     for (let i = 0; i < 18; i++) assert.equal((await host.session.comment('N1', 'Comment ' + i)).ok, true);
     await until(() => guest.threads.get('N1')?.length === 18);
     host.setProject(diagram('Initial', ['N2']));
@@ -358,6 +372,28 @@ test('reopens the room with full conversations and an interrupted AI request', a
     const retried = (await guest.session.waitForAIRequest(queued.sequence, 1000)).request;
     assert.equal(retried.note.id, 'N1');
     assert.notEqual(retried.id, first.id);
+
+    host.session.setRequireAIApproval(false);
+    await until(() => guest.approval() === false);
+    assert.equal(snapshot.requireAIApproval, false);
+    reviewStarted = () => assert.fail('Direct AI edits should skip review');
+    assert.deepEqual(await guest.session.submitAIEdit(diagram('Direct edit'), 'Direct edit'), { ok: true });
+    assert.deepEqual(host.project(), diagram('Direct edit'));
+
+    host.session.suspend();
+    await until(() => !guest.session.ready() && guest.approval() === null);
+    host = open(true, snapshot);
+    await until(() => guest.session.ready() && guest.approval() === false);
+    assert.deepEqual(await guest.session.submitAIEdit(diagram('Direct after reload'), 'Direct after reload'), { ok: true });
+
+    host.session.setRequireAIApproval(true);
+    await until(() => guest.approval() === true);
+    const restoredReview = new Promise(resolve => { reviewStarted = resolve; });
+    const restoredEdit = guest.session.submitAIEdit(diagram('Needs review again'), 'Needs review again');
+    await restoredReview;
+    decide(false);
+    assert.equal((await restoredEdit).reason, 'edit_declined');
+    assert.deepEqual(host.project(), diagram('Direct after reload'));
     host.session.stop();
     await until(() => !guest.session.ready());
   } finally {

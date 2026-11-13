@@ -49,6 +49,9 @@ header button[hidden],#live-session [hidden]{display:none}
 #live-session form{flex-wrap:wrap}
 #live-ai-options,#live-debug,#live-invite-row{margin-top:12px}
 #live-ai-options summary,#live-debug summary{cursor:pointer;margin-bottom:8px}
+#live-ai-approval-setting{display:flex;align-items:center;gap:6px;width:fit-content;margin-top:8px;min-height:36px;cursor:pointer}
+#live-ai-approval-setting[hidden]{display:none}
+#live-ai-approval-status{font-size:14px;color:#4c6660}
 header button:disabled{opacity:.45;cursor:default}
 header #blank{border-color:#ded9d2}
 header :is([data-panel],#open-saved-projects)[aria-expanded=true]{background:#e4f4ee;border-color:#c9e8df;color:#175b50}
@@ -124,7 +127,11 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid #087f7
     <details id="live-ai-options">
       <summary>AI guests</summary>
       <button id="live-copy-ai" type="button">Copy AI invite</button>
+      <label id="live-ai-approval-setting" hidden>
+        <input id="live-ai-approval" type="checkbox" checked> Require approval for AI guest edits
+      </label>
     </details>
+    <p id="live-ai-approval-status" role="status" hidden></p>
   </div>
   <form method="dialog">
     <button id="live-start" type="button">Start live session</button>
@@ -733,7 +740,7 @@ document.querySelector('#share').onclick = async () => {
 };
 import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=saved-note-conversations';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { canManageReply, changeThreadReply, connectLiveBoard, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=live-queue-retry';
+import { canManageReply, changeThreadReply, connectLiveBoard, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=live-ai-approval';
 import { setupGistBackups } from './mini-flow-gist.js?v=project-sync-revisions';
 import { setupSavedProjects } from './mini-flow-projects.js?v=project-sync-revisions';
 
@@ -1210,6 +1217,9 @@ const inviteInput = document.querySelector('#live-invite');
 const copyInvite = document.querySelector('#live-copy');
 const copyAIInvite = document.querySelector('#live-copy-ai');
 const aiOptions = document.querySelector('#live-ai-options');
+const aiApprovalSetting = document.querySelector('#live-ai-approval-setting');
+const aiApproval = document.querySelector('#live-ai-approval');
+const aiApprovalStatus = document.querySelector('#live-ai-approval-status');
 const debugEnabled = new URL(location.href).searchParams.get('debug') === '1';
 const debugPanel = document.querySelector('#live-debug');
 const debugText = document.querySelector('#live-debug-text');
@@ -1322,6 +1332,8 @@ function ended() {
   copyInvite.textContent = 'Copy invite';
   copyAIInvite.textContent = 'Copy AI invite';
   aiOptions.open = false;
+  aiApprovalSetting.hidden = true;
+  aiApprovalStatus.hidden = true;
   endSession.hidden = true;
   inviteRow.hidden = true;
   inviteInput.value = '';
@@ -1364,6 +1376,13 @@ async function startLive(invite, host, recovery) {
       onNoteColors: editor.setNoteColors,
       initialThreads: [...noteThreads],
       initialQueue: recovery?.queue,
+      initialRequireAIApproval: recovery?.requireAIApproval,
+      onAIApprovalChange(required) {
+        if (host) aiApproval.checked = required;
+        aiApprovalStatus.hidden = required === null;
+        aiApprovalStatus.textContent = required === null ? '' : required
+          ? 'The host reviews AI guest edits.' : 'AI guest edits apply without host approval.';
+      },
       onCheckpoint(snapshot) {
         try { sessionStorage.setItem(liveRecoveryKey, JSON.stringify({ ...snapshot, invite })); }
         catch { liveNotice.textContent = 'Live session recovery could not be saved in this tab.'; }
@@ -1403,6 +1422,7 @@ async function startLive(invite, host, recovery) {
     if (debugEnabled) address.searchParams.set('debug', '1');
     address.hash = 'live=' + invite.room + '.' + invite.password;
     inviteInput.value = address.href;
+    aiApprovalSetting.hidden = !host;
     inviteRow.hidden = false;
     if (lacksLiveWebRTC()) logLiveDebug('WebRTC unavailable');
     connectionTimer = setTimeout(() => {
@@ -1427,6 +1447,7 @@ async function startLive(invite, host, recovery) {
 liveToggle.onclick = () => liveDialog.showModal();
 startSession.onclick = () => startLive(newLiveInvite(), true);
 endSession.onclick = () => liveBoard?.stop();
+aiApproval.onchange = () => liveBoard?.setRequireAIApproval(aiApproval.checked);
 window.addEventListener('pagehide', () => {
   if (liveBoard?.host) liveBoard.suspend();
 });
@@ -1448,7 +1469,7 @@ copyAIInvite.onclick = async () => {
     await navigator.clipboard.writeText([
       'Join this Mini Flow live session as an AI guest using WebMCP.',
       'Open the invite in a browser with WebMCP tool access. Wait for Live · Connected, call register_live_agent with {}, then use get_board and wait_for_ai_request.',
-      'Keep listening until the session ends or I ask you to stop. A null request can mean the host is reconnecting. Call wait_for_ai_request again using the last handled sequence as after (start at 0). Wait for the host to review proposed edits before continuing. If your work is interrupted, wait for a new request. After reporting a result, immediately resume waiting.',
+      'Keep listening until the session ends or I ask you to stop. A null request can mean the host is reconnecting. Call wait_for_ai_request again using the last handled sequence as after (start at 0). If Mini Flow requests host review, wait for the edit result before continuing. If your work is interrupted, wait for a new request. After reporting a result, immediately resume waiting.',
       inviteInput.value
     ].join('\n\n'));
     copyAIInvite.textContent = 'AI invite copied';

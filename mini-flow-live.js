@@ -55,7 +55,8 @@ export function changeThreadReply(messages, { replyId, previousText, text }, hos
 
 export function createLiveSession({ room, host, getProject, setProject, normalize, canAccept, onStatus, onEnd,
   onAvailability = () => {}, onPresence = () => {}, onGuestCounts = () => {}, readNote = () => null,
-  noteIds = () => [], onNoteColors = () => {}, onAIRequests = () => {}, onAIThread = () => {}, initialThreads = [], initialQueue = [], onCheckpoint = () => {}, onAIProposal }) {
+  noteIds = () => [], onNoteColors = () => {}, onAIRequests = () => {}, onAIThread = () => {}, initialThreads = [], initialQueue = [],
+  initialRequireAIApproval = true, onAIApprovalChange = () => {}, onCheckpoint = () => {}, onAIProposal }) {
   let hostPeer;
   const guests = new Map();
   let closed = false;
@@ -69,6 +70,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   let flushTimer;
   let presenceTimer;
   let presenceRevision = 0;
+  let requireAIApproval = host ? initialRequireAIApproval !== false : null;
   let presence = { point: null, focus: null };
   let agentRegistration;
   let agentRegistered = false;
@@ -91,7 +93,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   }
   function checkpoint() {
     if (!host || closed) return;
-    onCheckpoint({ project: getProject(), threads: [...threads], queue: [...offers.values()].map(offer => ({
+    onCheckpoint({ project: getProject(), threads: [...threads], requireAIApproval, queue: [...offers.values()].map(offer => ({
       noteId: offer.noteId, text: offer.note.text, requester: offer.requester,
       interrupted: Boolean(offer.interrupted || offer.winner), lastEdit: offer.lastEdit
     })) });
@@ -447,7 +449,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     request.resolve(result);
   }
 
-  function submit(project, message, { keepClaim = false, aiRequestId } = {}) {
+  function submit(project, message, { keepClaim = false, aiRequestId, aiEdit } = {}) {
     if (!hostPeer || !state || closed) return Promise.resolve(failure('live_not_ready', 'The host is not connected.'));
     if (pending) return Promise.resolve(failure('edit_pending', 'Wait for the current edit to finish.'));
     return new Promise(resolve => {
@@ -459,7 +461,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       pending = request;
       available();
       onStatus('Sending edit…');
-      send('edit', { id: request.id, revision: state.revision, epoch: hostEpoch, project, message, keepClaim, aiRequestId }).catch(() => {
+      send('edit', { id: request.id, revision: state.revision, epoch: hostEpoch, project, message, keepClaim, aiRequestId, aiEdit }).catch(() => {
         if (pending === request) finish(failure('live_send_failed', 'Could not send the edit.'));
       });
     });
@@ -515,7 +517,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (!guests.size) return;
     const snapshot = presenceSnapshot();
     onPresence(snapshot.filter(item => item.id !== room.selfId));
-    send('presence', { revision: ++presenceRevision, peers: snapshot, counts: guestCounts(), aiRequests },
+    send('presence', { revision: ++presenceRevision, peers: snapshot, counts: guestCounts(), aiRequests, requireAIApproval },
       [...guests.keys()]).catch(() => {});
   }
 
@@ -577,6 +579,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     available();
     onPresence([]);
     onGuestCounts(null);
+    requireAIApproval = null;
+    onAIApprovalChange(null);
     onNoteColors({});
     clearAIRequests(true);
     onStatus('Reconnecting… You can also leave to keep editing a copy.');
@@ -610,7 +614,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     try {
       const guest = guests.get(from);
       const project = normalize(data.project);
-      if (guest.agent && onAIProposal) {
+      if (requireAIApproval && onAIProposal && (guest.agent || data.aiEdit === true)) {
         if (reviews.size) {
           publish({ id: data.id, ...failure('review_busy', 'Another edit is being reviewed. Try again shortly.') }, from);
           return;
@@ -701,6 +705,11 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     } else if (from === hostPeer && Array.isArray(data?.peers) &&
       Number.isSafeInteger(data.revision) && data.revision > presenceRevision) {
       presenceRevision = data.revision;
+      const required = data.requireAIApproval !== false;
+      if (required !== requireAIApproval) {
+        requireAIApproval = required;
+        onAIApprovalChange(required);
+      }
       if ([data.counts?.human, data.counts?.ai].every(n => Number.isInteger(n) && n >= 0 && n <= maxGuests)) {
         onGuestCounts(data.counts);
       }
@@ -826,10 +835,17 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   }
 
   onStatus(host ? 'Waiting for guests…' : 'Waiting for the host…');
-  if (host) { onGuestCounts(guestCounts()); publishPresence(); }
+  if (host) { onAIApprovalChange(requireAIApproval); onGuestCounts(guestCounts()); publishPresence(); }
   available();
   return {
     host,
+    setRequireAIApproval(required) {
+      if (!host || closed || typeof required !== 'boolean' || required === requireAIApproval) return;
+      requireAIApproval = required;
+      checkpoint();
+      onAIApprovalChange(required);
+      publishPresence();
+    },
     canManageReply: message => canManageReply(message, host, room.selfId),
     ready: () => !closed && (host || Boolean(hostPeer && state && !pending && !localDirty && canAccept())),
     changed() {
@@ -867,10 +883,10 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     submitAIEdit(project, message) {
       if (requestCancelled) return Promise.resolve(failure('ai_request_cancelled', 'This AI request was cancelled. Wait for the next request.'));
       const aiRequestId = activeRequestId;
-      if (!agentRegistered || reportedActivity) return submit(project, message, { keepClaim: reportedActivity, aiRequestId });
+      if (!agentRegistered || reportedActivity) return submit(project, message, { keepClaim: reportedActivity, aiRequestId, aiEdit: true });
       presence = { ...presence, activity: 'Applying board edits…' };
       schedulePresence();
-      return submit(project, message, { aiRequestId }).then(result => {
+      return submit(project, message, { aiRequestId, aiEdit: true }).then(result => {
         if (!reportedActivity && (activeRequestId === aiRequestId || !activeRequestId) && !requestCancelled) {
           if (result.ok) activeRequestId = undefined;
           presence = { ...presence, activity: result.ok ? undefined : 'Edit needs a retry' };
