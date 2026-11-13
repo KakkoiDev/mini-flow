@@ -796,6 +796,7 @@ const sendingReplies = new Set();
 const replyDrafts = new Map();
 let replyTarget;
 let noteRequests = {};
+let queuedNoticeNoteId;
 let displayedMessages;
 let replyError = '';
 let replyEditor;
@@ -1099,10 +1100,15 @@ async function retryNoteRequest(noteId) {
   if (!liveBoard?.canSendNoteMessage()) return;
   try {
     const result = await liveBoard.askAI(noteId);
-    liveNotice.textContent = result.ok ? 'Added to the AI queue.' : result.message;
+    showAskResult(noteId, result);
   } catch {
     liveNotice.textContent = 'Could not retry the AI request.';
   }
+}
+
+function showAskResult(noteId, result) {
+  queuedNoticeNoteId = result.ok && noteRequests[noteId]?.phase === 'waiting' ? noteId : undefined;
+  liveNotice.textContent = queuedNoticeNoteId ? 'Added to the AI queue.' : result.ok ? '' : result.message;
 }
 function persistNoteThreads() {
   if (joiningLive) {
@@ -1149,10 +1155,10 @@ askButton.title = 'Send this note and its conversation to the AI guest';
 noteActions.append(askButton, commentButton);
 askButton.onclick = async () => {
   if (!liveBoard?.canSendNoteMessage() || !selectedNoteId || askButton.disabled) return;
+  const noteId = selectedNoteId;
   askButton.disabled = true;
   try {
-    const result = await liveBoard.askAI(selectedNoteId);
-    liveNotice.textContent = result.ok ? 'Added to the AI queue.' : result.message;
+    showAskResult(noteId, await liveBoard.askAI(noteId));
   } catch {
     liveNotice.textContent = 'Could not send the note to an AI guest.';
   } finally {
@@ -1453,6 +1459,10 @@ async function startLive(invite, host, recovery) {
       },
       onAIRequests(next) {
         noteRequests = next;
+        if (queuedNoticeNoteId && next[queuedNoticeNoteId]?.phase !== 'waiting') {
+          queuedNoticeNoteId = undefined;
+          if (liveNotice.textContent === 'Added to the AI queue.') liveNotice.textContent = '';
+        }
         updateNoteRequestBadges();
         renderAIReply();
       },
