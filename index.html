@@ -30,13 +30,13 @@ header .compact-action > span:first-of-type{position:absolute;width:1px;height:1
 .arrange summary svg{width:18px;height:18px}
 .arrange summary::after{content:"";width:6px;height:6px;border-right:1.5px solid;border-bottom:1.5px solid;transform:translateY(-2px) rotate(45deg)}
 .arrange-options{position:absolute;top:calc(100% + 6px);right:0;display:grid;min-width:174px;padding:5px;border:1px solid #ded9d2;border-radius:10px;background:#fffdfb;box-shadow:0 6px 20px #332c2220}
-.arrange-options label{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:38px;padding:0 8px;cursor:pointer}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:38px;padding:0 8px;cursor:pointer}
 .arrange-options label svg{display:none}
-.arrange-options input{order:1;appearance:none;width:34px;height:20px;margin:0;border:1px solid #aaa59e;border-radius:20px;background:#d9d6d1;cursor:pointer}
-.arrange-options input::after{content:"";display:block;width:14px;height:14px;margin:2px;border-radius:50%;background:white}
-.arrange-options input:checked{background:#087f71;border-color:#087f71}
-.arrange-options input:checked::after{transform:translateX(14px)}
-.arrange-options input:focus-visible{outline:2px solid #087f71;outline-offset:2px}
+.toggle-row input{order:1;appearance:none;flex:none;width:34px;height:20px;margin:0;border:1px solid #aaa59e;border-radius:20px;background:#d9d6d1;cursor:pointer}
+.toggle-row input::after{content:"";display:block;width:14px;height:14px;margin:2px;border-radius:50%;background:white}
+.toggle-row input:checked{background:#087f71;border-color:#087f71}
+.toggle-row input:checked::after{transform:translateX(14px)}
+.toggle-row input:focus-visible{outline:2px solid #087f71;outline-offset:2px}
 header button{display:inline-flex;align-items:center;gap:7px;font:inherit;border:1px solid transparent;background:transparent;color:inherit;border-radius:8px;padding:7px 10px;min-height:38px;cursor:pointer}
 header button:hover:not(:disabled){background:#f0ece6}
 header button[hidden],#live-session [hidden]{display:none}
@@ -47,12 +47,11 @@ header button[hidden],#live-session [hidden]{display:none}
 #live-toggle[data-active] .live-state{display:block}
 #live-invite{display:block;width:100%;box-sizing:border-box;margin:6px 0 12px;font:inherit;padding:8px}
 #live-session form{flex-wrap:wrap}
-#live-ai-options,#live-debug,#live-invite-row{margin-top:12px}
-#live-ai-options summary,#live-debug summary{cursor:pointer;margin-bottom:8px}
-#live-ai-approval-setting{display:flex;align-items:center;gap:6px;width:fit-content;margin-top:8px;min-height:36px;cursor:pointer}
-#live-ai-approval-setting[hidden]{display:none}
+#live-ai-options,#live-debug,#live-invite-row,#live-relay-setting{margin-top:12px}
+#live-session summary{cursor:pointer}
+#live-session details[open] > summary{margin-bottom:8px}
+#live-ai-approval-setting{margin-top:8px;padding-inline:0}
 #live-ai-approval-status{font-size:14px;color:#4c6660}
-#live-relay-setting{margin-top:12px}
 #live-relay{display:block;width:100%;box-sizing:border-box;margin-top:6px;font:inherit;padding:8px}
 header button:disabled{opacity:.45;cursor:default}
 header #blank{border-color:#ded9d2}
@@ -116,11 +115,11 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid #087f7
   <h2 id="live-title">Live session</h2>
   <p id="live-status" role="status">Invite people or agents to edit this board with you.</p>
   <p id="live-network-status" hidden></p>
-  <div id="live-relay-setting" hidden>
-    <label for="live-relay">Custom WebSocket relay</label>
-    <input id="live-relay" type="text" placeholder="wss://relay.example.org" spellcheck="false" aria-describedby="live-relay-help">
+  <details id="live-relay-setting" hidden>
+    <summary>Custom WebSocket relay</summary>
+    <input id="live-relay" type="text" placeholder="wss://relay.example.org" spellcheck="false" aria-label="Relay URL" aria-describedby="live-relay-help">
     <p id="live-relay-help">Leave blank to use the default connection. A custom p2p-core relay replaces the public relay and WebRTC signaling for this session.</p>
-  </div>
+  </details>
   <details id="live-debug" hidden>
     <summary>Connection diagnostics</summary>
     <button id="live-debug-copy" type="button">Copy diagnostics</button>
@@ -134,8 +133,8 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid #087f7
     <details id="live-ai-options">
       <summary>AI guests</summary>
       <button id="live-copy-ai" type="button">Copy AI invite</button>
-      <label id="live-ai-approval-setting" hidden>
-        <input id="live-ai-approval" type="checkbox" checked> Require approval for AI guest edits
+      <label id="live-ai-approval-setting" class="toggle-row" hidden>
+        <input id="live-ai-approval" type="checkbox" role="switch" checked> Require approval for AI guest edits
       </label>
     </details>
     <p id="live-ai-approval-status" role="status" hidden></p>
@@ -546,6 +545,7 @@ arrange.innerHTML = '<summary><svg aria-hidden="true" viewBox="0 0 24 24" fill="
 const arrangeOptions = arrange.querySelector('.arrange-options');
 const layoutAction = viewActions.querySelector('[data-layout]');
 const snapControl = editorHost.firstElementChild.shadowRoot.querySelector('[data-snap]').parentElement;
+snapControl.classList.add('toggle-row');
 arrangeOptions.append(layoutAction, snapControl);
 viewActions.append(arrange);
 layoutAction.addEventListener('click', () => {
@@ -1364,6 +1364,7 @@ function ended() {
   aiApprovalSetting.hidden = true;
   aiApprovalStatus.hidden = true;
   relaySetting.hidden = false;
+  relaySetting.open = false;
   relayInput.readOnly = false;
   endSession.hidden = true;
   inviteRow.hidden = true;
@@ -1487,6 +1488,7 @@ startSession.onclick = () => {
   try { void startLive(newLiveInvite(relayInput.value.trim()), true); }
   catch {
     showStatus('Enter a secure relay URL such as wss://relay.example.org.');
+    relaySetting.open = true;
     relayInput.focus();
   }
 };

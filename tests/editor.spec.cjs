@@ -4,6 +4,24 @@ test.beforeEach(async ({ page }) => {
   await page.goto('http://127.0.0.1:8765/');
 });
 
+test('collapses the custom relay and toggles AI approval in the live dialog', async ({ page }) => {
+  await page.getByRole('button', { name: 'Live session', exact: true }).click();
+  const relay = page.getByRole('textbox', { name: 'Relay URL' });
+  await expect(relay).toBeHidden();
+  await page.getByText('Custom WebSocket relay', { exact: true }).click();
+  await expect(relay).toBeVisible();
+  await page.getByText('Custom WebSocket relay', { exact: true }).click();
+  await expect(relay).toBeHidden();
+
+  await page.getByRole('button', { name: 'Start live session' }).click();
+  await page.getByText('AI guests', { exact: true }).click();
+  const approval = page.getByRole('switch', { name: 'Require approval for AI guest edits' });
+  await expect(approval).toBeChecked();
+  await approval.press('Space');
+  await expect(approval).not.toBeChecked();
+  await expect(page.getByText('AI guest edits apply without host approval.')).toBeVisible();
+});
+
 test('wraps long Japanese notes and unbroken words without changing saved text', async ({ page }) => {
   const label = '日本語には単語の間に空白がありません。'.repeat(4) + '\n' + 'a'.repeat(80);
   const result = await page.evaluate(label => {
