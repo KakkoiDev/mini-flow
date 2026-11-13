@@ -148,15 +148,17 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     await network.settle();
     assert.equal(host.requests().N1.phase, 'result');
 
+    host.session.setAIIdleMinutes(15);
     let expireRequest;
     const schedule = globalThis.setTimeout;
     const timer = mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
-      if (delay === 300000) expireRequest = callback;
+      if (delay === 900000) expireRequest = callback;
       return schedule(callback, delay, ...args);
     });
     assert.deepEqual(await guest.session.askAI('N1'), { ok: true });
     const timedOut = (await wait({ after: requestedLocally.request.sequence, timeoutMs: 1000 })).request;
     assert.equal(timedOut.note.id, 'N1');
+    assert.ok(timedOut.expiresAt - Date.now() > 899000);
     const originalExpiry = expireRequest;
     assert.deepEqual(guest.session.reportAIActivity('Still working'), { ok: true });
     await new Promise(resolve => setTimeout(resolve, 10));
@@ -166,6 +168,9 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     network.drop(({ kind, data }) => kind === 'ask' && data.type === 'withdraw' && data.requestId === timedOut.id);
     expireRequest();
     await network.settle();
+    const late = await guest.session.submitAIEdit(makeProject('Expired edit'), 'Late edit');
+    assert.equal(late.reason, 'ai_request_timed_out');
+    assert.deepEqual(host.getProject(), makeProject('Second batch'));
     assert.deepEqual(host.requests().N1, { phase: 'interrupted', label: 'AI request timed out' });
     assert.deepEqual(secondGuest.requests().N1, host.requests().N1);
     assert.deepEqual(await guest.session.askAI('N1'), { ok: true });

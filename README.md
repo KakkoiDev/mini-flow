@@ -243,7 +243,7 @@ Live guests get a separate note color, and notes return to yellow when the
 session ends. AI guests can report progress with `report_ai_activity` and
 propose small batches as they finish them. The host can preview each batch on
 the canvas and apply or decline it, or turn off approval in **Live session → AI guests**.
-A claimed request times out after five minutes without reported progress or an edit submission. An agent can also report a failure immediately. Failed, timed-out, and interrupted requests show a **Retry** button in the bottom-left activity list and in the note conversation. Retry keeps the original prompt and includes the last applied edit when available.
+A claimed request times out after five minutes without reported progress or an edit submission by default. The host can choose 5, 15, or 30 minutes in **Live session → AI guests**. The setting applies to new deadlines, including when an agent reports progress on an active job. An agent can also report a failure immediately. Failed, timed-out, and interrupted requests show a **Retry** button in the bottom-left activity list and in the note conversation. Retry keeps the original prompt and includes the last applied edit when available.
 
 ## GitHub Gist backups
 

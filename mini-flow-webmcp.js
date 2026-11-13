@@ -125,7 +125,7 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
   if (options.waitForAIRequest) {
     registry.registerTool({
       name: 'wait_for_ai_request',
-      description: 'Wait for Ask AI and claim the request exclusively. Only the first AI acknowledged by the host gets the task. Pass the last handled sequence as after (start at 0). Use get_board to verify the current target. On a follow-up, use the preceding messages in request.thread as context. Use a 10000 ms wait. On null or live_not_ready, wait again with the same cursor. Stop on session_ended. After reporting each result, immediately wait again with the handled sequence as after. Keep listening until the live session disconnects or the user asks you to stop.',
+      description: 'Wait for Ask AI and claim the request exclusively. Only the first AI acknowledged by the host gets the task. Pass the last handled sequence as after (start at 0). Use get_board to verify the current target. The request may include expiresAt (Unix milliseconds). On a follow-up, use the preceding messages in request.thread as context. Use a 10000 ms wait. On null or live_not_ready, wait again with the same cursor. Stop on session_ended. After reporting each result, immediately wait again with the handled sequence as after. Keep listening until the live session disconnects or the user asks you to stop.',
       inputSchema: {
         type: 'object', additionalProperties: false,
         properties: {
@@ -139,7 +139,7 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
   if (options.reportAIActivity) {
     registry.registerTool({
       name: 'report_ai_activity',
-      description: 'Send a short message to show progress and renew the five-minute idle timeout. Finish with an empty message and optional result. To mark a request failed and show Retry, send an empty message, failed: true, and the reason in result.',
+      description: 'Send a short message to show progress and renew the host-configured idle timeout. Finish with an empty message and optional result. To mark a request failed and show Retry, send an empty message, failed: true, and the reason in result.',
       inputSchema: { type: 'object', additionalProperties: false, required: ['message'],
         properties: { message: { type: 'string', maxLength: 200 }, result: { type: 'string', maxLength: 2000 }, failed: { type: 'boolean' } } },
       execute: ({ message, result, failed } = {}) => options.reportAIActivity(message, result, failed)

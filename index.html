@@ -136,6 +136,14 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid #087f7
       <label id="live-ai-approval-setting" class="toggle-row" hidden>
         <input id="live-ai-approval" type="checkbox" role="switch" checked> Require approval for AI guest edits
       </label>
+      <label id="live-ai-idle-setting" class="toggle-row" hidden>
+        AI idle timeout
+        <select id="live-ai-idle">
+          <option value="5">5 minutes</option>
+          <option value="15">15 minutes</option>
+          <option value="30">30 minutes</option>
+        </select>
+      </label>
     </details>
     <p id="live-ai-approval-status" role="status" hidden></p>
   </div>
@@ -754,9 +762,9 @@ document.querySelector('#share').onclick = async () => {
     message.textContent = joiningLive ? 'Could not copy the board link.' : 'Copy the link from your address bar.';
   }
 };
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=live-guest-errors';
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=ai-idle-setting';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=live-guest-guide';
+import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=ai-idle-setting';
 import { setupGistBackups } from './mini-flow-gist.js?v=project-sync-revisions';
 import { setupSavedProjects } from './mini-flow-projects.js?v=project-sync-revisions';
 
@@ -1251,6 +1259,8 @@ const copyAIInvite = document.querySelector('#live-copy-ai');
 const aiOptions = document.querySelector('#live-ai-options');
 const aiApprovalSetting = document.querySelector('#live-ai-approval-setting');
 const aiApproval = document.querySelector('#live-ai-approval');
+const aiIdleSetting = document.querySelector('#live-ai-idle-setting');
+const aiIdleInput = document.querySelector('#live-ai-idle');
 const aiApprovalStatus = document.querySelector('#live-ai-approval-status');
 const relaySetting = document.querySelector('#live-relay-setting');
 const relayInput = document.querySelector('#live-relay');
@@ -1373,6 +1383,7 @@ function ended() {
   copyAIInvite.textContent = 'Copy AI invite';
   aiOptions.open = false;
   aiApprovalSetting.hidden = true;
+  aiIdleSetting.hidden = true;
   aiApprovalStatus.hidden = true;
   relaySetting.hidden = false;
   relaySetting.open = false;
@@ -1423,6 +1434,7 @@ async function startLive(invite, host, recovery) {
       initialThreads: [...noteThreads],
       initialQueue: recovery?.queue,
       initialRequireAIApproval: recovery?.requireAIApproval,
+      initialAIIdleMinutes: recovery?.aiIdleMinutes,
       onAIApprovalChange(required) {
         if (host) aiApproval.checked = required;
         aiApprovalStatus.hidden = required === null;
@@ -1469,6 +1481,8 @@ async function startLive(invite, host, recovery) {
     address.hash = liveInviteHash(invite);
     inviteInput.value = address.href;
     aiApprovalSetting.hidden = !host;
+    aiIdleSetting.hidden = !host;
+    aiIdleInput.value = String(recovery?.aiIdleMinutes ?? 5);
     inviteRow.hidden = false;
     if (lacksLiveWebRTC()) logLiveDebug('WebRTC unavailable');
     connectionTimer = setTimeout(() => {
@@ -1504,6 +1518,7 @@ startSession.onclick = () => {
   }
 };
 endSession.onclick = () => liveBoard?.stop();
+aiIdleInput.onchange = () => liveBoard?.setAIIdleMinutes(Number(aiIdleInput.value));
 aiApproval.onchange = () => liveBoard?.setRequireAIApproval(aiApproval.checked);
 window.addEventListener('pagehide', () => {
   if (liveBoard?.host) liveBoard.suspend();
@@ -1528,7 +1543,7 @@ copyAIInvite.onclick = async () => {
       'Use one browser tab for the live board. Keep this edit invite private. You need no local checkout or separate MCP server.',
       '1. CONNECT. Open the link. Call the page WebMCP tool register_live_agent with {}. If your browser has no page tool binding, run `await window.miniFlowLiveAI.register_live_agent({})` in its page JavaScript evaluator. All the tools below are methods of that same object with identical arguments and plain object results. `window.miniFlowLiveAI.help()` lists their schemas. Registration returns {"ok":true} when connected. If the page API has not loaded or registration returns live_not_ready or agent_registration_failed, wait 2 seconds and retry for up to 60 seconds, then report the connection problem. After a page reload, register again and reset the cursor.',
       '2. LISTEN. Start with cursor = 0. Call wait_for_ai_request with {"after":0,"timeoutMs":10000}, replacing after with the current cursor. Keep one wait in flight. A null request means wait again with the same cursor. On live_not_ready, pause 10 seconds and retry with the same cursor. After five minutes without a connection, report that the connection was lost and stop. On ai_not_connected, register again. On session_ended, stop. A returned request is your next job. Earlier timeout messages in its thread are history.',
-      '3. ANSWER. Read request.note.text and request.thread. Edit only when asked to change the board. For questions, messages addressed to someone else, or unclear requests, reply briefly in the note’s language using report_ai_activity with {"message":"","result":"<reply>"}. The target is null, {"type":"node","id":"A"}, or {"type":"arrow","from":"A","to":"B"}.',
+      '3. ANSWER. Check request.expiresAt (Unix time in milliseconds). Report progress promptly on long jobs to renew the host’s idle window. Read request.note.text and request.thread. Edit only when asked to change the board. For questions, messages addressed to someone else, or unclear requests, reply briefly in the note’s language using report_ai_activity with {"message":"","result":"<reply>"}. The target is null, {"type":"node","id":"A"}, or {"type":"arrow","from":"A","to":"B"}.',
       '4. EDIT. Call get_board with {} once. Use its revision and project.source (Mermaid) and project.positions (node ID to [x,y]). Send apply_board_edit with {"revision":"<from get_board>","message":"<short summary>","edits":[...]}. Use only the changes requested. Supported edits:',
       [
         '{"op":"add_node","id":"C1","type":"terminal","label":"Start","position":[400,200]}',
@@ -1539,8 +1554,8 @@ copyAIInvite.onclick = async () => {
         '{"op":"delete_node","id":"C2"}'
       ].join('\n'),
       'The first three lines form one example batch. Node types are terminal, step, decision, and note. Use fresh IDs beginning with a letter. Add nodes before arrows, and connect only diagram blocks. Choose empty space based on project.positions, using roughly 110 px between rows and 220 px between branches. Arrow labels are optional. A batch allows up to 100 edits.',
-      'The edit call may wait for host review. If your page evaluator has a short timeout, run `(() => { window.miniFlowEditResult = null; window.miniFlowLiveAI.apply_board_edit(args).then(result => { window.miniFlowEditResult = result }, error => { window.miniFlowEditResult = {ok:false,message:String(error)} }); return "submitted" })()` with args set to your edit payload. Poll window.miniFlowEditResult in short calls until it is set. If a call times out, check the board before submitting again. On revision_conflict, reread and retry once if the change still applies. On ai_request_cancelled, move on. For edit_declined or another blocker, report_ai_activity with {"message":"","failed":true,"result":"<reason>"}.',
-      'A successful single edit closes the request automatically. For multiple batches, first call report_ai_activity with {"message":"<progress>"} to keep it open. Use each successful edit’s revision for the next batch, report progress before five minutes of silence, then close with {"message":"","result":"<what changed>"} once.',
+      'The edit call may wait for host review. If your page evaluator has a short timeout, run `(() => { window.miniFlowEditResult = null; window.miniFlowLiveAI.apply_board_edit(args).then(result => { window.miniFlowEditResult = result }, error => { window.miniFlowEditResult = {ok:false,message:String(error)} }); return "submitted" })()` with args set to your edit payload. Poll window.miniFlowEditResult in short calls until it is set. If a call times out, check the board before submitting again. On revision_conflict, reread and retry once if the change still applies. On ai_request_cancelled or ai_request_timed_out, move on. For edit_declined or another blocker, report_ai_activity with {"message":"","failed":true,"result":"<reason>"}.',
+      'A successful single edit closes the request automatically. For multiple batches, first call report_ai_activity with {"message":"<progress>"} to keep it open. Use each successful edit’s revision for the next batch, report progress before the idle deadline, then close with {"message":"","result":"<what changed>"} once.',
       '5. REPEAT. Set cursor = request.sequence and immediately listen again in the same tab. Stop when the session ends or I ask you to stop.'
     ].join('\n\n'));
     copyAIInvite.textContent = 'AI invite copied';

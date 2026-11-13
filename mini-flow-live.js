@@ -8,7 +8,9 @@ export const maxReplyLength = 1000;
 export const maxAnswerLength = 2000;
 const defaultRelayUrl = 'wss://p2p-core-cloudflare.kakkoidev.workers.dev';
 const invitePattern = /^#live=([a-f0-9]{32})\.([a-f0-9]{32})(?:&relay=([^&]+))?$/;
-const aiIdleTimeout = 300000;
+const aiIdleLimits = [5, 15, 30];
+const aiTimedOut = 'ai_request_timed_out';
+const aiCancelled = 'ai_request_cancelled';
 const id = () => crypto.randomUUID().replaceAll('-', '');
 
 export function normalizeLiveRelay(value) {
@@ -72,7 +74,7 @@ export function changeThreadReply(messages, { replyId, previousText, text }, hos
 export function createLiveSession({ room, host, getProject, setProject, normalize, canAccept, onStatus, onEnd,
   onAvailability = () => {}, onPresence = () => {}, onGuestCounts = () => {}, readNote = () => null,
   noteIds = () => [], onNoteColors = () => {}, onAIRequests = () => {}, onAIThread = () => {}, initialThreads = [], initialQueue = [],
-  initialRequireAIApproval = true, onAIApprovalChange = () => {}, onCheckpoint = () => {}, onAIProposal }) {
+  initialRequireAIApproval = true, initialAIIdleMinutes = 5, onAIApprovalChange = () => {}, onCheckpoint = () => {}, onAIProposal }) {
   let hostPeer;
   const guests = new Map();
   let closed = false;
@@ -92,7 +94,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   let agentRegistered = false;
   let reportedActivity = false;
   let activeRequestId;
-  let requestCancelled = false;
+  let requestEndReason;
+  let aiIdleMinutes = aiIdleLimits.includes(initialAIIdleMinutes) ? initialAIIdleMinutes : 5;
   const requests = [];
   const requestWaiters = new Set();
   const pendingAsks = new Map();
@@ -110,7 +113,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   }
   function checkpoint() {
     if (!host || closed) return;
-    onCheckpoint({ project: getProject(), threads: [...threads], requireAIApproval, queue: [...offers.values()].map(offer => ({
+    onCheckpoint({ project: getProject(), threads: [...threads], requireAIApproval, aiIdleMinutes, queue: [...offers.values()].map(offer => ({
       noteId: offer.noteId, text: offer.note.text, requester: offer.requester,
       interrupted: Boolean(offer.interrupted || offer.winner), failure: offer.failure, lastEdit: offer.lastEdit
     })) });
@@ -233,17 +236,17 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     }
   }
 
-  function interruptOffer(requestId, label) {
+  function interruptOffer(requestId, label, reason = aiCancelled) {
     const offer = offers.get(requestId);
     if (!offer?.winner) return;
     clearTimeout(offer.timer);
     reviews.get(offer.winner)?.abort();
     const guest = guests.get(offer.winner);
     if (guest) {
-      guest.lastFinishedRequest = { id: requestId, cancelled: true };
+      guest.lastFinishedRequest = { id: requestId, cancelled: true, reason };
       guest.presence = { ...guest.presence, activity: undefined };
     }
-    send('ask', { type: 'withdraw', requestId, cancelled: true }, [...offer.agents]).catch(() => {});
+    send('ask', { type: 'withdraw', requestId, cancelled: true, reason }, [...offer.agents]).catch(() => {});
     offer.winner = undefined;
     offer.agents.clear();
     offer.interrupted = true;
@@ -255,7 +258,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
 
   function renewAIWork(requestId, offer) {
     clearTimeout(offer.timer);
-    offer.timer = setTimeout(() => interruptOffer(requestId, 'AI request timed out'), aiIdleTimeout);
+    offer.expiresAt = Date.now() + aiIdleMinutes * 60_000;
+    offer.timer = setTimeout(() => interruptOffer(requestId, 'AI request timed out', aiTimedOut), aiIdleMinutes * 60_000);
   }
 
   function waitForAIRequest(after = 0, timeoutMs = 10000) {
@@ -326,7 +330,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     }
     onAIRequests({});
     requests.length = 0;
-    requestCancelled = reconnecting && Boolean(activeRequestId || requestCancelled);
+    requestEndReason = reconnecting && (activeRequestId || requestEndReason) ? aiCancelled : undefined;
     activeRequestId = undefined;
     reportedActivity = false;
   }
@@ -653,7 +657,10 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   room.onMessage('edit', async (data, from) => {
     if (!host || !guests.has(from) || closed || typeof data?.id !== 'string') return;
     if (data.aiRequestId && offers.get(data.aiRequestId)?.winner !== from) {
-      publish({ id: data.id, ...failure('ai_request_cancelled', 'This AI request is no longer active.') }, from);
+      const last = guests.get(from).lastFinishedRequest;
+      const timedOut = last?.id === data.aiRequestId && last.reason === aiTimedOut;
+      publish({ id: data.id, ...failure(timedOut ? aiTimedOut : aiCancelled,
+        timedOut ? 'This AI request timed out.' : 'This AI request is no longer active.') }, from);
       return;
     }
     if (data.epoch !== epoch || data.revision !== state.revision) {
@@ -797,10 +804,16 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     }
   });
 
-  function releaseAIRequest(requestId, cancelled) {
+  function requestEnded() {
+    return failure(requestEndReason, requestEndReason === aiTimedOut
+      ? 'This AI request timed out. Wait for the next request.'
+      : 'This AI request was cancelled. Wait for the next request.');
+  }
+
+  function releaseAIRequest(requestId, cancelled, reason) {
     if (!activeRequestId || activeRequestId !== requestId) return;
     activeRequestId = undefined;
-    requestCancelled = cancelled;
+    requestEndReason = cancelled ? (reason === aiTimedOut ? aiTimedOut : aiCancelled) : undefined;
     reportedActivity = false;
     presence = { ...presence, activity: undefined };
     schedulePresence();
@@ -838,7 +851,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
           checkpoint();
           publishPresence();
         }
-        await send('ask', { type: 'claim_result', requestId: data.requestId, granted: offer?.winner === from }, from)
+        await send('ask', { type: 'claim_result', requestId: data.requestId, granted: offer?.winner === from, expiresAt: offer?.winner === from ? offer.expiresAt : undefined }, from)
           .catch(() => {});
         dispatchOffers();
         return;
@@ -855,8 +868,10 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       receiveThread(data);
     } else if (from === hostPeer && data?.type === 'claim_result') {
       if (data.granted === true && pendingClaims.has(data.requestId)) {
+        const request = requests.find(item => item.id === data.requestId);
+        if (request && Number.isFinite(data.expiresAt)) request.expiresAt = data.expiresAt;
         activeRequestId = data.requestId;
-        requestCancelled = false;
+        requestEndReason = undefined;
         presence = { ...presence, activity: 'Reviewing a note…' };
         schedulePresence();
       }
@@ -865,11 +880,11 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       pendingClaims.get(data.requestId)?.finish(false);
       const index = requests.findIndex(request => request.id === data.requestId);
       if (index >= 0) requests.splice(index, 1);
-      releaseAIRequest(data.requestId, data.cancelled === true);
+      releaseAIRequest(data.requestId, data.cancelled === true, data.reason);
       wakeRequestWaiter();
     } else if (from === hostPeer && agentRegistered && data?.type === 'delivery' && data.note) {
       // A new delivery can arrive after a missed withdrawal, for example after a request times out.
-      releaseAIRequest(data.lastFinishedRequest?.id, data.lastFinishedRequest?.cancelled === true);
+      releaseAIRequest(data.lastFinishedRequest?.id, data.lastFinishedRequest?.cancelled === true, data.lastFinishedRequest?.reason);
       if (activeRequestId === data.requestId || requests.some(request => request.id === data.requestId)) return;
       requests.push({ id: data.requestId, sequence: ++requestSequence, note: data.note, requester: data.requester,
         ...(Array.isArray(data.thread) && { thread: data.thread }),
@@ -909,6 +924,11 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   available();
   return {
     host,
+    setAIIdleMinutes(minutes) {
+      if (!host || closed || !aiIdleLimits.includes(minutes) || minutes === aiIdleMinutes) return;
+      aiIdleMinutes = minutes;
+      checkpoint();
+    },
     setRequireAIApproval(required) {
       if (!host || closed || typeof required !== 'boolean' || required === requireAIApproval) return;
       requireAIApproval = required;
@@ -939,7 +959,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       if (result !== undefined && (typeof result !== 'string' || result.length > maxAnswerLength || message.trim())) {
         return failure('invalid_result', 'Send a result of up to 2000 characters with an empty progress message.');
       }
-      if (requestCancelled) return failure('ai_request_cancelled', 'This AI request was cancelled. Wait for the next request.');
+      if (requestEndReason) return requestEnded();
       if (failed && (!activeRequestId || !result?.trim())) {
         return failure('invalid_failure', 'Report a reason for the active AI request using an empty message.');
       }
@@ -957,13 +977,13 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     },
     submit,
     submitAIEdit(project, message) {
-      if (requestCancelled) return Promise.resolve(failure('ai_request_cancelled', 'This AI request was cancelled. Wait for the next request.'));
+      if (requestEndReason) return Promise.resolve(requestEnded());
       const aiRequestId = activeRequestId;
       if (!agentRegistered || reportedActivity) return submit(project, message, { keepClaim: reportedActivity, aiRequestId, aiEdit: true });
       presence = { ...presence, activity: 'Applying board edits…' };
       schedulePresence();
       return submit(project, message, { aiRequestId, aiEdit: true }).then(result => {
-        if (!reportedActivity && (activeRequestId === aiRequestId || !activeRequestId) && !requestCancelled) {
+        if (!reportedActivity && (activeRequestId === aiRequestId || !activeRequestId) && !requestEndReason) {
           if (result.ok) activeRequestId = undefined;
           presence = { ...presence, activity: result.ok ? undefined : 'Edit needs a retry' };
           schedulePresence();

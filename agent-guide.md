@@ -97,8 +97,7 @@ copy encoded in the link.
 ## Live session
 
 When the user shares a `#live=` invite, open it in a browser tab with WebMCP
-access. Wait for **Live · Connected**, then call `register_live_agent` with
-`{}`.
+access. Call `register_live_agent` with `{}`. A successful response confirms the connection.
 
 The host accepts or
 rejects edits against its current revision, and a successful response means the
@@ -111,8 +110,8 @@ editing link, so keep it within the session.
 1. Open the invite in one browser tab. Call `register_live_agent({})` through the browser's page WebMCP tools or run `await window.miniFlowLiveAI.register_live_agent({})` through its page JavaScript evaluator. The live board is in the tab and needs no local checkout or standalone MCP server.
 2. Call `wait_for_ai_request({"after":0})`. Keep one wait in flight. A null result means wait again with the same cursor. Historical timeout messages in `request.thread` are context. A newly claimed request is active.
 3. For an edit, call `get_board` once. Use `request.note.target` to find the target and `request.thread` to resolve follow-ups. If the user asks to rename one node, issue one `rename_node`. Use the returned revision. A successful single batch closes the request automatically.
-4. For longer work, call `report_ai_activity({"message":"…"})` when you make progress and before five minutes of silence. Finish with `{"message":"","result":"…"}`. If blocked, send `{"message":"","failed":true,"result":"<specific reason>"}` so the requester can retry. Use an empty message and a result for answer-only requests too.
-5. On a revision conflict, reread once and retry if the requested edit still applies. On cancellation, wait for the next request. If the host declines the edit or the retry fails, report the failure and resume waiting. After each handled request, pass its `sequence` as `after`.
+4. For longer work, call `report_ai_activity({"message":"…"})` when you make progress and before the idle deadline in `request.expiresAt` (Unix milliseconds). Finish with `{"message":"","result":"…"}`. If blocked, send `{"message":"","failed":true,"result":"<specific reason>"}` so the requester can retry. Use an empty message and a result for answer-only requests too.
+5. On a revision conflict, reread once and retry if the requested edit still applies. On `ai_request_cancelled` or `ai_request_timed_out`, wait for the next request. If the host declines the edit or the retry fails, report the failure and resume waiting. After each handled request, pass its `sequence` as `after`.
 
 ## WebMCP site tools
 
