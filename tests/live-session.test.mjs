@@ -139,13 +139,19 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
       return true;
     });
     assert.deepEqual(await guest.session.askAI('N1'), { ok: true });
+    await new Promise(resolve => setTimeout(resolve, 1700));
+    await network.settle();
+    assert.equal(host.requests().N1.phase, 'waiting');
     const requestedLocally = await wait({ after: next.request.sequence, timeoutMs: 2500 });
     assert.equal(droppedDelivery, true);
     assert.equal(requestedLocally.request?.note.id, 'N1');
     assert.equal(requestedLocally.request.requester, 'AI 1');
     network.drop(null);
     assert.deepEqual(guest.session.reportAIActivity('', 'Received the request'), { ok: true });
-    await network.settle();
+    for (let i = 0; i < 50 && host.requests().N1.phase !== 'result'; i++) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+      await network.settle();
+    }
     assert.equal(host.requests().N1.phase, 'result');
 
     host.session.setAIIdleMinutes(15);
