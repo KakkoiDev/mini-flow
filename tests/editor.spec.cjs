@@ -20,10 +20,31 @@ test('copies a direct AI guest invite and resets its label after three seconds',
   expect(invite).toContain('await window.miniFlowLiveAI.register_live_agent({})');
   expect(invite).toContain('{"after":0,"timeoutMs":10000}');
   expect(invite).toContain('session_ended');
+  expect(invite).toContain('wait up to 60 seconds');
   expect(invite).toContain('window.miniFlowLiveAI.help()');
   expect(invite).toContain('"op":"add_arrow"');
   await page.clock.fastForward(3000);
   await expect(page.getByRole('button', { name: 'Copy AI invite' })).toBeVisible();
+});
+
+test('replacing a project through the page API clears old threads on reused note IDs', async ({ page }) => {
+  await page.evaluate(() => {
+    const source = 'flowchart TD\n    %% mini-flow ' + JSON.stringify({ notes: [{ id: 'N1', label: 'Old note' }] });
+    miniFlowEditor.setProject({ version: 1, source, positions: { N1: [100, 100] },
+      threads: [['N1', [{ role: 'user', author: 'Host', text: 'Old thread' }]]] });
+  });
+  await expect(page.getByRole('button', { name: /Open note conversation: 1 comment/ })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('button', { name: /Open note conversation: 1 comment/ })).toBeVisible();
+  await page.evaluate(() => {
+    const source = 'flowchart TD\n    %% mini-flow ' + JSON.stringify({ notes: [{ id: 'N1', label: 'New note' }] });
+    miniFlowEditor.setProject({ version: 1, source, positions: { N1: [100, 100] } });
+  });
+  await expect(page.getByRole('button', { name: 'note: New note' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Open note conversation/ })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'note: New note' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Open note conversation/ })).toHaveCount(0);
 });
 
 test('collapses the custom relay and toggles AI approval in the live dialog', async ({ page }) => {
