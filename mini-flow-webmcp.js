@@ -137,10 +137,10 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
   if (typeof context?.registerTool === 'function' && options.reportAIActivity) {
     await context.registerTool({
       name: 'report_ai_activity',
-      description: 'Show a short progress update to everyone on the live board. Send an empty message with an optional full reply for the note conversation when finished.',
+      description: 'Send a short message to show progress and renew the five-minute idle timeout. Finish with an empty message and optional result. To mark a request failed and show Retry, send an empty message, failed: true, and the reason in result.',
       inputSchema: { type: 'object', additionalProperties: false, required: ['message'],
-        properties: { message: { type: 'string', maxLength: 200 }, result: { type: 'string', maxLength: 2000 } } },
-      execute: ({ message, result } = {}) => options.reportAIActivity(message, result)
+        properties: { message: { type: 'string', maxLength: 200 }, result: { type: 'string', maxLength: 2000 }, failed: { type: 'boolean' } } },
+      execute: ({ message, result, failed } = {}) => options.reportAIActivity(message, result, failed)
     });
   }
 }

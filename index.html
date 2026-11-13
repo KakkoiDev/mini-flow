@@ -52,6 +52,8 @@ header button[hidden],#live-session [hidden]{display:none}
 #live-ai-approval-setting{display:flex;align-items:center;gap:6px;width:fit-content;margin-top:8px;min-height:36px;cursor:pointer}
 #live-ai-approval-setting[hidden]{display:none}
 #live-ai-approval-status{font-size:14px;color:#4c6660}
+#live-relay-setting{margin-top:12px}
+#live-relay{display:block;width:100%;box-sizing:border-box;margin-top:6px;font:inherit;padding:8px}
 header button:disabled{opacity:.45;cursor:default}
 header #blank{border-color:#ded9d2}
 header :is([data-panel],#open-saved-projects)[aria-expanded=true]{background:#e4f4ee;border-color:#c9e8df;color:#175b50}
@@ -114,6 +116,11 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid #087f7
   <h2 id="live-title">Live session</h2>
   <p id="live-status" role="status">Invite people or agents to edit this board with you.</p>
   <p id="live-network-status" hidden></p>
+  <div id="live-relay-setting" hidden>
+    <label for="live-relay">Custom WebSocket relay</label>
+    <input id="live-relay" type="text" placeholder="wss://relay.example.org" spellcheck="false" aria-describedby="live-relay-help">
+    <p id="live-relay-help">Leave blank to use the default connection. A custom p2p-core relay replaces the public relay and WebRTC signaling for this session.</p>
+  </div>
   <details id="live-debug" hidden>
     <summary>Connection diagnostics</summary>
     <button id="live-debug-copy" type="button">Copy diagnostics</button>
@@ -308,7 +315,7 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid #087f7
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=live-queue-retry"></script>
+<script src="./mini-flow.js?v=live-retry-relay"></script>
 <script type="module">
 const example = `flowchart TD
     A([Prompt In])
@@ -487,8 +494,8 @@ const liveRecoveryKey = 'mini-flow-host-session-v1';
 function readLiveRecovery() {
   try {
     const data = JSON.parse(sessionStorage.getItem(liveRecoveryKey));
-    if (data?.invite?.room !== history.state?.miniFlowHostRoom ||
-      !readLiveInvite('#live=' + data?.invite?.room + '.' + data?.invite?.password) ||
+    if (!data?.invite || data.invite.room !== history.state?.miniFlowHostRoom ||
+      !readLiveInvite(liveInviteHash(data.invite)) ||
       !Array.isArray(data.queue)) return null;
     return { ...data, project: normalizeProject(data.project) };
   } catch { return null; }
@@ -513,6 +520,7 @@ const editor = MiniFlow.mount(editorHost, saved?.source ?? example,
       if (replyTarget && !Object.hasOwn(positions, replyTarget)) closeAIReply();
     }, onPresence: presence => liveBoard?.updatePresence(presence),
     onAIReply: (id, label) => openAIReply?.(id, label),
+    onRetryAIRequest: id => retryNoteRequest(id),
     onCancelAIRequest: joiningLive ? undefined : id => liveBoard?.cancelAIRequest(id),
     onSelection(item) {
       selectedNoteId = item?.type === 'note' ? item.id : undefined;
@@ -738,9 +746,9 @@ document.querySelector('#share').onclick = async () => {
     message.textContent = joiningLive ? 'Could not copy the board link.' : 'Copy the link from your address bar.';
   }
 };
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=saved-note-conversations';
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=live-retry-relay';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { canManageReply, changeThreadReply, connectLiveBoard, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=live-ai-approval';
+import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=live-retry-relay';
 import { setupGistBackups } from './mini-flow-gist.js?v=project-sync-revisions';
 import { setupSavedProjects } from './mini-flow-projects.js?v=project-sync-revisions';
 
@@ -954,11 +962,12 @@ function renderAIReply() {
   if (!replyTarget) return;
   const thread = noteThreads.get(replyTarget);
   const request = noteRequests[replyTarget];
-  const active = ['waiting', 'working', 'interrupted'].includes(request?.phase);
+  const active = ['waiting', 'working'].includes(request?.phase);
   replyNote.hidden = thread?.some(message => message.original) ?? false;
   const messages = thread ?? (request?.phase === 'result'
     ? [{ role: 'assistant', author: request.author ?? 'AI', text: request.label }] : []);
-  replyForm.hidden = joiningLive && !liveBoard?.ready();
+  const canSend = liveBoard?.canSendNoteMessage();
+  replyForm.hidden = joiningLive && !canSend;
   const key = JSON.stringify([messages, replyEditor?.replyId, replyEditor?.remove, replyForm.hidden]);
   if (key !== displayedMessages) {
     displayedMessages = key;
@@ -977,13 +986,15 @@ function renderAIReply() {
   }
   const sending = sendingReplies.has(replyTarget);
   replySend.disabled = sending || !replyInput.value.trim();
-  replyAsk.hidden = !liveBoard?.ready() || replyForm.hidden;
-  replyAsk.disabled = active || sending;
-  replyRetry.hidden = !liveBoard?.host || request?.phase !== 'interrupted';
+  replyAsk.hidden = !liveBoard && !joiningLive;
+  replyAsk.disabled = !canSend || active || sending;
+  replyRetry.hidden = !liveBoard || request?.phase !== 'interrupted';
+  replyRetry.disabled = !canSend || sending;
+  if (!replyRetry.hidden) replyAsk.hidden = true;
   replyStatus.toggleAttribute('data-error', Boolean(replyError));
-  replyStatus.textContent = replyError || (sending ? 'Sending comment…' : request?.phase === 'waiting'
+  replyStatus.textContent = replyError || (sending ? 'Sending…' : request?.phase === 'waiting'
     ? 'Queued for AI' : request?.phase === 'working' ? request.label + ' is working…'
-      : request?.phase === 'interrupted' ? request.label + '. Review the board before retrying.' : '');
+      : request?.phase === 'interrupted' ? request.label : '');
 }
 
 openAIReply = (noteId, label) => {
@@ -1037,11 +1048,13 @@ replyInput.oninput = () => {
   replyError = '';
   renderAIReply();
 };
-async function sendNoteMessage(askAI) {
-  if (!replyTarget || replyForm.hidden || (askAI ? replyAsk.hidden || replyAsk.disabled : replySend.disabled)) return;
+async function sendNoteMessage(askAI, retry = false) {
+  const button = retry ? replyRetry : askAI ? replyAsk : replySend;
+  if (!replyTarget || replyForm.hidden || button.hidden || button.disabled) return;
   const noteId = replyTarget;
   const draft = replyInput.value;
   const prompt = draft.trim();
+  replyError = '';
   sendingReplies.add(noteId);
   renderAIReply();
   try {
@@ -1053,7 +1066,7 @@ async function sendNoteMessage(askAI) {
     }
     if (!result.ok && replyTarget === noteId) replyError = result.message;
   } catch {
-    if (replyTarget === noteId) replyError = 'Could not post the comment.';
+    if (replyTarget === noteId) replyError = askAI ? 'Could not send the note to an AI guest.' : 'Could not post the comment.';
   } finally {
     sendingReplies.delete(noteId);
     renderAIReply();
@@ -1064,7 +1077,17 @@ replyForm.onsubmit = event => {
   void sendNoteMessage(false);
 };
 replyAsk.onclick = () => sendNoteMessage(true);
-replyRetry.onclick = () => liveBoard?.retryAIRequest(replyTarget);
+replyRetry.onclick = () => sendNoteMessage(true, true);
+
+async function retryNoteRequest(noteId) {
+  if (!liveBoard?.canSendNoteMessage()) return;
+  try {
+    const result = await liveBoard.askAI(noteId);
+    liveNotice.textContent = result.ok ? 'Added to the AI queue.' : result.message;
+  } catch {
+    liveNotice.textContent = 'Could not retry the AI request.';
+  }
+}
 function persistNoteThreads() {
   if (joiningLive) {
     autosaveProject?.(currentSavedProject());
@@ -1109,7 +1132,7 @@ askButton.textContent = 'Ask AI';
 askButton.title = 'Send this note and its conversation to the AI guest';
 noteActions.append(askButton, commentButton);
 askButton.onclick = async () => {
-  if (!liveBoard?.ready() || !selectedNoteId || askButton.disabled) return;
+  if (!liveBoard?.canSendNoteMessage() || !selectedNoteId || askButton.disabled) return;
   askButton.disabled = true;
   try {
     const result = await liveBoard.askAI(selectedNoteId);
@@ -1121,13 +1144,14 @@ askButton.onclick = async () => {
   }
 };
 refreshAskAI = () => {
-  askButton.hidden = !liveBoard?.ready();
-  editor.setNoteAction(noteActions, !joiningLive || Boolean(liveBoard?.ready()), { below: true });
+  const canSend = liveBoard?.canSendNoteMessage();
+  askButton.hidden = !liveBoard && !joiningLive;
+  editor.setNoteAction(noteActions, !joiningLive || Boolean(canSend), { below: true });
+  renderAIReply();
 };
 refreshAskAI();
 updateNoteRequestBadges();
 function showGuestCounts(counts) {
-  renderAIReply();
   refreshAskAI();
   guestCounter.hidden = !counts;
   if (!counts) return;
@@ -1220,6 +1244,8 @@ const aiOptions = document.querySelector('#live-ai-options');
 const aiApprovalSetting = document.querySelector('#live-ai-approval-setting');
 const aiApproval = document.querySelector('#live-ai-approval');
 const aiApprovalStatus = document.querySelector('#live-ai-approval-status');
+const relaySetting = document.querySelector('#live-relay-setting');
+const relayInput = document.querySelector('#live-relay');
 const debugEnabled = new URL(location.href).searchParams.get('debug') === '1';
 const debugPanel = document.querySelector('#live-debug');
 const debugText = document.querySelector('#live-debug-text');
@@ -1299,13 +1325,16 @@ function showStatus(text) {
 function showNetworkStatus(status) {
   liveNetwork = status;
   const relays = status.transports.relays;
-  liveNetworkStatus.hidden = !relays;
-  if (!relays) return;
+  const server = status.transports.server;
+  liveNetworkStatus.hidden = !relays && !server;
+  if (!relays) {
+    liveNetworkStatus.textContent = server ? 'WebSocket relay: ' + server.state : '';
+    return;
+  }
   const hint = connectionWaited && diagnose(status, 12000);
   const signaling = hint || (relays.state === 'unavailable'
     ? 'Internet signaling unavailable · ' + relays.detail
     : `Signaling relay sockets open · ${relays.open} of ${relays.total}`);
-  const server = status.transports.server;
   liveNetworkStatus.textContent = server ? `${signaling} · WebSocket relay: ${server.state}` : signaling;
 }
 
@@ -1334,6 +1363,8 @@ function ended() {
   aiOptions.open = false;
   aiApprovalSetting.hidden = true;
   aiApprovalStatus.hidden = true;
+  relaySetting.hidden = false;
+  relayInput.readOnly = false;
   endSession.hidden = true;
   inviteRow.hidden = true;
   inviteInput.value = '';
@@ -1367,6 +1398,9 @@ async function startLive(invite, host, recovery) {
     traceLiveStage('connecting');
   }
   showStatus('Connecting…');
+  relaySetting.hidden = !host && !invite.relay;
+  relayInput.value = invite.relay ?? '';
+  relayInput.readOnly = true;
   try {
     liveBoard = await connectLiveBoard(invite, host, {
       getProject: editor.getProject, setProject: editor.setProject, normalize: normalizeProject,
@@ -1420,7 +1454,7 @@ async function startLive(invite, host, recovery) {
     startSession.hidden = true;
     const address = new URL(location.pathname, location.origin);
     if (debugEnabled) address.searchParams.set('debug', '1');
-    address.hash = 'live=' + invite.room + '.' + invite.password;
+    address.hash = liveInviteHash(invite);
     inviteInput.value = address.href;
     aiApprovalSetting.hidden = !host;
     inviteRow.hidden = false;
@@ -1437,6 +1471,7 @@ async function startLive(invite, host, recovery) {
       }
     }, 12000);
   } catch (error) {
+    if (host) relayInput.readOnly = false;
     showStatus('Could not start the live connection. ' + error.message);
     traceLiveStage('start-failed');
     logLiveDebug('start failed');
@@ -1444,8 +1479,17 @@ async function startLive(invite, host, recovery) {
     startSession.disabled = false;
   }
 }
-liveToggle.onclick = () => liveDialog.showModal();
-startSession.onclick = () => startLive(newLiveInvite(), true);
+liveToggle.onclick = () => {
+  if (!liveBoard && !joiningLive) relaySetting.hidden = false;
+  liveDialog.showModal();
+};
+startSession.onclick = () => {
+  try { void startLive(newLiveInvite(relayInput.value.trim()), true); }
+  catch {
+    showStatus('Enter a secure relay URL such as wss://relay.example.org.');
+    relayInput.focus();
+  }
+};
 endSession.onclick = () => liveBoard?.stop();
 aiApproval.onchange = () => liveBoard?.setRequireAIApproval(aiApproval.checked);
 window.addEventListener('pagehide', () => {
@@ -1468,8 +1512,9 @@ copyAIInvite.onclick = async () => {
   try {
     await navigator.clipboard.writeText([
       'Join this Mini Flow live session as an AI guest using WebMCP.',
-      'Open the invite in a browser with WebMCP tool access. Wait for Live · Connected, call register_live_agent with {}, then use get_board and wait_for_ai_request.',
-      'Keep listening until the session ends or I ask you to stop. A null request can mean the host is reconnecting. Call wait_for_ai_request again using the last handled sequence as after (start at 0). If Mini Flow requests host review, wait for the edit result before continuing. If your work is interrupted, wait for a new request. After reporting a result, immediately resume waiting.',
+      'Open the invite in a browser with WebMCP tool access. When it says Live · Connected, call register_live_agent({}). Use one tab and one waiter. If tools are missing, use the browser’s documented WebMCP access or report the blocker.',
+      'Call wait_for_ai_request({after: 0}). On null, wait again with the same cursor. For a claimed request, read get_board once, use note.target and request.thread, then answer or apply the smallest requested edit using that revision. A successful single edit finishes the request. For longer work, report progress before five minutes of silence and finish with report_ai_activity({message: "", result: "…"}). To report a failure, include failed: true. If the request is cancelled, wait for the next one. If the host declines the edit or a retry fails, report the failure. On a revision conflict, reread once before retrying.',
+      'After handling a request, immediately wait again with after set to its sequence. Keep listening until the session ends or I ask you to stop.',
       inviteInput.value
     ].join('\n\n'));
     copyAIInvite.textContent = 'AI invite copied';
@@ -1490,7 +1535,7 @@ registerMiniFlowTools(editor, undefined, undefined, {
   registerAgent: joiningLive ? () => liveBoard?.registerAgent() ?? { ok: false, reason: 'live_not_ready' } : undefined,
   waitForAIRequest: joiningLive ? (after, timeoutMs) => liveBoard?.waitForAIRequest(after, timeoutMs) ??
     { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' } : undefined,
-  reportAIActivity: joiningLive ? (message, result) => liveBoard?.reportAIActivity(message, result) ??
+  reportAIActivity: joiningLive ? (message, result, failed) => liveBoard?.reportAIActivity(message, result, failed) ??
     { ok: false, reason: 'live_not_ready', message: 'The host is not connected.' } : undefined,
   isReady: () => !joiningLive || Boolean(liveBoard?.ready()),
   async commitProject(project, message) {

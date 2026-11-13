@@ -4,6 +4,41 @@ test.beforeEach(async ({ page }) => {
   await page.goto('http://127.0.0.1:8765/');
 });
 
+test('wraps long Japanese notes and unbroken words without changing saved text', async ({ page }) => {
+  const label = '日本語には単語の間に空白がありません。'.repeat(4) + '\n' + 'a'.repeat(80);
+  const result = await page.evaluate(label => {
+    const source = 'flowchart TD\n    %% mini-flow ' + JSON.stringify({ notes: [{ id: 'N1', label }] });
+    miniFlowEditor.setProject({ version: 1, source, positions: { N1: [0, 0] } });
+    const root = document.querySelector('#editor > div').shadowRoot;
+    const shape = root.querySelector('[data-note-fill="N1"]');
+    const lines = [...shape.parentNode.querySelectorAll('text > tspan')];
+    return {
+      lineCount: lines.length,
+      widestLine: Math.max(...lines.map(line => line.getComputedTextLength())),
+      width: Number(shape.getAttribute('width')),
+      savedLabel: MiniFlow.parse(miniFlowEditor.getProject().source).nodes[0].label
+    };
+  }, label);
+  expect(result.lineCount).toBeGreaterThan(3);
+  expect(result.widestLine).toBeLessThan(result.width);
+  expect(result.savedLabel).toBe(label);
+});
+
+test('shows retry beside timed-out AI work in the activity list', async ({ page }) => {
+  await page.evaluate(() => {
+    const host = document.body.appendChild(document.createElement('div'));
+    const label = 'Retry this note';
+    const source = 'flowchart TD\n    %% mini-flow ' + JSON.stringify({ notes: [{ id: 'N1', label }] });
+    const editor = MiniFlow.mount(host, source, {}, {
+      onRetryAIRequest: id => { host.dataset.retried = id; }
+    });
+    editor.setAIRequests({ N1: { phase: 'interrupted', label: 'AI request timed out' } });
+  });
+  await expect(page.getByText('AI request timed out · Retry this note', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Retry AI request for Retry this note' }).click();
+  await expect(page.locator('[data-retried="N1"]')).toHaveCount(1);
+});
+
 test('select, edit, delete, and restore a shape', async ({ page }) => {
   const node = page.getByRole('button', { name: 'terminal: Prompt In' });
   await node.click();

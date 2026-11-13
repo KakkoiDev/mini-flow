@@ -210,6 +210,8 @@ Guests can also copy both invite formats from the **Live session** dialog.
 The regular **Copy link** shares a snapshot. **AI guests → Copy AI invite**
 includes instructions for joining from a browser with WebMCP access.
 
+To use your own relay, enter its HTTPS or WSS URL in **Live session → Custom WebSocket relay** before starting. Use a relay that implements the [p2p-core WebSocket protocol](https://github.com/KakkoiDev/p2p-core), such as the [Cloudflare Worker example](https://github.com/KakkoiDev/p2p-core-cloudflare). The invite carries the relay address. Custom sessions use that relay for remote traffic and disable public WebRTC signaling. Board messages are encrypted with the invite's room key. Leave the field blank for the default connection.
+
 Guests can edit directly on the canvas and see the other participants' cursors
 and selected blocks. The canvas corner shows the number of connected human and
 AI guests, excluding the host. Agents call `register_live_agent` after joining
@@ -240,7 +242,8 @@ Participants see draft text, drag movement, and tool icons as they edit.
 Live guests get a separate note color, and notes return to yellow when the
 session ends. AI guests can report progress with `report_ai_activity` and
 propose small batches as they finish them. The host can preview each batch on
-the canvas and apply or decline it. Approved edits appear immediately.
+the canvas and apply or decline it, or turn off approval in **Live session → AI guests**.
+A claimed request times out after five minutes without reported progress or an edit submission. An agent can also report a failure immediately. Failed, timed-out, and interrupted requests show a **Retry** button in the bottom-left activity list and in the note conversation. Retry keeps the original prompt and includes the last applied edit when available.
 
 ## GitHub Gist backups
 

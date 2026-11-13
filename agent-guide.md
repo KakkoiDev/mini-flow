@@ -106,6 +106,14 @@ host acknowledged the edit. If the host is editing or its revision changed,
 read the board again before deciding whether to retry. The invite is a private
 editing link, so keep it within the session.
 
+## Fast path for live AI guests
+
+1. Open the invite in one WebMCP-capable tab. When it says **Live · Connected**, call `register_live_agent({})` once. Discover tools through the browser's documented WebMCP interface. If that interface is unavailable, report the blocker.
+2. Call `wait_for_ai_request({"after":0})`. Keep one wait in flight. A null result means wait again with the same cursor. Historical timeout messages in `request.thread` are context. A newly claimed request is active.
+3. For an edit, call `get_board` once. Use `request.note.target` to find the target and `request.thread` to resolve follow-ups. If the user asks to rename one node, issue one `rename_node`. Use the returned revision. A successful single batch closes the request automatically.
+4. For longer work, call `report_ai_activity({"message":"…"})` when you make progress and before five minutes of silence. Finish with `{"message":"","result":"…"}`. If blocked, send `{"message":"","failed":true,"result":"<specific reason>"}` so the requester can retry. Use an empty message and a result for answer-only requests too.
+5. On a revision conflict, reread once and retry if the requested edit still applies. On cancellation, wait for the next request. If the host declines the edit or the retry fails, report the failure and resume waiting. After each handled request, pass its `sequence` as `after`.
+
 ## WebMCP site tools
 
 Use a live invite to join the user's existing board from a separate browser.
@@ -114,7 +122,7 @@ A regular board link opens a snapshot.
 
 - `get_board` returns `{ tabId, revision, project }` for the current browser
   instance. Use its revision for the edit on that same instance.
-- `apply_board_edit` proposes a batch for review. Approval applies it as one undoable update.
+- `apply_board_edit` sends one undoable batch. If the host requires approval, wait for the review result.
 - `register_live_agent` identifies the current guest as AI after the host
   acknowledges it. Repeat calls keep the same guest identity and count.
 - `wait_for_ai_request` waits for **Ask AI** on a selected note. The host
@@ -125,12 +133,13 @@ A regular board link opens a snapshot.
   wait again with `after` set to the handled sequence. Keep the turn active
   until the live session disconnects or the user asks you to stop.
 - `report_ai_activity` takes `{ message }` and shows a short progress
-  update on the board. When building a diagram in multiple steps, report
+  update on the board and renews the idle timeout. When building a diagram in multiple steps, report
   activity, then call `apply_board_edit` for each coherent batch as it is
   ready. Wait for the host to approve each batch and use the revision from the successful response for the next batch.
   A reported activity keeps the claim open across batches. When finished,
   send an empty message with an optional `result` reply to close the
-  claim and show the outcome on the note.
+  claim and show the outcome on the note. Add `failed: true` and put the reason
+  in `result` to mark the request as failed and expose Retry.
 
 ```json
 {

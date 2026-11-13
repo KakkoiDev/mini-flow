@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import '../mini-flow.js';
-import { createLiveSession } from '../mini-flow-live.js';
+import { createLiveSession, liveInviteHash, newLiveInvite, readLiveInvite } from '../mini-flow-live.js';
 import { registerMiniFlowTools } from '../mini-flow-webmcp.js';
 import { createTestNetwork, joinRoom } from '../vendor/p2p-core/p2p-core.js';
 
-test('a live board syncs multiple guests, rejects stale edits, and closes', async () => {
+test('a live board syncs multiple guests, rejects stale edits, and closes', async ({ mock }) => {
   const network = createTestNetwork();
   const makeProject = label => ({ version: 1, source: `flowchart TD\n    A["${label}"]`, positions: { A: [0, 0] } });
   let hostEditing = false;
@@ -143,9 +143,40 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.deepEqual(guest.session.reportAIActivity('', 'Received the request'), { ok: true });
     await network.settle();
     assert.equal(host.requests().N1.phase, 'result');
+
+    let expireRequest;
+    const schedule = globalThis.setTimeout;
+    const timer = mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+      if (delay === 300000) expireRequest = callback;
+      return schedule(callback, delay, ...args);
+    });
+    assert.deepEqual(await guest.session.askAI('N1'), { ok: true });
+    const timedOut = (await wait({ after: requestedLocally.request.sequence, timeoutMs: 1000 })).request;
+    assert.equal(timedOut.note.id, 'N1');
+    const originalExpiry = expireRequest;
+    assert.deepEqual(guest.session.reportAIActivity('Still working'), { ok: true });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    await network.settle();
+    assert.notEqual(expireRequest, originalExpiry);
+    timer.mock.restore();
+    network.drop(({ kind, data }) => kind === 'ask' && data.type === 'withdraw' && data.requestId === timedOut.id);
+    expireRequest();
+    await network.settle();
+    assert.deepEqual(host.requests().N1, { phase: 'interrupted', label: 'AI request timed out' });
+    assert.deepEqual(secondGuest.requests().N1, host.requests().N1);
+    assert.deepEqual(await guest.session.askAI('N1'), { ok: true });
+    const retried = (await wait({ after: timedOut.sequence, timeoutMs: 1000 })).request;
+    assert.equal(retried?.note.id, 'N1');
+    assert.notEqual(retried.id, timedOut.id);
+    network.drop(null);
+    assert.deepEqual(guest.session.reportAIActivity('', 'Could not edit the board', true), { ok: true });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    await network.settle();
+    assert.deepEqual(host.requests().N1, { phase: 'interrupted', label: 'AI failed · Could not edit the board' });
+
     assert.deepEqual(await secondGuest.session.registerAgent(), { ok: true });
     const competing = [
-      wait({ after: requestedLocally.request.sequence, timeoutMs: 1000 }),
+      wait({ after: retried.sequence, timeoutMs: 1000 }),
       secondGuest.session.waitForAIRequest(0, 1000)
     ];
     assert.deepEqual(await host.session.askAI('N1'), { ok: true });
@@ -344,10 +375,12 @@ test('reopens the room with conversations, interrupted AI requests, and approval
     const review = new Promise(resolve => { reviewStarted = resolve; });
     const edit = guest.session.submitAIEdit(diagram('Applied batch'), 'First batch');
     assert.equal((await review).project.source, diagram('Applied batch').source);
+    assert.equal(guest.session.ready(), false);
+    assert.equal(guest.session.canSendNoteMessage(), true);
+    assert.deepEqual(await guest.session.askAI('N2'), { ok: true });
     assert.deepEqual(host.project(), diagram());
     decide(true);
     assert.deepEqual(await edit, { ok: true });
-    await host.session.askAI('N2');
     host.session.suspend();
     await until(() => !guest.session.ready());
     assert.deepEqual(snapshot.queue.map(item => [item.noteId, item.interrupted]), [['N1', true], ['N2', false]]);
@@ -367,7 +400,7 @@ test('reopens the room with conversations, interrupted AI requests, and approval
     assert.equal((await rejectedEdit).reason, 'edit_declined');
     assert.deepEqual(host.project(), diagram('Applied batch'));
 
-    assert.equal(host.session.retryAIRequest('N1'), true);
+    assert.deepEqual(await host.session.askAI('N1'), { ok: true });
     guest.session.reportAIActivity('', 'Finished');
     const retried = (await guest.session.waitForAIRequest(queued.sequence, 1000)).request;
     assert.equal(retried.note.id, 'N1');
@@ -422,4 +455,14 @@ test('encrypts payloads, binds the sender and kind, and rejects replay', async (
   callbacks.get('state')(sent, 'host');
   await new Promise(resolve => setTimeout(resolve, 40));
   assert.deepEqual(accepted, [board]);
+});
+
+test('live invites carry custom relay settings and accept older invite links', () => {
+  const legacy = newLiveInvite();
+  assert.deepEqual(readLiveInvite(liveInviteHash(legacy)), legacy);
+  const custom = newLiveInvite('https://relay.example.org/private/ws');
+  assert.equal(custom.relay, 'wss://relay.example.org/private/ws');
+  assert.deepEqual(readLiveInvite(liveInviteHash(custom)), custom);
+  assert.equal(readLiveInvite(liveInviteHash({ ...legacy, relay: 'ws://relay.example.org' })), null);
+  assert.throws(() => newLiveInvite('wss://alice:secret@relay.example.org'));
 });

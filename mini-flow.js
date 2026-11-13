@@ -90,7 +90,7 @@ SOFTWARE.
     ), ...metadata].join('\n');
   }
 
-  function mount(host, source = 'flowchart TD', positions = {}, { onChange, onPresence, onSelection, onAIReply, onCancelAIRequest, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic', settingsKey, snapToGrid = false, dagre } = {}) {
+  function mount(host, source = 'flowchart TD', positions = {}, { onChange, onPresence, onSelection, onAIReply, onCancelAIRequest, onRetryAIRequest, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic', settingsKey, snapToGrid = false, dagre } = {}) {
     const enabled = name => features[name] !== false;
     let historyEnabled = enabled('history');
     const palette = { canvas: '#f7faff', grid: '#c5d4e4', text: '#203044', surface: '#fff',
@@ -177,6 +177,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .peer-activity-row > :first-child {min-width:0;text-align:left}
         .peer-activity button {pointer-events:auto;padding:2px 4px;margin:-2px -4px;min-height:24px;
           border:0;background:none;color:inherit;font:inherit;text-decoration:underline;text-underline-offset:2px}
+        .peer-activity button.peer-activity-retry {flex:none;margin:0;padding:2px 7px;border:1px solid #ded9d2;border-radius:6px;text-decoration:none}
         .peer-activity button.peer-activity-cancel {flex:none;margin:0;padding:0;width:28px;height:28px;
           font-size:18px;line-height:1;text-align:center;text-decoration:none}
         .note-actions {position:absolute;z-index:2;display:flex;gap:4px}
@@ -545,7 +546,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       const notes = new Map(graph.nodes.filter(node => node.type === 'note').map(node => [node.id, node.label]));
       const queued = Object.entries(aiRequests)
         .filter(([id, request]) => ['waiting', 'interrupted'].includes(request.phase) && notes.has(id))
-        .map(([id, request]) => [(request.phase === 'interrupted' ? 'Interrupted · ' : 'Queued · ') + notes.get(id), id]);
+        .map(([id, request]) => [request.phase === 'interrupted'
+          ? request.label + ' · ' + notes.get(id) : 'Queued · ' + notes.get(id), id, request.phase]);
       const activities = peerPresence.filter(peer => peer.activity)
         .map(peer => [peer.label + ' · ' + peer.activity, noteByAgent.get(peer.label)]);
       const rows = [...queued, ...activities];
@@ -557,7 +559,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       const queue = document.createElement('div');
       queue.className = 'peer-activity-queue';
       if (queued.length) activityList.append(queue);
-      for (const [index, [label, noteId]] of rows.entries()) {
+      for (const [index, [label, noteId, phase]] of rows.entries()) {
         const row = document.createElement('div');
         row.className = 'peer-activity-row';
         const interactive = Boolean(onAIReply && noteId);
@@ -577,6 +579,22 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           };
         }
         row.append(entry);
+        if (onRetryAIRequest && phase === 'interrupted') {
+          const retry = document.createElement('button');
+          retry.type = 'button';
+          retry.className = 'peer-activity-retry';
+          retry.textContent = 'Retry';
+          retry.setAttribute('aria-label', 'Retry AI request for ' + notes.get(noteId));
+          retry.onclick = async () => {
+            retry.disabled = true;
+            try { await onRetryAIRequest(noteId); }
+            finally {
+              if (retry.isConnected) retry.disabled = false;
+              else activityList.querySelector('button')?.focus();
+            }
+          };
+          row.append(retry);
+        }
         if (onCancelAIRequest && noteId) {
           const cancel = document.createElement('button');
           cancel.className = 'peer-activity-cancel';
@@ -1002,8 +1020,43 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     };
     const coordinate = value => snap.checked ? Math.round(value / gridSize) * gridSize : value;
     const status = value => { get('.status').textContent = value; };
-    const radius = node => Math.max(66, ...node.label.split('\n').map(line => line.length * 5 + 25));
-    const height = node => (node.type === 'decision' ? 39 : 25) + (node.label.split('\n').length - 1) * 11;
+    const noteMeasure = document.createElement('canvas').getContext('2d');
+    noteMeasure.font = '15px system-ui';
+    const words = new Intl.Segmenter(undefined, { granularity: 'word' });
+    const graphemes = new Intl.Segmenter();
+    const noteLayouts = new Map();
+    function noteLayout(label) {
+      if (noteLayouts.has(label)) return noteLayouts.get(label);
+      const lines = [];
+      const maxWidth = 300;
+      for (const paragraph of label.split('\n')) {
+        let line = '';
+        for (const { segment } of words.segment(paragraph)) {
+          if (noteMeasure.measureText(line + segment).width <= maxWidth) {
+            line += segment;
+            continue;
+          }
+          if (line.trim()) lines.push(line.trimEnd());
+          line = '';
+          for (const { segment: char } of graphemes.segment(segment.trimStart())) {
+            if (noteMeasure.measureText(line + char).width > maxWidth) {
+              lines.push(line);
+              line = '';
+            }
+            line += char;
+          }
+        }
+        lines.push(line.trimEnd());
+      }
+      const layout = { lines, radius: Math.max(66, ...lines.map(line => noteMeasure.measureText(line).width / 2 + 20)) };
+      if (noteLayouts.size >= 128) noteLayouts.clear();
+      noteLayouts.set(label, layout);
+      return layout;
+    }
+    const radius = node => node.type === 'note' ? noteLayout(node.label).radius
+      : Math.max(66, ...node.label.split('\n').map(line => line.length * 5 + 25));
+    const height = node => (node.type === 'decision' ? 39 : 25) +
+      ((node.type === 'note' ? noteLayout(node.label).lines : node.label.split('\n')).length - 1) * 11;
     function arrangeGraph(next) {
       const layout = new dagre.graphlib.Graph({ multigraph: true });
       layout.setGraph({ rankdir: 'TB', nodesep: 56, ranksep: 60, marginx: 24, marginy: 24 });
@@ -1210,7 +1263,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           ? element('polygon', { points: '0,' + -h + ' ' + w + ',0 0,' + h + ' ' + -w + ',0', ...paint })
           : element('rect', { x: -w, y: -h, width: 2*w, height: 2*h, rx: node.type === 'terminal' ? h : 4, ...paint,
             ...(node.type === 'note' ? { 'data-note-fill': node.id } : {}) }),
-          labelText({ 'text-anchor': 'middle', visibility: editing?.item === node ? 'hidden' : 'visible' }, shown.label));
+          labelText({ 'text-anchor': 'middle', visibility: editing?.item === node ? 'hidden' : 'visible' },
+            node.type === 'note' ? noteLayout(shown.label).lines.join('\n') : shown.label));
         if (node.type === 'note' && Object.hasOwn(aiRequests, node.id)) {
           const request = aiRequests[node.id];
           const result = request.phase === 'result';
