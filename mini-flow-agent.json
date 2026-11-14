@@ -2,7 +2,7 @@
   "helper": "mini-flow-agent.mjs",
   "files": {
     "mini-flow-agents.js": "5556d3e0c6a57d217e70139fdcd6df380e6fe14daaa2e1ef7243eda1f7316c35",
-    "mini-flow-live.js": "ff6b1267086e248908c3b4be03d939da580af9f2690ec14acc4f2a8e514940c2",
+    "mini-flow-live.js": "a4ba117bce82c726d96789701a809edb21bf09eb553258c6aa8c0aa4fef2afda",
     "mini-flow-secure-room.js": "c8221b554313e5dd1fcb80da902e1f8349a1c67f3a1e4bbe4e2514c929dd4260",
     "vendor/p2p-core/p2p-core.js": "cce10dfe634ea7c062d0c3ea542df857623792ab607b0ba7ea5a597fa85ae61c",
     "vendor/p2p-core/src/debug.js": "62691c7e2a02d0f81f15ff7074748c26dfdfbd75eb41890107ffce0781a33ccb",
