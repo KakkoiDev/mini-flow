@@ -799,11 +799,10 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       render();
       publishPresence();
       field.focus({ preventScroll: true });
-      const range = document.createRange();
-      range.selectNodeContents(field);
       const selection = shadow.getSelection?.() || window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
+      // WebKit ignores addRange() for nodes inside a shadow root, leaving the field without a caret.
+      try { selection.setBaseAndExtent(field, 0, field, field.childNodes.length); } catch {}
+      if (!field.contains(selection.anchorNode)) document.execCommand('selectAll');
     }
     const connect = get('[data-link]'), remove = get('[data-delete]');
     const snap = get('[data-snap]');
