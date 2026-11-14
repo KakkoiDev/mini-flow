@@ -12,5 +12,5 @@ jobs:
           node-version: 22
       - run: npm install --no-save @playwright/test@1.52.0
       - run: npx playwright install --with-deps chromium webkit
-      - run: node --test tests/live-session.test.mjs tests/parse.test.mjs
+      - run: node --test tests/live-session.test.mjs tests/parse.test.mjs tests/agent-room.test.mjs
       - run: npx playwright test tests/editor.spec.cjs

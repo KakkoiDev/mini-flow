@@ -5,7 +5,7 @@ import { createLiveSession, liveInviteHash, newLiveInvite, readLiveInvite } from
 import { registerMiniFlowTools } from '../mini-flow-webmcp.js';
 import { createTestNetwork, joinRoom } from '../vendor/p2p-core/p2p-core.js';
 
-test('a live board syncs multiple guests, rejects stale edits, and closes', async ({ mock }) => {
+test('a live board syncs multiple guests, rejects stale edits, and closes', async () => {
   const network = createTestNetwork();
   const makeProject = label => ({ version: 1, source: `flowchart TD\n    A["${label}"]`, positions: { A: [0, 0] } });
   let hostEditing = false;
@@ -19,10 +19,11 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     let colors = {};
     let requests = {};
     const threads = new Map();
+    const ai = { calls: [], result: { ok: true } };
     const room = joinRoom({ app: 'mini-flow-live-test', room: 'room', password: 'private', network,
       protocol: 3, maxPeers: host ? 8 : 1, profile: { role: host ? 'host' : 'editor' },
       acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host'),
-      kinds: ['read', 'state', 'edit', 'end', 'presence', 'agent', 'ask'] });
+      kinds: ['read', 'state', 'edit', 'end', 'presence', 'ask'] });
     const getProject = () => structuredClone(project);
     const setProject = next => {
       project = structuredClone(next);
@@ -37,11 +38,12 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     readNote: (_, id) => ['N1', 'N2', 'N3'].includes(id) ? { id, text: 'Review this step', target: { type: 'node', id: 'A' } } : null,
     noteIds: value => MiniFlow.parse(value.source).nodes.filter(node => node.type === 'note').map(node => node.id),
     onNoteColors(value) { colors = value; }, onAIRequests(value) { requests = value; },
+    onAIRequest: host ? async request => { ai.calls.push(request); return ai.result; } : undefined,
     onAIThread(id, messages) {
       if (messages) threads.set(id, messages);
       else threads.delete(id);
     } });
-    return { id: room.selfId, session, getProject, setProject, commits: () => commits, ended: () => ended,
+    return { id: room.selfId, session, getProject, setProject, commits: () => commits, ended: () => ended, ai,
       threads, presence: () => presence, counts: () => counts, colors: () => colors, requests: () => requests };
   }
 
@@ -56,14 +58,12 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.deepEqual(secondGuest.getProject(), host.getProject());
 
     const tools = new Map();
-    let pageTools;
     await registerMiniFlowTools(guest, MiniFlow, { registerTool: tool => tools.set(tool.name, tool.execute) }, {
-      tabId: 'guest', isReady: guest.session.ready, commitProject: guest.session.submitAIEdit,
-      exposeTools: api => { pageTools = api; },
-      registerAgent: guest.session.registerAgent, waitForAIRequest: guest.session.waitForAIRequest
+      tabId: 'guest', isReady: guest.session.ready, commitProject: guest.session.submit
     });
-    assert.deepEqual(host.counts(), { human: 2, ai: 0 });
-    assert.deepEqual(await secondGuest.session.comment('N1', 'A comment before any AI joined'), { ok: true });
+    assert.deepEqual([...tools.keys()].sort(), ['apply_board_edit', 'get_board']);
+    assert.deepEqual(host.counts(), { human: 2 });
+    assert.deepEqual(await secondGuest.session.comment('N1', 'A comment before anyone asked AI'), { ok: true });
     const [guestComment] = host.threads.get('N1');
     assert.equal(guestComment.author, 'Guest 2');
     assert.match(guestComment.owner, /^[a-f0-9]{32}$/);
@@ -71,134 +71,50 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.equal(secondGuest.session.canManageReply(guestComment), true);
     assert.equal(guest.session.canManageReply(guestComment), false);
     assert.match(guestComment.replyId, /^[a-f0-9]{32}$/);
-    assert.deepEqual(await host.session.askAI('N1'), { ok: true });
-    assert.equal(host.requests().N1.phase, 'waiting');
-    assert.equal(pageTools.wait_for_ai_request, tools.get('wait_for_ai_request'));
-    assert.equal(pageTools.help().tools.find(tool => tool.name === 'wait_for_ai_request').inputSchema.properties.timeoutMs.default, 10000);
-    assert.deepEqual(await pageTools.register_live_agent({}), { ok: true });
-    await network.settle();
-    assert.deepEqual(host.counts(), { human: 1, ai: 1 });
-    assert.deepEqual(secondGuest.counts(), host.counts());
-    const wait = tools.get('wait_for_ai_request');
-    const listening = wait({ timeoutMs: 1000 });
-    const first = await listening;
-    assert.equal(host.requests().N1.phase, 'working');
-    assert.equal(first.request.requester, 'Host');
-    assert.deepEqual(first.request.note, { id: 'N1', text: 'A comment before any AI joined', target: { type: 'node', id: 'A' } });
-    assert.deepEqual(first.request.thread, host.threads.get('N1'));
     const change = { replyId: guestComment.replyId, previousText: guestComment.text, text: 'Corrected guest comment' };
     assert.equal((await guest.session.manageReply('N1', change)).reason, 'reply_forbidden');
     assert.deepEqual(await secondGuest.session.manageReply('N1', change), { ok: true });
     assert.equal((await host.session.manageReply('N1', change)).reason, 'reply_changed');
-    assert.equal(first.request.thread[0].text, guestComment.text);
-    assert.equal((await secondGuest.session.waitForAIRequest()).reason, 'ai_not_connected');
-    assert.equal((await host.session.askAI('N1')).reason, 'already_requested');
-    assert.deepEqual(await host.session.askAI('N2'), { ok: true });
-    assert.deepEqual(await host.session.askAI('N3'), { ok: true });
-    await network.settle();
-    assert.deepEqual(await wait({ after: first.request.sequence, timeoutMs: 0 }), { ok: true, request: null });
-    assert.equal(host.session.cancelAIRequest('N2'), true);
-    assert.equal(host.requests().N2.label, 'AI request cancelled');
-    assert.deepEqual(guest.session.reportAIActivity('Building in batches'), { ok: true });
-    assert.equal((await guest.session.submitAIEdit(makeProject('First batch'), 'First batch')).ok, true);
-    assert.deepEqual(host.getProject(), makeProject('First batch'));
-    assert.equal((await host.session.askAI('N1')).reason, 'already_requested');
-    assert.equal((await guest.session.submitAIEdit(makeProject('Second batch'), 'Second batch')).ok, true);
-    await network.settle();
-    assert.deepEqual(secondGuest.getProject(), makeProject('Second batch'));
-    guest.session.reportAIActivity('', 'Two batches added');
-    await network.settle();
-    assert.deepEqual(host.requests().N1, { phase: 'result', label: 'Two batches added', author: 'AI 1' });
-    assert.deepEqual(secondGuest.requests().N1, host.requests().N1);
+
+    // A guest's Ask AI reaches the host, which hands it to agent-room.
     assert.deepEqual(await secondGuest.session.askAI('N1', 'What changed?'), { ok: true });
-    const queued = await wait({ after: first.request.sequence, timeoutMs: 1000 });
-    assert.equal(queued.request.note.id, 'N3');
-    assert.equal(host.session.cancelAIRequest('N3'), true);
-    // Attempt an edit immediately, before the guest receives the cancellation.
-    assert.equal((await guest.session.submitAIEdit(makeProject('Cancelled edit'), 'Late edit')).reason, 'ai_request_cancelled');
-    await network.settle();
-    assert.equal(guest.session.reportAIActivity('', 'Late reply').reason, 'ai_request_cancelled');
-    assert.deepEqual(host.getProject(), makeProject('Second batch'));
-    assert.equal(host.requests().N3.label, 'AI request cancelled');
-    const next = await wait({ after: queued.request.sequence, timeoutMs: 1000 });
-    assert.equal(next.request.requester, 'Guest 2');
-    assert.equal(next.request.note.text, 'What changed?');
-    assert.deepEqual(next.request.thread[0], { ...guestComment, text: 'Corrected guest comment', edited: 'author' });
-    assert.equal(next.request.thread[1].author, 'AI 1');
-    assert.equal(next.request.thread[1].text, 'Two batches added');
-    assert.deepEqual(await wait({ after: next.request.sequence, timeoutMs: 0 }), { ok: true, request: null });
-    assert.equal((await host.session.askAI('missing')).reason, 'note_missing');
-    const fullReply = 'Here are the changes. '.repeat(16).trim();
-    assert.deepEqual(guest.session.reportAIActivity('', fullReply), { ok: true });
-    await network.settle();
-    assert.equal(host.requests().N1.label, fullReply.slice(0, 200));
-    assert.equal(host.threads.get('N1').at(-1).text, fullReply);
-    assert.deepEqual(secondGuest.threads.get('N1'), host.threads.get('N1'));
-    // A person can click Ask AI in the only browser tab registered as an AI guest.
-    let droppedDelivery = false;
-    network.drop(({ kind, data }) => {
-      if (kind !== 'ask' || data.type !== 'delivery' || droppedDelivery) return false;
-      droppedDelivery = true;
-      return true;
-    });
-    assert.deepEqual(await guest.session.askAI('N1'), { ok: true });
-    await new Promise(resolve => setTimeout(resolve, 1700));
-    await network.settle();
-    assert.equal(host.requests().N1.phase, 'waiting');
-    const requestedLocally = await wait({ after: next.request.sequence, timeoutMs: 2500 });
-    assert.equal(droppedDelivery, true);
-    assert.equal(requestedLocally.request?.note.id, 'N1');
-    assert.equal(requestedLocally.request.requester, 'AI 1');
-    network.drop(null);
-    assert.deepEqual(guest.session.reportAIActivity('', 'Received the request'), { ok: true });
-    for (let i = 0; i < 50 && host.requests().N1.phase !== 'result'; i++) {
-      await new Promise(resolve => setTimeout(resolve, 10));
-      await network.settle();
-    }
-    assert.equal(host.requests().N1.phase, 'result');
-
-    host.session.setAIIdleMinutes(15);
-    let expireRequest;
-    const schedule = globalThis.setTimeout;
-    const timer = mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
-      if (delay === 900000) expireRequest = callback;
-      return schedule(callback, delay, ...args);
-    });
-    assert.deepEqual(await guest.session.askAI('N1'), { ok: true });
-    const timedOut = (await wait({ after: requestedLocally.request.sequence, timeoutMs: 1000 })).request;
-    assert.equal(timedOut.note.id, 'N1');
-    assert.ok(timedOut.expiresAt - Date.now() > 899000);
-    const originalExpiry = expireRequest;
-    assert.deepEqual(guest.session.reportAIActivity('Still working'), { ok: true });
-    await new Promise(resolve => setTimeout(resolve, 10));
-    await network.settle();
-    assert.notEqual(expireRequest, originalExpiry);
-    timer.mock.restore();
-    network.drop(({ kind, data }) => kind === 'ask' && data.type === 'withdraw' && data.requestId === timedOut.id);
-    expireRequest();
-    await network.settle();
-    const late = await guest.session.submitAIEdit(makeProject('Expired edit'), 'Late edit');
-    assert.equal(late.reason, 'ai_request_timed_out');
-    assert.deepEqual(host.getProject(), makeProject('Second batch'));
-    assert.deepEqual(host.requests().N1, { phase: 'interrupted', label: 'AI request timed out' });
-    assert.deepEqual(secondGuest.requests().N1, host.requests().N1);
-    assert.deepEqual(await guest.session.askAI('N1'), { ok: true });
-    const retried = (await wait({ after: timedOut.sequence, timeoutMs: 1000 })).request;
-    assert.equal(retried?.note.id, 'N1');
-    assert.notEqual(retried.id, timedOut.id);
-    network.drop(null);
-    assert.deepEqual(guest.session.reportAIActivity('', 'Could not edit the board', true), { ok: true });
-    await new Promise(resolve => setTimeout(resolve, 10));
-    await network.settle();
-    assert.deepEqual(host.requests().N1, { phase: 'interrupted', label: 'AI failed · Could not edit the board' });
-
-    assert.deepEqual(await secondGuest.session.registerAgent(), { ok: true });
-    const competing = [
-      wait({ after: retried.sequence, timeoutMs: 1000 }),
-      secondGuest.session.waitForAIRequest(0, 1000)
-    ];
+    const [request] = host.ai.calls;
+    assert.equal(request.noteId, 'N1');
+    assert.equal(request.requester, 'Guest 2');
+    assert.equal(request.prompt, 'What changed?');
+    assert.deepEqual(request.note, { id: 'N1', text: 'What changed?', target: { type: 'node', id: 'A' } });
+    assert.equal(request.thread[0].text, 'Corrected guest comment');
+    assert.equal(host.threads.get('N1').at(-1).text, 'What changed?');
+    // Asking again without a prompt reuses the latest question and adds no message.
     assert.deepEqual(await host.session.askAI('N1'), { ok: true });
-    assert.equal((await Promise.all(competing)).filter(result => result.request).length, 1);
+    assert.equal(host.ai.calls[1].prompt, 'What changed?');
+    assert.equal(host.ai.calls[1].requester, 'Host');
+    assert.equal(host.threads.get('N1').length, 2);
+    // A refused hand-off leaves the conversation unchanged.
+    host.ai.result = { ok: false, reason: 'no_agents', message: 'No agents are in the agent-room yet.' };
+    assert.equal((await guest.session.askAI('N1', 'Anyone there?')).reason, 'no_agents');
+    host.ai.result = undefined;
+    assert.equal((await guest.session.askAI('N1', 'Anyone there?')).reason, 'ai_unavailable');
+    assert.equal(host.threads.get('N1').length, 2);
+    host.ai.result = { ok: true };
+    assert.equal((await host.session.askAI('missing')).reason, 'note_missing');
+    assert.equal(host.ai.calls.length, 4);
+
+    // The host publishes request status and agent replies to every guest.
+    host.session.setAIRequests({ N1: { phase: 'working', label: 'Claude' } });
+    await network.settle();
+    assert.deepEqual(secondGuest.requests().N1, { phase: 'working', label: 'Claude' });
+    assert.deepEqual(host.requests().N1, secondGuest.requests().N1);
+    assert.equal(host.session.appendAIMessage('N1', { role: 'assistant', author: 'Claude', text: 'Renamed the step.' }), true);
+    assert.equal(host.session.appendAIMessage('missing', { role: 'assistant', author: 'Claude', text: 'Lost' }), false);
+    host.session.setAIRequests({ N1: { phase: 'result', label: 'Renamed the step.', author: 'Claude' } });
+    await network.settle();
+    assert.equal(secondGuest.threads.get('N1').at(-1).text, 'Renamed the step.');
+    assert.deepEqual(guest.threads.get('N1'), host.threads.get('N1'));
+    assert.equal(guest.requests().N1.phase, 'result');
+    guest.session.setAIRequests?.({ N1: { phase: 'waiting', label: 'Forged' } });
+    await network.settle();
+    assert.equal(secondGuest.requests().N1.phase, 'result');
     const getBoard = tools.get('get_board');
     const edit = tools.get('apply_board_edit');
     const commitsBeforeEdit = host.commits();
@@ -255,7 +171,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     secondGuest.session.stop();
     await network.settle();
     assert.equal(guest.presence().some(peer => peer.id === secondGuest.id), false);
-    assert.deepEqual(host.counts(), { human: 0, ai: 1 });
+    assert.deepEqual(host.counts(), { human: 1 });
     const storedReply = host.threads.get('N1')[0];
     const hostChange = { replyId: storedReply.replyId, previousText: storedReply.text, text: 'Edited after the guest left' };
     assert.deepEqual(await host.session.manageReply('N1', hostChange), { ok: true });
@@ -285,23 +201,18 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.equal(notes.ok, true);
     assert.equal(host.colors().AI_NOTE, 1);
     assert.deepEqual(host.colors(), guest.colors());
-    guest.session.reportAIActivity('Drafting an example');
     guest.session.updatePresence({ point: [12, 34], focus: 'AI_NOTE', tool: 'note',
       draft: { id: 'AI_NOTE', type: 'note', text: 'Typing live', position: [14, 35] } });
     await new Promise(resolve => setTimeout(resolve, 125));
     await network.settle();
     const preview = host.presence().find(peer => peer.id === guest.id);
-    assert.equal(preview.activity, 'Drafting an example');
     assert.equal(preview.color, host.colors().AI_NOTE);
     assert.equal(preview.tool, 'note');
     assert.equal(preview.draft.text, 'Typing live');
     assert.deepEqual(host.getProject().positions.AI_NOTE, [12, 34]);
 
-    const waitingWhenClosed = wait({ after: next.request.sequence, timeoutMs: 1000 });
     host.session.stop();
     await network.settle();
-    assert.equal((await waitingWhenClosed).reason, 'session_ended');
-    assert.equal((await wait()).reason, 'session_ended');
     assert.equal(guest.ended(), true);
     assert.deepEqual(host.colors(), {});
     assert.deepEqual(guest.colors(), {});
@@ -314,7 +225,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
   }
 });
 
-test('reopens the room with conversations, interrupted AI requests, and approval settings', { timeout: 10000 }, async () => {
+test('reopens the room with its conversations after a host reload', { timeout: 10000 }, async () => {
   const { deriveRoomKey, secureRoom } = await import('../mini-flow-secure-room.js');
   const network = createTestNetwork();
   const invite = { room: 'recover', password: 'private-room-key' };
@@ -325,34 +236,26 @@ test('reopens the room with conversations, interrupted AI requests, and approval
     positions: Object.fromEntries(ids.map((id, index) => [id, [index * 200, 0]]))
   });
   let snapshot;
-  let decide;
-  let reviewStarted;
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   function open(host, restored) {
     let project = restored?.project ?? diagram();
     let requests = {};
-    let requireAIApproval;
     const threads = new Map();
-    const room = secureRoom(joinRoom({ app: 'mini-flow-live-recovery-test', ...invite, network, protocol: 4,
-      kinds: ['read', 'state', 'edit', 'end', 'presence', 'agent', 'ask'],
+    const room = secureRoom(joinRoom({ app: 'mini-flow-live-recovery-test', ...invite, network, protocol: 5,
+      kinds: ['read', 'state', 'edit', 'end', 'presence', 'ask'],
       profile: { role: host ? 'host' : 'editor' },
       acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host') }), key);
     const session = createLiveSession({ room, host, getProject: () => project, setProject: next => { project = next; },
       normalize: structuredClone, canAccept: () => true, onStatus() {}, onEnd() {},
       noteIds: value => Object.keys(value.positions),
       readNote: (value, id) => Object.hasOwn(value.positions, id) ? { id, text: 'Review ' + id, target: null } : null,
-      initialQueue: restored?.queue, initialThreads: restored?.threads,
-      initialRequireAIApproval: restored?.requireAIApproval,
-      onAIApprovalChange: required => { requireAIApproval = required; },
+      initialThreads: restored?.threads,
       onAIRequests: next => { requests = next; },
       onAIThread: (id, messages) => messages ? threads.set(id, messages) : threads.delete(id),
       onCheckpoint: next => { snapshot = structuredClone(next); },
-      ...(host && { onAIProposal: proposal => new Promise(resolve => {
-        decide = resolve;
-        reviewStarted(proposal);
-      }) })
+      onAIRequest: host ? async () => ({ ok: true }) : undefined
     });
-    return { session, threads, requests: () => requests, approval: () => requireAIApproval,
+    return { session, threads, requests: () => requests,
       project: () => project, setProject(next) { project = next; session.changed(); } };
   }
   async function until(predicate) {
@@ -368,85 +271,30 @@ test('reopens the room with conversations, interrupted AI requests, and approval
   const guest = open(false);
   try {
     await until(() => guest.session.ready());
-    await until(() => guest.approval() === true);
-    guest.session.setRequireAIApproval(false);
-    assert.equal(host.approval(), true);
-
-    const unregisteredReview = new Promise(resolve => { reviewStarted = resolve; });
-    const unregisteredEdit = guest.session.submitAIEdit(diagram('Unregistered AI edit'), 'Unregistered AI edit');
-    await unregisteredReview;
-    decide(false);
-    assert.equal((await unregisteredEdit).reason, 'edit_declined');
-
     for (let i = 0; i < 18; i++) assert.equal((await host.session.comment('N1', 'Comment ' + i)).ok, true);
     await until(() => guest.threads.get('N1')?.length === 18);
+    // Deleting a note hides its conversation; undoing the deletion brings it back.
     host.setProject(diagram('Initial', ['N2']));
     await until(() => !guest.threads.has('N1'));
     host.setProject(diagram());
     await until(() => guest.threads.get('N1')?.length === 18);
 
-    assert.equal((await guest.session.registerAgent()).ok, true);
-    await host.session.askAI('N1');
-    const first = (await guest.session.waitForAIRequest(0, 1000)).request;
-    assert.equal(first.note.id, 'N1');
-    assert.equal(first.thread.length, 12);
-    assert.equal(guest.session.reportAIActivity('Editing').ok, true);
-    const review = new Promise(resolve => { reviewStarted = resolve; });
-    const edit = guest.session.submitAIEdit(diagram('Applied batch'), 'First batch');
-    assert.equal((await review).project.source, diagram('Applied batch').source);
-    assert.equal(guest.session.ready(), false);
-    assert.equal(guest.session.canSendNoteMessage(), true);
-    assert.deepEqual(await guest.session.askAI('N2'), { ok: true });
-    assert.deepEqual(host.project(), diagram());
-    decide(true);
-    assert.deepEqual(await edit, { ok: true });
+    assert.deepEqual(await guest.session.askAI('N2', 'Summarise this'), { ok: true });
+    host.session.setAIRequests({ N2: { phase: 'waiting', label: 'Waiting for Claude' } });
+    await until(() => guest.requests().N2?.phase === 'waiting');
+    assert.equal(guest.session.submit(diagram('Guest edit'), 'Guest edit') instanceof Promise, true);
+    await until(() => JSON.stringify(host.project()) === JSON.stringify(diagram('Guest edit')));
+
     host.session.suspend();
     await until(() => !guest.session.ready());
-    assert.deepEqual(snapshot.queue.map(item => [item.noteId, item.interrupted]), [['N1', true], ['N2', false]]);
-    assert.equal((await guest.session.waitForAIRequest(first.sequence, 1000)).reason, 'live_not_ready');
+    assert.deepEqual(guest.requests(), {});
+    assert.deepEqual(Object.keys(snapshot), ['project', 'threads']);
     host = open(true, snapshot);
-    assert.equal(host.requests().N1.phase, 'interrupted');
-    assert.match(host.requests().N1.label, /First batch/);
     await until(() => guest.session.ready());
-    const queued = (await guest.session.waitForAIRequest(first.sequence, 1000)).request;
-    assert.equal(queued.note.id, 'N2');
-    assert.deepEqual(guest.project(), diagram('Applied batch'));
-    await until(() => guest.threads.get('N1')?.length === 18);
-
-    const rejectedReview = new Promise(resolve => { reviewStarted = resolve; });
-    const rejectedEdit = guest.session.submitAIEdit(diagram('Declined'), 'Decline me');
-    await rejectedReview;
-    decide(false);
-    assert.equal((await rejectedEdit).reason, 'edit_declined');
-    assert.deepEqual(host.project(), diagram('Applied batch'));
-
-    assert.deepEqual(await host.session.askAI('N1'), { ok: true });
-    guest.session.reportAIActivity('', 'Finished');
-    const retried = (await guest.session.waitForAIRequest(queued.sequence, 1000)).request;
-    assert.equal(retried.note.id, 'N1');
-    assert.notEqual(retried.id, first.id);
-
-    host.session.setRequireAIApproval(false);
-    await until(() => guest.approval() === false);
-    assert.equal(snapshot.requireAIApproval, false);
-    reviewStarted = () => assert.fail('Direct AI edits should skip review');
-    assert.deepEqual(await guest.session.submitAIEdit(diagram('Direct edit'), 'Direct edit'), { ok: true });
-    assert.deepEqual(host.project(), diagram('Direct edit'));
-
-    host.session.suspend();
-    await until(() => !guest.session.ready() && guest.approval() === null);
-    host = open(true, snapshot);
-    await until(() => guest.session.ready() && guest.approval() === false);
-    assert.deepEqual(await guest.session.submitAIEdit(diagram('Direct after reload'), 'Direct after reload'), { ok: true });
-
-    host.session.setRequireAIApproval(true);
-    await until(() => guest.approval() === true);
-    const restoredReview = new Promise(resolve => { reviewStarted = resolve; });
-    const restoredEdit = guest.session.submitAIEdit(diagram('Needs review again'), 'Needs review again');
-    await restoredReview;
-    decide(false);
-    assert.equal((await restoredEdit).reason, 'edit_declined');
-    assert.deepEqual(host.project(), diagram('Direct after reload'));
+    assert.deepEqual(guest.project(), diagram('Guest edit'));
+    await until(() => guest.threads.get('N1')?.length === 18 && guest.threads.get('N2')?.at(-1).text === 'Summarise this');
+    host.session.setAIRequests({ N2: { phase: 'result', label: 'Done', author: 'Claude' } });
+    await until(() => guest.requests().N2?.phase === 'result');
     host.session.stop();
     await until(() => !guest.session.ready());
   } finally {

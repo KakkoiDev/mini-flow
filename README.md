@@ -215,24 +215,21 @@ WebMCP-capable browsers can use `get_board` and `apply_board_edit` on the open
 board. See the [Site tools guide](./agent-guide.md#webmcp-site-tools).
 
 
-## Live session with an agent
+## Live session
 
 Open the board you want to edit, then choose **Live session → Start live session**
 and share the same **Copy invite** link with your collaborators. Keep the
-host tab open. Up to eight guests can join, including humans and agents.
-Guests can also copy both invite formats from the **Live session** dialog.
-The regular **Copy link** shares a snapshot. **AI guests → Copy AI invite**
-includes instructions for joining from a browser with WebMCP access.
+host tab open. Up to eight people can join.
+Guests can also copy the invite from the **Live session** dialog.
+The regular **Copy link** shares a snapshot.
 
 To use your own relay, enter its HTTPS or WSS URL in **Live session → Custom WebSocket relay** before starting. Use a relay that implements the [p2p-core WebSocket protocol](https://github.com/KakkoiDev/p2p-core), such as the [Cloudflare Worker example](https://github.com/KakkoiDev/p2p-core-cloudflare). The invite carries the relay address. Custom sessions use that relay for remote traffic and disable public WebRTC signaling. Board messages are encrypted with the invite's room key.
 New invites also carry the host's key fingerprint, and guests only accept a board signed by that host.
 Invites from older versions still work without this check. Leave the field blank for the default connection.
 
 Guests can edit directly on the canvas and see the other participants' cursors
-and selected blocks. The canvas corner shows the number of connected human and
-AI guests, excluding the host. Agents call `register_live_agent` after joining
-through a WebMCP-capable browser, then use `get_board` and `apply_board_edit`.
-The host owns Undo and Redo, and accepted edits
+and selected blocks. The canvas corner shows the number of connected guests,
+excluding the host. The host owns Undo and Redo, and accepted edits
 and Undo or Redo sync to everyone. If edits conflict, the guest sees the current
 board and can retry.
 
@@ -241,26 +238,52 @@ the reply count in that spot opens the same conversation. Use a reply's **⋯**
 menu to edit or delete it. Guests can manage their own replies during the live
 session. The host can manage any reply, including after its author leaves.
 Replies keep the original author label and show when the host edited them.
-During a live session, **Ask AI** beside the note or in the conversation header
-queues the request until an AI guest is ready.
-Type a follow-up before clicking **Ask AI** to include it in the request.
-The note shows when it is waiting, who claimed it, and a compact result.
 Conversations survive reload in the same tab and are included in saved projects
 and Gist snapshots. The board link shares the diagram alone. Mini Flow keeps the
 full comment history, and undoing a note deletion restores its comments.
-AI requests include the latest 12 prior messages as context.
 A conversation keeps up to 200 messages, and each guest can post up to 20 comments a minute.
-Only the first AI guest to claim the request gets it from
-`wait_for_ai_request`. The AI invite asks the agent to repeat the call
-on timeouts and after each result until the session disconnects or you ask it
-to stop. Listening runs during an active agent turn.
 
 Participants see draft text, drag movement, and tool icons as they edit.
 Live guests get a separate note color, and notes return to yellow when the
-session ends. AI guests can report progress with `report_ai_activity` and
-propose small batches as they finish them. The host can preview each batch on
-the canvas and apply or decline it, or turn off approval in **Live session → AI guests**.
-A claimed request times out after five minutes without reported progress or an edit submission by default. The host can choose 5, 15, or 30 minutes under **AI idle timeout** in **Live session**, before or during a session. Mini Flow remembers the last choice in this browser. The setting applies to new deadlines, including when an agent reports progress on an active job. An agent can also report a failure immediately. Failed, timed-out, and interrupted requests show a **Retry** button in the bottom-left activity list and in the note conversation. Retry keeps the original prompt and includes the last applied edit when available.
+session ends.
+
+## AI agents with agent-room
+
+AI agents join through [agent-room](https://github.com/KakkoiDev/agent-room), a chat
+room where people and agents work together. Any agent with a shell can take part:
+Claude Code, Codex, a local model, or your own script.
+
+1. Run agent-room and allow Mini Flow's address:
+
+   ```sh
+   go run github.com/KakkoiDev/agent-room/cmd/agent-room@latest -allow-origin https://mini-flow.kakkoi.dev
+   ```
+
+   Use the address you serve Mini Flow from, such as `http://localhost:*` for a local copy.
+   To share the room over Tailscale, add `-tailscale-login you@example.com` and run
+   `tailscale serve http://127.0.0.1:8790`.
+2. In Mini Flow, open **Live session → AI agents**, paste the room's chat link
+   (for example `http://127.0.0.1:8790/chat?room=general`) and choose **Connect**.
+   Mini Flow joins the room as the person **Mini Flow**.
+3. Choose **Copy agent invite** and paste it into each agent. The agent downloads
+   agent-room's helper, joins the room, and listens.
+4. Select a sticky note and choose **Ask AI**. Mini Flow `@mentions` the agent chosen under
+   **Ask AI sends to**, with the note, its latest 12 messages, and the board. Type a follow-up in
+   the note conversation before choosing **Ask AI** to send it as the request.
+
+Agents answer with agent-room's `reply` command. Their answer appears in the note
+conversation. To change the board, an agent adds a `mini-flow-edit` block with
+edit operations to its reply. Mini Flow shows the change for you to apply or decline;
+turn off **Review agent edits before they apply** to apply edits at once.
+The note shows whether the request is waiting, which agent is working on it, and the
+result. Agent progress messages and failures appear in the conversation. Use
+**Retry** on a failed request, or cancel a request from the bottom-left activity list.
+Agents can hand a request to another agent in the room; the answer still returns to the note.
+
+In a live session only the host connects to agent-room. Guests can use **Ask AI**:
+the host's tab sends the request, and everyone sees the status and the answer.
+agent-room messages are limited to 12 KB, so Mini Flow drops older conversation and then block
+positions from a request for a large board. The connection resumes after a reload in the same tab.
 
 ## GitHub Gist backups
 
@@ -296,10 +319,9 @@ enables local Undo and Redo. During a connection interruption, guests can use
 **Leave session** to keep editing a copy while the host is away.
 
 Live sessions use p2p-core. A host reload in the same tab restores the board,
-comments, invite, and AI queue. Open guest tabs reconnect. Work that was in
-progress becomes **Interrupted**. Applied edits stay on the board. Open the note
-to review the last applied batch and choose **Retry AI request**, or cancel it
-from the queue. **End session** clears recovery and closes the room explicitly.
+comments, and invite, and reconnects to agent-room. Open guest tabs reconnect.
+Agent replies that arrive during the reload are picked up afterwards.
+**End session** clears recovery and closes the room explicitly.
 
 To keep one saved project current across devices, connect it to the same Gist
 on each device and enable **Sync this open project across devices**. Mini Flow
@@ -309,7 +331,7 @@ Flow pauses and lets you choose **Keep this board** or **Use latest cloud copy**
 Gist access and visibility are the same for sync and backups.
 
 
-Run the live-session regression with `node --test tests/live-session.test.mjs`.
+Run the Node regressions with `node --test tests/live-session.test.mjs tests/parse.test.mjs tests/agent-room.test.mjs`.
 Serve the repo and open `tests/auto-layout.html` to run the browser regression
 for bend reset, note attachments, Undo, and Redo.
 
