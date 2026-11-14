@@ -29,10 +29,15 @@ SOFTWARE.
     step: ['[', ']'],
     decision: ['{', '}']
   };
-  const encode = value => value.replace(/["#&<>|\\\r\n]/g, char => char === '\n' ? '<br/>' : '#' + char.charCodeAt(0) + ';');
+  const encode = value => value.replace(/["#&<>|\\\r\n\u2028\u2029]/g, char => char === '\n' ? '<br/>' : '#' + char.charCodeAt(0) + ';');
   const decode = value => value.replace(/<br\s*\/?>/gi, '\n').replace(/#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
 
+  const maxSourceLength = 1000000;
+  const isPlainObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+
   function parse(source, definitions = shapes) {
+    if (typeof source !== 'string') throw new Error('Source must be a string.');
+    if (source.length > maxSourceLength) throw new Error('Source is too large.');
     const metadata = source.split(/\r?\n/).find(line => line.trim().startsWith('%% mini-flow '));
     const lines = source.split(/\r?\n/).map(s => s.trim()).filter(s => s && !s.startsWith('%%'));
     if (!/^(?:flowchart|graph) (?:TD|TB)$/.test(lines.shift() || '')) {
@@ -62,15 +67,20 @@ SOFTWARE.
     }
     if (metadata) {
       const extras = JSON.parse(metadata.trim().slice('%% mini-flow '.length));
-      for (const [index, bend] of extras.bends ?? []) {
-        if (edges[index] && Array.isArray(bend) && bend.length === 2 && bend.every(Number.isFinite)) edges[index].bend = bend;
+      if (!isPlainObject(extras) || (extras.bends !== undefined && !Array.isArray(extras.bends)) ||
+          (extras.notes !== undefined && !Array.isArray(extras.notes))) throw new Error('Invalid metadata.');
+      for (const entry of extras.bends ?? []) {
+        if (!Array.isArray(entry) || entry.length !== 2) throw new Error('Invalid metadata.');
+        const [index, bend] = entry;
+        if (Number.isInteger(index) && index >= 0 && index < edges.length &&
+            Array.isArray(bend) && bend.length === 2 && bend.every(Number.isFinite)) edges[index].bend = [...bend];
       }
       for (const note of extras.notes ?? []) {
-        if (!/^[A-Za-z][\w-]*$/.test(note.id) || ids.has(note.id) || typeof note.label !== 'string') {
+        if (!isPlainObject(note) || !/^[A-Za-z][\w-]*$/.test(note.id) || ids.has(note.id) || typeof note.label !== 'string') {
           throw new Error('Invalid note.');
         }
         const target = typeof note.target === 'string' && ids.has(note.target) ||
-          Number.isInteger(note.target) && edges[note.target] ? note.target : undefined;
+          Number.isInteger(note.target) && note.target >= 0 && note.target < edges.length ? note.target : undefined;
         nodes.push({ id: note.id, type: 'note', label: note.label, x: 300, y: 65 + nodes.length * 115, target });
         ids.add(note.id);
       }
@@ -109,7 +119,8 @@ SOFTWARE.
     const sourceText = () => stringify(graph, definitions);
     let graph = parseSource(source), selected, origin, drag, pendingShape;
     for (const node of graph.nodes) {
-      if (Object.hasOwn(positions, node.id)) [node.x, node.y] = positions[node.id];
+      const pair = positions && Object.hasOwn(positions, node.id) ? positions[node.id] : undefined;
+      if (Array.isArray(pair) && pair.length === 2 && pair.every(Number.isFinite)) [node.x, node.y] = pair;
     }
     const undoStack = [], redoStack = [];
     const usedNodeIds = new Set(graph.nodes.map(node => node.id));
@@ -1137,6 +1148,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         return [node.id, draft && draft.type === node.type && editing?.item !== node && drag?.node !== node
           ? { ...node, x: draft.position[0], y: draft.position[1], label: draft.text } : node];
       }));
+      const edgeKeys = new Set(graph.edges.map(({ from, to }) => from + '\0' + to));
       for (const [edgeIndex, edge] of graph.edges.entries()) {
         const a = byId.get(edge.from), b = byId.get(edge.to);
         let start, end, d, x, y;
@@ -1163,7 +1175,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           end = point(b, a.x - b.x, a.y - b.y);
           const dx = b.x - a.x, dy = b.y - a.y;
           const length = Math.hypot(dx, dy);
-          const offset = graph.edges.some(other => other.from === edge.to && other.to === edge.from) ? 55 : 0;
+          const offset = edgeKeys.has(edge.to + '\0' + edge.from) ? 55 : 0;
           const mx = (start[0] + end[0]) / 2;
           const my = (start[1] + end[1]) / 2;
           const ox = -dy / length * offset, oy = dx / length * offset;

@@ -66,7 +66,10 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.deepEqual(await secondGuest.session.comment('N1', 'A comment before any AI joined'), { ok: true });
     const [guestComment] = host.threads.get('N1');
     assert.equal(guestComment.author, 'Guest 2');
-    assert.equal(guestComment.owner, secondGuest.id);
+    assert.match(guestComment.owner, /^[a-f0-9]{32}$/);
+    assert.notEqual(guestComment.owner, secondGuest.id);
+    assert.equal(secondGuest.session.canManageReply(guestComment), true);
+    assert.equal(guest.session.canManageReply(guestComment), false);
     assert.match(guestComment.replyId, /^[a-f0-9]{32}$/);
     assert.deepEqual(await host.session.askAI('N1'), { ok: true });
     assert.equal(host.requests().N1.phase, 'waiting');
@@ -482,4 +485,41 @@ test('live invites carry custom relay settings and accept older invite links', (
   assert.deepEqual(readLiveInvite(liveInviteHash(custom)), custom);
   assert.equal(readLiveInvite(liveInviteHash({ ...legacy, relay: 'ws://relay.example.org' })), null);
   assert.throws(() => newLiveInvite('wss://alice:secret@relay.example.org'));
+});
+
+test('only the invite host can prove its identity and sign board messages', async () => {
+  const { createHostKey, deriveRoomKey, hostSigner, secureRoom, verifyHostProfile } = await import('../mini-flow-secure-room.js');
+  const { withHostKey } = await import('../mini-flow-live.js');
+  const invite = await withHostKey(newLiveInvite());
+  const shared = readLiveInvite(liveInviteHash(invite));
+  assert.equal(shared.host, invite.host);
+  assert.equal(liveInviteHash(invite).includes(invite.hostKey.d), false);
+
+  const signer = await hostSigner(invite.hostKey, invite.room, 'host');
+  assert.ok(await verifyHostProfile(signer.profile, invite.host, invite.room, 'host'));
+  assert.equal(await verifyHostProfile(signer.profile, invite.host, invite.room, 'impostor'), null);
+  const impostorKey = await createHostKey();
+  const impostor = await hostSigner(impostorKey.hostKey, invite.room, 'host');
+  assert.equal(await verifyHostProfile(impostor.profile, invite.host, invite.room, 'host'), null);
+  assert.equal(await verifyHostProfile({ ...impostor.profile, hostKey: signer.profile.hostKey }, invite.host, invite.room, 'host'), null);
+
+  const verified = await verifyHostProfile(signer.profile, invite.host, invite.room, 'host');
+  const key = await deriveRoomKey(invite);
+  async function deliver(signKey) {
+    let sent;
+    const callbacks = new Map();
+    const sender = secureRoom({ selfId: 'host', send(_kind, packet) { sent = packet; } }, key, { signKey });
+    const receiver = secureRoom({ selfId: 'guest', peer: () => true,
+      onMessage(kind, callback) { callbacks.set(kind, callback); } }, key,
+      { verifyKey: from => from === 'host' ? verified : false });
+    const accepted = [];
+    receiver.onMessage('state', value => accepted.push(value));
+    await sender.send('state', { source: 'board' }, 'guest');
+    callbacks.get('state')(sent, 'host');
+    await new Promise(resolve => setTimeout(resolve, 40));
+    return accepted;
+  }
+  assert.deepEqual(await deliver(signer.key), [{ source: 'board' }]);
+  assert.deepEqual(await deliver(impostor.key), []);
+  assert.deepEqual(await deliver(undefined), []);
 });
