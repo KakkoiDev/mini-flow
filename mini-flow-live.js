@@ -2,13 +2,16 @@ import { createHostKey, deriveRoomKey, hostSigner, secureRoom, verifyHostProfile
 
 const kinds = ['read', 'state', 'edit', 'end', 'presence', 'ask'];
 const maxGuests = 8;
+const maxAgents = 8;
+const liveProtocol = 5;
+const maxMessageBytes = 360 * 1024;
 const threadPageSize = 12;
 export const maxThreadMessages = 200;
 const commentRateWindowMs = 60_000;
 const commentRateLimit = 20;
 export const maxReplyLength = 1000;
 export const maxAnswerLength = 2000;
-const defaultRelayUrl = 'wss://p2p-core-cloudflare.kakkoidev.workers.dev';
+export const defaultRelayUrl = 'wss://p2p-core-cloudflare.kakkoidev.workers.dev';
 const invitePattern = /^#live=([a-f0-9]{32})\.([a-f0-9]{32})(?:&relay=([^&]+))?(?:&host=([A-Za-z0-9_-]{43}))?$/;
 const id = () => crypto.randomUUID().replaceAll('-', '');
 
@@ -86,7 +89,9 @@ export function changeThreadReply(messages, { replyId, previousText, text }, hos
 export function createLiveSession({ room, host, getProject, setProject, normalize, canAccept, onStatus, onEnd,
   onAvailability = () => {}, onPresence = () => {}, onGuestCounts = () => {}, readNote = () => null,
   noteIds = () => [], onNoteColors = () => {}, onAIRequests = () => {}, onAIThread = () => {}, initialThreads = [],
-  onCheckpoint = () => {}, onAIRequest }) {
+  onCheckpoint = () => {}, onAIRequest, onAgentMessage, onAgentLeave = () => {} }) {
+  // AI agents connect with the mini-flow-agent helper. They talk only to the host and never see guests' traffic.
+  const agentPeers = new Set();
   let hostPeer;
   const guests = new Map();
   let closed = false;
@@ -101,7 +106,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   let presenceTimer;
   let presenceRevision = 0;
   let presence = { point: null, focus: null };
-  // The host page sends AI requests to agent-room and sets their status here for guests to see.
+  // The host page hands AI requests to connected agents and sets their status here for guests to see.
   let aiRequests = {};
   const ownerSecret = host ? undefined : id();
   let selfOwner = host ? room.selfId : undefined;
@@ -407,6 +412,10 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
 
   room.onPeerJoin(from => {
     if (closed) return;
+    if (host && room.peer?.(from)?.profile?.role === 'agent') {
+      agentPeers.add(from);
+      return;
+    }
     if (host) {
       if (guests.has(from) || guests.size >= maxGuests) return;
       const number = ++nextGuestNumber;
@@ -424,6 +433,10 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   });
   room.onPeerLeave(from => {
     if (closed) return;
+    if (host && agentPeers.delete(from)) {
+      onAgentLeave(from);
+      return;
+    }
     if (host) {
       if (!guests.delete(from)) return;
       checkpoint();
@@ -541,6 +554,17 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   });
   room.onMessage('ask', async (data, from) => {
     if (closed) return;
+    if (host && agentPeers.has(from)) {
+      if (data?.type !== 'agent' || typeof data.id !== 'string' || data.id.length > 64 || typeof data.op !== 'string') return;
+      let result;
+      try {
+        result = onAgentMessage ? await onAgentMessage(data, from) : failure('agents_unavailable', 'This board does not accept AI agents.');
+      } catch {
+        result = failure('agent_error', 'The board could not handle the request.');
+      }
+      if (!closed && agentPeers.has(from)) send('ask', { type: 'agent_result', id: data.id, result }, from).catch(() => {});
+      return;
+    }
     if (host) {
       if (!guests.has(from) || !['request', 'comment', 'manage_reply'].includes(data?.type) ||
           typeof data.noteId !== 'string' || data.noteId.length > 128 ||
@@ -666,12 +690,13 @@ export async function connectLiveBoard(invite, host, handlers) {
   const role = host ? 'host' : 'editor';
   const signer = host && invite.hostKey ? await hostSigner(invite.hostKey, invite.room, selfId) : undefined;
   const hostKeys = new Map();
-  const room = joinRoom({ app: 'mini-flow-live', room: invite.room, password: invite.password, mode: 'online', protocol: 5, maxPeers: host ? maxGuests : 1,
+  const room = joinRoom({ app: 'mini-flow-live', room: invite.room, password: invite.password, mode: 'online', protocol: liveProtocol,
+    maxPeers: host ? maxGuests + maxAgents : 1,
     server: { url: invite.relay ?? defaultRelayUrl, roomInUrl: true },
     ...(invite.relay && { transports: { relays: false, pair: false } }),
-    maxMessageBytes: 360 * 1024, rateLimit: 60, kinds, profile: { role, ...signer?.profile }, debug: handlers.debug === true,
+    maxMessageBytes, rateLimit: 60, kinds, profile: { role, ...signer?.profile }, debug: handlers.debug === true,
     acceptPeer: async peer => {
-      if (peer.profile?.role !== (host ? 'editor' : 'host')) return false;
+      if (host ? !['editor', 'agent'].includes(peer.profile?.role) : peer.profile?.role !== 'host') return false;
       if (host || !invite.host) return true;
       const verified = await verifyHostProfile(peer.profile, invite.host, invite.room, peer.id);
       if (verified) hostKeys.set(peer.id, verified);
@@ -685,6 +710,75 @@ export async function connectLiveBoard(invite, host, handlers) {
   const verifyKey = host || !invite.host ? undefined : from => hostKeys.get(from) ?? false;
   const session = createLiveSession({ ...handlers, room: secureRoom(room, key, { signKey: signer?.key, verifyKey }), host });
   return { ...session, hostVerified: !host && Boolean(invite.host), debugReport: room.debugReport };
+}
+
+// Connects an AI agent (for example the Node helper mini-flow-agent.mjs) to the host of a live session.
+// The agent only reaches the host, which must be the one the invite names.
+export async function connectAsAgent(invite, { WebSocketImpl = globalThis.WebSocket, origin, timeoutMs = 20000, onHostLeave = () => {} } = {}) {
+  const { joinRoom } = await import('./vendor/p2p-core/p2p-core.js');
+  const key = await deriveRoomKey(invite);
+  const hostKeys = new Map();
+  // Outside a browser, send the board's origin so the relay accepts the connection.
+  const Socket = origin ? class extends WebSocketImpl {
+    constructor(url, protocols) { super(url, { protocols, headers: { Origin: origin } }); }
+  } : WebSocketImpl;
+  const raw = joinRoom({ app: 'mini-flow-live', room: invite.room, password: invite.password, mode: 'online', protocol: liveProtocol,
+    maxPeers: 1, server: { url: invite.relay ?? defaultRelayUrl, roomInUrl: true, WebSocketImpl: Socket },
+    transports: { relays: false, pair: false, tabs: false },
+    maxMessageBytes, rateLimit: 60, kinds, profile: { role: 'agent' },
+    acceptPeer: async peer => {
+      if (peer.profile?.role !== 'host') return false;
+      if (!invite.host) return true;
+      const verified = await verifyHostProfile(peer.profile, invite.host, invite.room, peer.id);
+      if (verified) hostKeys.set(peer.id, verified);
+      return Boolean(verified);
+    } });
+  const room = secureRoom(raw, key, { verifyKey: invite.host ? from => hostKeys.get(from) ?? false : undefined });
+  const pending = new Map();
+  let hostPeer;
+  let timer;
+  const ready = new Promise((resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('Could not reach the board. Ask its owner to keep the board open with its live session running.')), timeoutMs);
+    raw.onPeerJoin(peer => {
+      hostPeer = peer;
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+  raw.onPeerLeave(peer => {
+    if (peer !== hostPeer) return;
+    hostPeer = undefined;
+    for (const call of pending.values()) call.reject(new Error('The board’s host disconnected.'));
+    pending.clear();
+    onHostLeave();
+  });
+  room.onMessage('ask', (data, from) => {
+    if (from !== hostPeer || data?.type !== 'agent_result') return;
+    pending.get(data.id)?.resolve(data.result);
+  });
+  try {
+    await ready;
+  } catch (error) {
+    raw.leave();
+    throw error;
+  }
+  return {
+    hostVerified: Boolean(invite.host),
+    call(op, body = {}, waitMs = 20000) {
+      if (!hostPeer) return Promise.reject(new Error('The board’s host disconnected.'));
+      const callId = id();
+      return new Promise((resolve, reject) => {
+        const finish = (done, value) => { clearTimeout(limit); pending.delete(callId); done(value); };
+        const limit = setTimeout(() => finish(reject, new Error('The board did not answer in time.')), waitMs);
+        pending.set(callId, { resolve: value => finish(resolve, value), reject: error => finish(reject, error) });
+        room.send('ask', { ...body, type: 'agent', op, id: callId }, hostPeer).catch(error => finish(reject, error));
+      });
+    },
+    close() {
+      clearTimeout(timer);
+      raw.leave();
+    }
+  };
 }
 
 export function newLiveInvite(relay) {

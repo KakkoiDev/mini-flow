@@ -11,95 +11,58 @@ test('opens a live invite in an existing Mini Flow tab', async ({ page }) => {
     return { hash: liveInviteHash(invite), relay: invite.relay };
   });
   await page.evaluate(hash => { location.hash = hash; }, hash);
-  await page.waitForFunction(() => location.hash.startsWith('#live=') && document.querySelector('#agent-room-options')?.hidden);
+  await page.waitForFunction(() => location.hash.startsWith('#live=') && document.querySelector('#ai-agents')?.hidden);
   await page.getByRole('button', { name: /Live session/ }).click();
   await page.getByText('Custom WebSocket relay', { exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Relay URL' })).toHaveValue(relay);
 });
 
-test('remembers the agent edit review setting and explains a bad agent-room link', async ({ page }) => {
-  const openLive = () => page.getByRole('button', { name: 'Live session', exact: true }).click();
-  await openLive();
+test('invites AI agents from a live session and remembers the edit review setting', async ({ page }) => {
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: { async writeText(value) { window.copiedInvite = value; } } });
+  });
+  await page.clock.install();
+  await page.getByRole('button', { name: 'Live session', exact: true }).click();
   await page.getByText('AI agents', { exact: true }).click();
+  const copy = page.getByRole('button', { name: 'Copy agent invite' });
+  await expect(copy).toBeDisabled();
+  await expect(page.locator('#ai-agents-status')).toHaveText('Start a live session to invite agents.');
   const review = page.getByRole('switch', { name: 'Review agent edits before they apply' });
   await expect(review).toBeChecked();
   await review.press('Space');
   await expect(review).not.toBeChecked();
-  await page.getByRole('textbox', { name: 'agent-room chat link' }).fill('http://agents.example/chat');
-  await page.locator('#agent-room-connect').click();
-  await expect(page.locator('#agent-room-status')).toHaveText(/Enter an agent-room chat link/);
+
+  await page.getByRole('button', { name: 'Start live session' }).click();
+  await expect(copy).toBeEnabled();
+  await expect(page.locator('#ai-agents-status')).toHaveText(/No agents yet/);
+  await copy.click();
+  await expect(page.getByRole('button', { name: 'Agent invite copied' })).toBeVisible();
+  const invite = await page.evaluate(() => window.copiedInvite);
+  const link = await page.locator('#live-invite').inputValue();
+  expect(invite).toContain('curl -fsS http://127.0.0.1:8765/mini-flow-agent.mjs -o mini-flow-agent.mjs');
+  expect(invite).toContain(`node mini-flow-agent.mjs "${link}" NAME listen`);
+  expect(invite).toContain('Node.js 22');
+  await page.clock.fastForward(3000);
+  await expect(copy).toHaveText('Copy agent invite');
+  await page.getByRole('button', { name: 'End session' }).click();
+  await expect(copy).toBeDisabled();
+
   await page.reload();
-  await openLive();
+  await page.getByRole('button', { name: 'Live session', exact: true }).click();
   await page.getByText('AI agents', { exact: true }).click();
   await expect(review).not.toBeChecked();
 });
 
-// A minimal agent-room served through Playwright routes (see agent-room's PROTOCOL.md).
-async function mockAgentRoom(page) {
-  const room = { messages: [], posted: [], agents: [{ username: 'Claude', role: 'agent', listening: true, connection: 'waiting' }] };
-  const reply = (route, status, body) => route.fulfill({ status, headers: { 'Access-Control-Allow-Origin': '*' },
-    contentType: typeof body === 'string' ? 'text/plain' : 'application/json', body: typeof body === 'string' ? body : JSON.stringify(body) });
-  await page.route('https://agents.example/**', async route => {
-    const request = route.request();
-    const url = new URL(request.url());
-    const path = url.pathname;
-    if (path === '/api/chat') return reply(route, 200, { client: '' });
-    if (path === '/api/chat/rooms/general/participants' && request.method() === 'POST') return reply(route, 201, { token: 'person', username: 'Mini Flow' });
-    if (path === '/api/chat/rooms/general/participants') return reply(route, 200, [{ username: 'Mini Flow', role: 'person' }, ...room.agents]);
-    if (path === '/api/chat/rooms/general/invite') return reply(route, 200, 'You are invited to join "General". Download the helper.');
-    if (path === '/api/chat/rooms/general') return reply(route, 200, { revision: room.messages.length, messages: room.messages, requests: [] });
-    if (path === '/api/chat/rooms/general/messages') {
-      const body = request.postDataJSON();
-      room.posted.push(body.text);
-      const assignments = [{ id: 'R' + room.messages.length, agent: 'Claude' }];
-      room.messages.push({ author: 'Mini Flow', text: body.text, assignments });
-      return reply(route, 200, { assignments, mentions: ['Claude'] });
-    }
-    if (path === '/api/chat/rooms/general/wait') {
-      const after = Number(url.searchParams.get('after'));
-      for (let i = 0; i < 20 && room.messages.length <= after; i++) await new Promise(resolve => setTimeout(resolve, 50));
-      return reply(route, 200, { revision: room.messages.length, messages: room.messages.slice(after), assignments: [] });
-    }
-    return reply(route, 404, 'Not found');
-  });
-  return room;
-}
-
-test('Ask AI sends the note and board to an agent-room agent and reviews its edit', async ({ page }) => {
-  const room = await mockAgentRoom(page);
-  await page.evaluate(() => {
-    Object.defineProperty(navigator, 'clipboard', { value: { async writeText(value) { window.copiedInvite = value; } } });
-    const source = 'flowchart TD\n    A["Start"]\n    %% mini-flow ' + JSON.stringify({ notes: [{ id: 'N1', label: 'Add a check step', target: 'A' }] });
-    miniFlowEditor.setProject({ version: 1, source, positions: { A: [100, 80], N1: [320, 80] } });
-  });
-  await page.getByRole('button', { name: 'Live session', exact: true }).click();
-  await page.getByText('AI agents', { exact: true }).click();
-  await page.getByRole('textbox', { name: 'agent-room chat link' }).fill('https://agents.example/chat?room=general');
-  await page.locator('#agent-room-connect').click();
-  await expect(page.locator('#agent-room-status')).toHaveText('1 agent is in the room.');
-  await expect(page.getByRole('combobox', { name: 'Ask AI sends to' })).toHaveValue('Claude');
-  await page.getByRole('button', { name: 'Copy agent invite' }).click();
-  await expect(page.getByRole('button', { name: 'Agent invite copied' })).toBeVisible();
-  expect(await page.evaluate(() => window.copiedInvite)).toContain('mini-flow-edit block');
-  await page.getByRole('button', { name: 'Close' }).click();
-
-  await page.getByRole('button', { name: 'note: Add a check step' }).click();
-  await page.getByRole('button', { name: 'Ask AI', exact: true }).click();
-  await expect.poll(() => room.posted.length).toBe(1);
-  expect(room.posted[0]).toMatch(/^@Claude Add a check step\n/);
-  expect(room.posted[0]).toContain('A["Start"]');
-  expect(room.posted[0]).toContain('attached to block A');
-  room.messages.push({ author: 'Claude', kind: 'assignment-state', assignment_id: 'R0', assignment_status: 'Working', text: '' });
-  room.messages.push({ author: 'Claude', kind: 'agent', assignment_id: 'R0', assignment_status: 'Replied',
-    text: 'Added the check.\n```mini-flow-edit\n{"message":"Add a check","edits":[{"op":"add_node","id":"C1","type":"step","label":"Check","position":[100,190]},{"op":"add_arrow","from":"A","to":"C1"}]}\n```' });
-  const dialog = page.getByRole('dialog', { name: 'Apply diagram edit?' });
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText('Claude: Add a check');
-  await dialog.getByRole('button', { name: 'Apply edit' }).click();
-  await expect.poll(() => page.evaluate(() => miniFlowEditor.getMermaid())).toContain('A --> C1');
-  await page.getByRole('button', { name: /Open note conversation/ }).click();
-  await expect(page.getByRole('list', { name: 'Comments' })).toContainText('Added the check.');
-  await expect(page.getByRole('list', { name: 'Comments' })).toContainText('Applied Claude’s edit: Add a check');
+test('serves the agent helper and its manifest', async ({ page, request }) => {
+  const helper = await request.get('http://127.0.0.1:8765/mini-flow-agent.mjs');
+  expect(helper.ok()).toBe(true);
+  expect(await helper.text()).toContain('connectAsAgent');
+  const manifest = await (await request.get('http://127.0.0.1:8765/mini-flow-agent.json')).json();
+  for (const file of ['mini-flow-live.js', 'mini-flow-agents.js', 'vendor/p2p-core/p2p-core.js']) {
+    expect(manifest.files[file]).toMatch(/^[a-f0-9]{64}$/);
+    expect((await request.get('http://127.0.0.1:8765/' + file)).ok()).toBe(true);
+  }
+  await expect(page.getByRole('button', { name: 'Ask AI', exact: true })).toHaveCount(0);
 });
 
 test('replacing a project through the page API clears old threads on reused note IDs', async ({ page }) => {

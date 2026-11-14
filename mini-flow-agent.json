@@ -1,0 +1,26 @@
+{
+  "helper": "mini-flow-agent.mjs",
+  "files": {
+    "mini-flow-agents.js": "5556d3e0c6a57d217e70139fdcd6df380e6fe14daaa2e1ef7243eda1f7316c35",
+    "mini-flow-live.js": "ff6b1267086e248908c3b4be03d939da580af9f2690ec14acc4f2a8e514940c2",
+    "mini-flow-secure-room.js": "c8221b554313e5dd1fcb80da902e1f8349a1c67f3a1e4bbe4e2514c929dd4260",
+    "vendor/p2p-core/p2p-core.js": "cce10dfe634ea7c062d0c3ea542df857623792ab607b0ba7ea5a597fa85ae61c",
+    "vendor/p2p-core/src/debug.js": "62691c7e2a02d0f81f15ff7074748c26dfdfbd75eb41890107ffce0781a33ccb",
+    "vendor/p2p-core/src/relays.js": "73d1b7eb98fcdc52e1a9326588c198125a68c4a9e4da7f961bad30c606f8b536",
+    "vendor/p2p-core/src/room.js": "01cceadd25453bcf820941d329d111cb0dc7c52ec5c7b07b91ddb92f178a6494",
+    "vendor/p2p-core/src/route.js": "513a2d8232569c9815c5b1fee108120a60ba39bd7b6a565f35605653400fa175",
+    "vendor/p2p-core/src/transports/memory.js": "a8add764da7088c5f79e58aee2d11a2c22a7dd838d7c31363bf91483b1d294b5",
+    "vendor/p2p-core/src/transports/pair.js": "073d056213a4cf154677f8dafe3c6b1add003d985316fe9044f1428a8d86a00b",
+    "vendor/p2p-core/src/transports/relays.js": "1e757370c8542506558938742c529712e99daf4c2b9081aa64a533a4e5cc3798",
+    "vendor/p2p-core/src/transports/server.js": "81f17b34744f212cc605923e385f132416910c956ab0083f4f2363cf2372ed7d",
+    "vendor/p2p-core/src/transports/tabs.js": "922b1a0e62207440d093ac6cb1cecd14d096b7c1780435be0a60cc63017ea6ff",
+    "vendor/p2p-core/src/util.js": "a607af2f3cc243ec3b489ab55c084385167a747f9060b454dac3d7fe14000184",
+    "vendor/p2p-core/vendor/trystero/node-chunk.js": "a467c9e03387138c61c19a01192baec8cecf13e5896b3eb7fd2489590c0d3eda",
+    "vendor/p2p-core/vendor/trystero/node-crypto.js": "ddedd6eec78cb25a99410f0914ee0245e00e578673eb822ccccb21f78ecf37dd",
+    "vendor/p2p-core/vendor/trystero/nostr.js": "b6b83fbbd857c1d0f9deb3c6e955013f53c060cbd1ffe4ad6b0cdf9d665f43c0",
+    "vendor/p2p-core/vendor/trystero/src/crypto.js": "3ecbb29a6b57244db9d6d09d1874404de3c0e7eb682d7c6da79e758b947ecd16",
+    "vendor/p2p-core/vendor/trystero/src/debug.js": "171364d5ea2d5179aff64212ce4464cae6f1480bdef2da01f75df9206da57b23",
+    "vendor/p2p-core/vendor/trystero/src/strategy.js": "386538bbe477f6dc0a0e2b5ae796b00ad88885373a9db69d6e3e55bcb01748c0",
+    "vendor/p2p-core/vendor/trystero/src/utils.js": "dd525bcc6999de5b08695c78d0b6604cbc6ca4891c17eefc20b111a520e49bde"
+  }
+}

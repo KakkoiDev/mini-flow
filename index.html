@@ -47,16 +47,12 @@ header button[hidden],#live-session [hidden]{display:none}
 #live-toggle[data-active] .live-state{display:block}
 #live-invite{display:block;width:100%;box-sizing:border-box;margin:6px 0 12px;font:inherit;padding:8px}
 #live-session form{flex-wrap:wrap}
-#agent-room-options,#live-debug,#live-invite-row,#live-relay-setting{margin-top:12px}
-#live-session summary{cursor:pointer}
-#live-session details[open] > summary{margin-bottom:8px}
-#agent-room-link{display:block;width:100%;box-sizing:border-box;margin-top:6px;font:inherit;padding:8px}
-.agent-room-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-#agent-room-agent-setting{display:flex;align-items:center;gap:8px;margin-top:10px}
-#agent-room-agent-setting[hidden]{display:none}
-#agent-room-status{font-size:14px;color:var(--mf-muted);margin:8px 0 0}
-#agent-room-status:empty{display:none}
-#agent-room-approval-setting{margin-top:8px;padding-inline:0}
+#ai-agents,#live-debug,#live-invite-row,#live-relay-setting{margin-top:12px}
+.ai-agents-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}
+.ai-agents-actions[hidden]{display:none}
+#ai-agents-status{font-size:14px;color:var(--mf-muted);margin:8px 0 0}
+#ai-agents-status:empty{display:none}
+#ai-agents-review-setting{margin-top:8px;padding-inline:0}
 #live-relay{display:block;width:100%;box-sizing:border-box;margin-top:6px;font:inherit;padding:8px}
 header button:disabled{opacity:.45;cursor:default}
 header #blank{border-color:var(--mf-border)}
@@ -180,20 +176,20 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid var(--
     <input id="live-invite" readonly>
     <button id="live-copy" type="button">Copy invite</button>
   </div>
-  <details id="agent-room-options">
+  <details id="ai-agents">
     <summary>AI agents</summary>
-    <p>Connect an <a href="https://github.com/KakkoiDev/agent-room" target="_blank" rel="noopener noreferrer">agent-room</a> chat room. Agents in the room answer <strong>Ask AI</strong> on notes and can propose board edits.</p>
-    <label for="agent-room-link">agent-room chat link</label>
-    <input id="agent-room-link" type="url" placeholder="https://host.example/chat?room=general" spellcheck="false" autocomplete="off">
-    <div class="agent-room-actions">
-      <button id="agent-room-connect" type="button">Connect</button>
-      <button id="agent-room-copy" type="button" hidden>Copy agent invite</button>
-      <button id="agent-room-disconnect" type="button" hidden>Disconnect</button>
+    <p>Agents such as Claude Code or Codex join from a terminal with Node.js 22 or newer. They answer <strong>Ask AI</strong> on notes and can propose board edits. Keep this tab open while they work.</p>
+    <div class="ai-agents-actions">
+      <button id="ai-agents-copy" type="button" disabled>Copy agent invite</button>
     </div>
-    <label id="agent-room-agent-setting" hidden>Ask AI sends to <select id="agent-room-agent"></select></label>
-    <p id="agent-room-status" role="status"></p>
-    <label id="agent-room-approval-setting" class="toggle-row">
-      <input id="agent-room-approval" type="checkbox" role="switch" checked> Review agent edits before they apply
+    <div id="ai-agents-choice" class="ai-agents-actions" hidden>
+      <label for="ai-agents-agent">Ask AI sends to</label>
+      <select id="ai-agents-agent"></select>
+      <button id="ai-agents-stop" type="button">Stop agent</button>
+    </div>
+    <p id="ai-agents-status" role="status">Start a live session to invite agents.</p>
+    <label id="ai-agents-review-setting" class="toggle-row">
+      <input id="ai-agents-review" type="checkbox" role="switch" checked> Review agent edits before they apply
     </label>
   </details>
   <form method="dialog">
@@ -424,8 +420,8 @@ const openedLiveHash = openedLiveInvite ? location.hash : null;
 let joiningLive = openedLiveInvite;
 let liveGuestEnded = false;
 let liveBoard;
-// agent-room connection (see "AI agents through agent-room" below)
-let agentRoom;
+// AI agents on the live session (see "AI agents" below)
+let agentHub;
 let aiStates = {};
 let agentEdits = Promise.resolve();
 let activeSavedProject = joiningLive ? null : history.state?.miniFlowSavedProject;
@@ -912,10 +908,10 @@ document.querySelector('#share').onclick = async () => {
     message.textContent = joiningLive ? 'Could not copy the board link.' : 'Copy the link from your address bar.';
   }
 };
-import { applyEdits, registerMiniFlowTools } from './mini-flow-webmcp.js?v=agent-room';
-import { buildAgentRequest, createAgentRoomBridge, parseAgentReply, readAgentRoomLink } from './mini-flow-agent-room.js?v=agent-room';
+import { applyEdits, registerMiniFlowTools } from './mini-flow-webmcp.js?v=relay-agents';
+import { createAgentHub, parseAgentReply } from './mini-flow-agents.js?v=relay-agents';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages, withHostKey } from './mini-flow-live.js?v=agent-room';
+import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages, withHostKey } from './mini-flow-live.js?v=relay-agents';
 import { setupGistBackups } from './mini-flow-gist.js?v=audit-fixes';
 import { setupSavedProjects } from './mini-flow-projects.js?v=project-sync-revisions';
 
@@ -1385,8 +1381,8 @@ replyRetry.onclick = () => sendNoteMessage(true, true);
 async function retryNoteRequest(noteId) {
   if (!canAskAI()) return;
   try {
-    const open = agentRoom?.openRequest(noteId);
-    const result = open?.status === 'Needs attention' ? await agentRoom.act(noteId, 'retry') : await askAINote(noteId);
+    const open = agentHub?.openRequest(noteId);
+    const result = open?.status === 'Needs attention' ? agentHub.act(noteId, 'retry') : await askAINote(noteId);
     showAskResult(noteId, result);
   } catch {
     liveNotice.textContent = 'Could not retry the AI request.';
@@ -1615,26 +1611,21 @@ const copyInvite = document.querySelector('#live-copy');
 const relaySetting = document.querySelector('#live-relay-setting');
 const relayInput = document.querySelector('#live-relay');
 
-// ---- AI agents through agent-room ----
-const agentRoomOptions = document.querySelector('#agent-room-options');
-const agentRoomLinkInput = document.querySelector('#agent-room-link');
-const agentRoomConnect = document.querySelector('#agent-room-connect');
-const agentRoomCopy = document.querySelector('#agent-room-copy');
-const agentRoomDisconnect = document.querySelector('#agent-room-disconnect');
-const agentRoomAgentSetting = document.querySelector('#agent-room-agent-setting');
-const agentRoomAgent = document.querySelector('#agent-room-agent');
-const agentRoomStatus = document.querySelector('#agent-room-status');
-const agentRoomApproval = document.querySelector('#agent-room-approval');
-const agentRoomLinkKey = 'mini-flow-agent-room-link';
-const agentRoomAgentKey = 'mini-flow-agent-room-agent';
-const agentRoomReviewKey = 'mini-flow-agent-room-review';
-const agentRoomSessionKey = 'mini-flow-agent-room-session-v1';
+// ---- AI agents ----
+// Agents join the live session with the mini-flow-agent.mjs helper. This tab keeps their requests.
+const aiAgents = document.querySelector('#ai-agents');
+const aiAgentsCopy = document.querySelector('#ai-agents-copy');
+const aiAgentsChoice = document.querySelector('#ai-agents-choice');
+const aiAgentsAgent = document.querySelector('#ai-agents-agent');
+const aiAgentsStop = document.querySelector('#ai-agents-stop');
+const aiAgentsStatus = document.querySelector('#ai-agents-status');
+const aiAgentsReview = document.querySelector('#ai-agents-review');
+const aiAgentKey = 'mini-flow-ai-agent';
+const aiReviewKey = 'mini-flow-ai-agent-review';
+const aiHubKey = 'mini-flow-ai-agents-v1';
 let agentCopyTimer;
-agentRoomOptions.hidden = joiningLive;
-try {
-  agentRoomLinkInput.value = localStorage.getItem(agentRoomLinkKey) ?? '';
-  agentRoomApproval.checked = localStorage.getItem(agentRoomReviewKey) !== 'false';
-} catch {}
+aiAgents.hidden = joiningLive;
+try { aiAgentsReview.checked = localStorage.getItem(aiReviewKey) !== 'false'; } catch {}
 const fail = (reason, message) => ({ ok: false, reason, message });
 const oneLine = text => String(text ?? '').replace(/\s+/g, ' ').trim();
 
@@ -1648,57 +1639,37 @@ function readNote(project, id) {
     : typeof note.target === 'string' ? { type: 'node', id: note.target } : null };
 }
 function askAIVisible() {
-  return joiningLive ? Boolean(liveBoard) : Boolean(agentRoom);
+  return joiningLive ? Boolean(liveBoard) : Boolean(agentHub);
 }
 function canAskAI() {
   return joiningLive ? Boolean(liveBoard?.canSendNoteMessage())
-    : Boolean(agentRoom?.agents.length) && (!liveBoard || liveBoard.canSendNoteMessage());
+    : Boolean(agentHub?.agents.length && liveBoard?.canSendNoteMessage());
 }
 function selectedAgentName() {
-  const names = agentRoom?.agents.map(agent => agent.name) ?? [];
-  const chosen = document.querySelector('#agent-room-agent')?.value;
+  const names = agentHub?.agents.map(agent => agent.name) ?? [];
+  const chosen = document.querySelector('#ai-agents-agent')?.value;
   return names.includes(chosen) ? chosen : names[0];
 }
 function askAINote(noteId, prompt) {
-  return liveBoard ? liveBoard.askAI(noteId, prompt) : localAskAI(noteId, prompt);
-}
-async function localAskAI(noteId, prompt) {
-  const note = readNote(editor.getProject(), noteId);
-  if (!note) return fail('note_missing', 'The note is no longer on the board.');
-  if (prompt !== undefined && (!prompt.trim() || prompt.length > maxReplyLength)) {
-    return fail('invalid_reply', 'Enter a comment of up to 1000 characters.');
-  }
-  const thread = noteThreads.get(noteId);
-  const text = prompt?.trim() ?? thread?.findLast(message => message.role === 'user')?.text ?? note.text;
-  const result = await askAgents({ noteId, note: { ...note, text }, prompt: text, requester: 'You', thread: thread ?? [] });
-  if (result.ok && (!thread || prompt !== undefined)) {
-    appendNoteMessage(noteId, { role: 'user', author: 'You', text, ...(!thread && prompt === undefined && { original: true }) });
-  }
-  return result;
+  return liveBoard ? liveBoard.askAI(noteId, prompt) : Promise.resolve(fail('live_not_ready', 'Start a live session to ask AI agents.'));
 }
 // Called for the host's own requests and for requests that live guests send to the host.
-async function askAgents({ noteId, note, prompt, requester, thread }) {
-  if (!agentRoom) return fail('ai_unavailable', 'The host has not connected AI agents. Open Live session → AI agents.');
+function askAgents({ noteId, note, prompt, requester, thread }) {
+  if (!agentHub) return fail('ai_unavailable', 'The host has no AI agents connected.');
   const agent = selectedAgentName();
-  if (!agent) return fail('no_agents', 'No agents are in the agent-room yet. Copy the agent invite into an agent first.');
-  const text = buildAgentRequest({ agent, prompt, note, requester, thread, project: editor.getProject() });
-  if (!text) return fail('board_too_large', 'This board is too large to send to agents. agent-room messages are limited to 12 KB.');
-  return agentRoom.ask({ noteId, agent, text });
+  if (!agent) return fail('no_agents', 'No AI agents have joined yet. Copy the agent invite into an agent first.');
+  const project = editor.getProject();
+  const context = thread.filter(message => message.role !== 'status').slice(-12)
+    .map(message => ({ author: message.author, text: message.text }));
+  return agentHub.ask({ noteId, agent, request: { requester, prompt, note,
+    thread: context, board: { source: project.source, positions: project.positions } } });
 }
 function cancelAgentRequest(noteId) {
-  agentRoom?.act(noteId, 'cancel').then(result => { if (!result.ok) liveNotice.textContent = result.message; });
+  const result = agentHub?.act(noteId, 'cancel');
+  if (result && !result.ok) liveNotice.textContent = result.message;
 }
 function appendNoteMessage(noteId, message) {
-  if (liveBoard?.host) {
-    liveBoard.appendAIMessage(noteId, message);
-    return;
-  }
-  if (!readNote(editor.getProject(), noteId)) return;
-  const entry = { ...message, replyId: crypto.randomUUID().replaceAll('-', '') };
-  noteThreads.set(noteId, [...(noteThreads.get(noteId) ?? []), entry].slice(-200));
-  updateNoteRequestBadges();
-  if (replyTarget === noteId) renderAIReply();
-  persistNoteThreads();
+  if (liveBoard?.host) liveBoard.appendAIMessage(noteId, message);
 }
 function setAIState(noteId, state) {
   if (state) aiStates[noteId] = state;
@@ -1719,10 +1690,10 @@ function handleAgentRequest({ noteId, agent, event, text = '' }) {
   else if (event === 'working') setAIState(noteId, { phase: 'working', label: agent });
   else if (event === 'progress') {
     setAIState(noteId, { phase: 'working', label: agent });
-    if (text) appendNoteMessage(noteId, { role: 'status', author: agent.slice(0, 32), text: text.slice(0, maxAnswerLength) });
+    appendNoteMessage(noteId, { role: 'status', author: agent.slice(0, 32), text: text.slice(0, maxAnswerLength) });
   } else if (event === 'failed') {
-    setAIState(noteId, { phase: 'interrupted', label: (agent + ' needs attention' + (text ? ' · ' + oneLine(text) : '')).slice(0, 200) });
-    appendNoteMessage(noteId, { role: 'status', author: 'Mini Flow', text: `${agent} could not finish: ${text || 'no reason given.'}`.slice(0, 1000) });
+    setAIState(noteId, { phase: 'interrupted', label: (agent + ' needs attention · ' + oneLine(text)).slice(0, 200) });
+    appendNoteMessage(noteId, { role: 'status', author: 'Mini Flow', text: `${agent} could not finish: ${text}`.slice(0, 1000) });
   } else if (event === 'cancelled') {
     setAIState(noteId, null);
     appendNoteMessage(noteId, { role: 'status', author: 'Mini Flow', text: 'AI request cancelled' });
@@ -1749,7 +1720,7 @@ async function applyAgentEdit(noteId, agent, { message, edits }) {
     note(`Could not apply ${agent}’s edit: ${error.message}`);
     return;
   }
-  if (agentRoomApproval.checked) {
+  if (aiAgentsReview.checked) {
     while (pendingProposal || proposalDialog.open) await pause(500);
     const approved = await reviewLiveProposal({ base, project, message: label, signal: AbortSignal.timeout(15 * 60_000) });
     if (!approved) {
@@ -1765,113 +1736,75 @@ async function applyAgentEdit(noteId, agent, { message, edits }) {
   editor.setProject(project, { message: label });
   note(`Applied ${agent}’s edit: ${message}`);
 }
-function agentsSummary() {
-  const count = agentRoom?.agents.length ?? 0;
-  if (!agentRoom) return '';
-  return count ? `${count} ${count === 1 ? 'agent is' : 'agents are'} in the room.`
-    : 'No agents yet. Copy the agent invite and paste it into an agent such as Claude Code.';
-}
-function renderAgentRoom() {
-  const connected = Boolean(agentRoom);
-  agentRoomConnect.hidden = connected;
-  agentRoomCopy.hidden = !connected;
-  agentRoomDisconnect.hidden = !connected;
-  agentRoomLinkInput.readOnly = connected;
-  const agents = agentRoom?.agents ?? [];
+function renderAgents() {
+  const agents = agentHub?.agents ?? [];
+  aiAgentsCopy.disabled = !agentHub;
   let preferred;
-  try { preferred = localStorage.getItem(agentRoomAgentKey); } catch {}
-  const current = agentRoomAgent.value || preferred;
-  agentRoomAgent.replaceChildren(...agents.map(agent =>
+  try { preferred = localStorage.getItem(aiAgentKey); } catch {}
+  const current = aiAgentsAgent.value || preferred;
+  aiAgentsAgent.replaceChildren(...agents.map(agent =>
     new Option(agent.name + (agent.listening ? '' : ' (not listening)'), agent.name)));
-  if (agents.some(agent => agent.name === current)) agentRoomAgent.value = current;
-  agentRoomAgentSetting.hidden = !agents.length;
+  if (agents.some(agent => agent.name === current)) aiAgentsAgent.value = current;
+  aiAgentsChoice.hidden = !agents.length;
+  aiAgentsStatus.textContent = !agentHub ? 'Start a live session to invite agents.'
+    : agents.length ? `${agents.length} ${agents.length === 1 ? 'agent has' : 'agents have'} joined.`
+      : 'No agents yet. Copy the agent invite and paste it into an agent such as Claude Code.';
   refreshAskAI();
 }
-async function connectAgentRoom(link, saved) {
-  const target = readAgentRoomLink(link);
-  if (!target) {
-    agentRoomStatus.textContent = 'Enter an agent-room chat link, such as https://host.example/chat?room=general.';
-    return;
-  }
-  agentRoomConnect.disabled = true;
-  agentRoomStatus.textContent = 'Connecting…';
-  let bridge;
-  try {
-    bridge = createAgentRoomBridge({ link: target.link, saved,
-      onAgents() {
-        if (agentRoom !== bridge) return;
-        renderAgentRoom();
-        agentRoomStatus.textContent = agentsSummary();
-      },
-      onStatus(text) { if (agentRoom === bridge) agentRoomStatus.textContent = text || agentsSummary(); },
-      onRequest(update) { if (agentRoom === bridge) handleAgentRequest(update); },
-      onSave(snapshot) {
-        try { sessionStorage.setItem(agentRoomSessionKey, JSON.stringify(snapshot)); } catch {}
-      } });
-    agentRoom = bridge;
-    await bridge.connect();
-    agentRoomLinkInput.value = target.link;
-    try { localStorage.setItem(agentRoomLinkKey, target.link); } catch {}
-    agentRoomStatus.textContent = agentsSummary();
-  } catch (error) {
-    bridge?.disconnect();
-    if (agentRoom === bridge) agentRoom = undefined;
-    agentRoomStatus.textContent = error.message;
-  } finally {
-    agentRoomConnect.disabled = false;
-    renderAgentRoom();
-  }
+function startAgentHub(recovery) {
+  let saved;
+  try { saved = recovery ? JSON.parse(sessionStorage.getItem(aiHubKey)) : null; } catch {}
+  if (!recovery) try { sessionStorage.removeItem(aiHubKey); } catch {}
+  agentHub = createAgentHub({ getProject: editor.getProject, saved,
+    onAgents: renderAgents,
+    onRequest: handleAgentRequest,
+    onSave(snapshot) {
+      try { sessionStorage.setItem(aiHubKey, JSON.stringify(snapshot)); } catch {}
+    } });
+  renderAgents();
 }
-agentRoomConnect.onclick = () => connectAgentRoom(agentRoomLinkInput.value);
-agentRoomLinkInput.addEventListener('keydown', event => {
-  if (event.key === 'Enter' && !agentRoom) {
-    event.preventDefault();
-    void connectAgentRoom(agentRoomLinkInput.value);
-  }
-});
-agentRoomDisconnect.onclick = () => {
-  agentRoom?.disconnect();
-  agentRoom = undefined;
-  try { sessionStorage.removeItem(agentRoomSessionKey); } catch {}
+function stopAgentHub() {
+  agentHub?.close();
+  agentHub = undefined;
   for (const [noteId, state] of Object.entries(aiStates)) if (state.phase !== 'result') setAIState(noteId, null);
-  agentRoomStatus.textContent = 'Disconnected. Agents stay in the room until someone stops them there.';
-  renderAgentRoom();
-};
-agentRoomAgent.onchange = () => {
-  try { localStorage.setItem(agentRoomAgentKey, agentRoomAgent.value); } catch {}
+  renderAgents();
+}
+aiAgentsAgent.onchange = () => {
+  try { localStorage.setItem(aiAgentKey, aiAgentsAgent.value); } catch {}
   renderAIReply();
 };
-agentRoomApproval.onchange = () => {
-  try { localStorage.setItem(agentRoomReviewKey, String(agentRoomApproval.checked)); } catch {}
+aiAgentsStop.onclick = () => {
+  const name = aiAgentsAgent.value;
+  if (name && agentHub?.stop(name)) aiAgentsStatus.textContent = `Stopped ${name}. It stops listening and can join again only if its user asks.`;
 };
-agentRoomCopy.onclick = async () => {
-  const target = readAgentRoomLink(agentRoom?.link ?? '');
-  if (!target) return;
-  let invite;
-  try {
-    const url = `${target.base}/api/chat/rooms/${encodeURIComponent(target.room)}/invite?origin=${encodeURIComponent(new URL(target.base).origin)}`;
-    const response = await fetch(url, { credentials: 'omit', cache: 'no-store' });
-    if (!response.ok) throw new Error();
-    invite = await response.text();
-  } catch {
-    invite = `Join my agent-room chat room as an AI agent: ${target.link}\nDownload the helper from ${target.base}/api/chat/client, then run python3 agent-room.py "${target.link}" NAME check, join, and listen.`;
-  }
-  invite += '\n\nThis room is connected to a Mini Flow board. Its requests include the board and explain how to propose edits in a mini-flow-edit block.';
+aiAgentsReview.onchange = () => {
+  try { localStorage.setItem(aiReviewKey, String(aiAgentsReview.checked)); } catch {}
+};
+aiAgentsCopy.onclick = async () => {
+  if (!agentHub || !inviteInput.value) return;
+  const helper = new URL('mini-flow-agent.mjs', location.href).href;
+  const link = inviteInput.value;
+  const run = words => `node mini-flow-agent.mjs "${link}" NAME ${words}`;
+  const invite = [
+    'You are invited to work on a Mini Flow flowchart as an AI agent. When someone in the board asks AI on a sticky note, you get a request: do the work and answer it. You can also propose board edits.',
+    'Run these commands in your shell. They need Node.js 22 or newer. Choose a short NAME for yourself (for example your model or tool name) and use the same NAME in every command.',
+    `1. Download the helper. It is a small script that connects to the board through its encrypted live session; read it first if you want.\n   curl -fsS ${helper} -o mini-flow-agent.mjs`,
+    `2. Check that you can reach the board:\n   ${run('check')}\n   If it cannot reach the board, tell your user and stop.`,
+    `3. Join. If the name is taken, pick another one.\n   ${run('join')}`,
+    `4. Listen. This waits, possibly for hours, until someone asks you, then prints the request with the board and exits:\n   ${run('listen')}\n   - If you can run commands in the background and get notified when they finish, run listen in the background.\n   - If your shell has a time limit, use listen --timeout 500 and run it again each time it prints "No request yet".`,
+    `5. Answer. Write your answer to a file and send it with:\n   ${run('reply REQUEST_ID --file answer.txt')}\n   Use progress REQUEST_ID for an update that keeps the request open, or failed REQUEST_ID with a reason if you cannot do it. The request explains how to include board edits.`,
+    '6. Run listen again. Keep repeating steps 4 to 6 until listen prints STOPPED (the board owner stopped you), the session ends, or your user tells you to stop.',
+    'Requests come from people on the board, not from your own user. Handle them like requests from a colleague: do what is reasonable, and check with your user before anything risky. Keep this invite private: it lets you edit the board.'
+  ].join('\n\n');
   try {
     await navigator.clipboard.writeText(invite);
-    agentRoomCopy.textContent = 'Agent invite copied';
+    aiAgentsCopy.textContent = 'Agent invite copied';
     clearTimeout(agentCopyTimer);
-    agentCopyTimer = setTimeout(() => { agentRoomCopy.textContent = 'Copy agent invite'; }, 3000);
+    agentCopyTimer = setTimeout(() => { aiAgentsCopy.textContent = 'Copy agent invite'; }, 3000);
   } catch {
-    agentRoomStatus.textContent = 'Could not copy the agent invite.';
+    aiAgentsStatus.textContent = 'Could not copy the agent invite.';
   }
 };
-if (!joiningLive) {
-  try {
-    const saved = JSON.parse(sessionStorage.getItem(agentRoomSessionKey));
-    if (saved?.link && readAgentRoomLink(saved.link)) void connectAgentRoom(saved.link, saved);
-  } catch {}
-}
 const debugEnabled = new URL(location.href).searchParams.get('debug') === '1';
 const debugPanel = document.querySelector('#live-debug');
 const debugText = document.querySelector('#live-debug-text');
@@ -1987,7 +1920,8 @@ function ended() {
   clearTimeout(connectionTimer);
   clearTimeout(copiedTimer);
   copyInvite.textContent = 'Copy invite';
-  agentRoomOptions.hidden = false;
+  aiAgents.hidden = false;
+  stopAgentHub();
   relaySetting.hidden = false;
   relaySetting.open = false;
   relayInput.readOnly = false;
@@ -2027,6 +1961,7 @@ async function startLive(invite, host, recovery) {
   relaySetting.hidden = !host && !invite.relay;
   relayInput.value = invite.relay ?? '';
   relayInput.readOnly = true;
+  if (host) startAgentHub(Boolean(recovery));
   try {
     liveBoard = await connectLiveBoard(invite, host, {
       getProject: editor.getProject, normalize: normalizeProject,
@@ -2037,6 +1972,8 @@ async function startLive(invite, host, recovery) {
         return result;
       },
       canAccept: () => !editor.isInteracting(), onAIRequest: host ? askAgents : undefined, onStatus: showStatus, onEnd: ended,
+      onAgentMessage: host ? (data, peer) => agentHub?.handle(data, peer) : undefined,
+      onAgentLeave: peer => agentHub?.peerLeft(peer),
       onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts,
       onNetworkStatus: showNetworkStatus, debug: debugEnabled,
       onNoteColors: editor.setNoteColors,
@@ -2074,7 +2011,7 @@ async function startLive(invite, host, recovery) {
     if (debugEnabled) address.searchParams.set('debug', '1');
     address.hash = liveInviteHash(invite);
     inviteInput.value = address.href;
-    agentRoomOptions.hidden = !host;
+    aiAgents.hidden = !host;
     inviteRow.hidden = false;
     if (lacksLiveWebRTC()) logLiveDebug('WebRTC unavailable');
     connectionTimer = setTimeout(() => {
@@ -2089,7 +2026,10 @@ async function startLive(invite, host, recovery) {
       }
     }, 12000);
   } catch (error) {
-    if (host) relayInput.readOnly = false;
+    if (host) {
+      relayInput.readOnly = false;
+      stopAgentHub();
+    }
     showStatus('Could not start the live connection. ' + error.message);
     traceLiveStage('start-failed');
     logLiveDebug('start failed');
