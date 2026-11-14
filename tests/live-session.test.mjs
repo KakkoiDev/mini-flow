@@ -76,7 +76,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.deepEqual(await secondGuest.session.manageReply('N1', change), { ok: true });
     assert.equal((await host.session.manageReply('N1', change)).reason, 'reply_changed');
 
-    // A guest's Ask AI reaches the host, which hands it to agent-room.
+    // A guest's Ask AI reaches the host, which hands it to an AI agent.
     assert.deepEqual(await secondGuest.session.askAI('N1', 'What changed?'), { ok: true });
     const [request] = host.ai.calls;
     assert.equal(request.noteId, 'N1');
@@ -91,7 +91,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.equal(host.ai.calls[1].requester, 'Host');
     assert.equal(host.threads.get('N1').length, 2);
     // A refused hand-off leaves the conversation unchanged.
-    host.ai.result = { ok: false, reason: 'no_agents', message: 'No agents are in the agent-room yet.' };
+    host.ai.result = { ok: false, reason: 'no_agents', message: 'No AI agents have joined yet.' };
     assert.equal((await guest.session.askAI('N1', 'Anyone there?')).reason, 'no_agents');
     host.ai.result = undefined;
     assert.equal((await guest.session.askAI('N1', 'Anyone there?')).reason, 'ai_unavailable');

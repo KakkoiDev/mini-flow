@@ -247,43 +247,36 @@ Participants see draft text, drag movement, and tool icons as they edit.
 Live guests get a separate note color, and notes return to yellow when the
 session ends.
 
-## AI agents with agent-room
+## AI agents
 
-AI agents join through [agent-room](https://github.com/KakkoiDev/agent-room), a chat
-room where people and agents work together. Any agent with a shell can take part:
-Claude Code, Codex, a local model, or your own script.
+AI agents with a shell, such as Claude Code, Codex, a local model, or your own script, join a
+live session from their terminal. Nothing else needs to be hosted: agents reach your open board
+tab through the live session's encrypted relay, the same one guests use.
 
-1. Run agent-room and allow Mini Flow's address:
-
-   ```sh
-   go run github.com/KakkoiDev/agent-room/cmd/agent-room@latest -allow-origin https://mini-flow.kakkoi.dev
-   ```
-
-   Use the address you serve Mini Flow from, such as `http://localhost:*` for a local copy.
-   To share the room over Tailscale, add `-tailscale-login you@example.com` and run
-   `tailscale serve http://127.0.0.1:8790`.
-2. In Mini Flow, open **Live session → AI agents**, paste the room's chat link
-   (for example `http://127.0.0.1:8790/chat?room=general`) and choose **Connect**.
-   Mini Flow joins the room as the person **Mini Flow**.
-3. Choose **Copy agent invite** and paste it into each agent. The agent downloads
-   agent-room's helper, joins the room, and listens.
-4. Select a sticky note and choose **Ask AI**. Mini Flow `@mentions` the agent chosen under
+1. Choose **Live session → Start live session**, then open **AI agents** and choose
+   **Copy agent invite**.
+2. Paste the invite into each agent. The agent downloads `mini-flow-agent.mjs` from this site,
+   checks that it can reach the board, joins under a name, and listens. It needs Node.js 22 or newer.
+3. Select a sticky note and choose **Ask AI**. The request goes to the agent chosen under
    **Ask AI sends to**, with the note, its latest 12 messages, and the board. Type a follow-up in
    the note conversation before choosing **Ask AI** to send it as the request.
 
-Agents answer with agent-room's `reply` command. Their answer appears in the note
-conversation. To change the board, an agent adds a `mini-flow-edit` block with
-edit operations to its reply. Mini Flow shows the change for you to apply or decline;
-turn off **Review agent edits before they apply** to apply edits at once.
-The note shows whether the request is waiting, which agent is working on it, and the
-result. Agent progress messages and failures appear in the conversation. Use
-**Retry** on a failed request, or cancel a request from the bottom-left activity list.
-Agents can hand a request to another agent in the room; the answer still returns to the note.
+Agents answer with `node mini-flow-agent.mjs … reply REQUEST_ID --file answer.txt`. Their answer
+appears in the note conversation. To change the board, an agent adds a `mini-flow-edit` block with
+edit operations. Mini Flow shows the change for you to apply or decline; turn off
+**Review agent edits before they apply** to apply edits at once. The note shows whether the request
+is waiting, which agent is working on it, and the result. Agent progress messages and failures
+appear in the conversation. Use **Retry** on a failed request, or cancel a request from the
+bottom-left activity list. **Stop agent** tells an agent to stop listening; its helper exits.
 
-In a live session only the host connects to agent-room. Guests can use **Ask AI**:
-the host's tab sends the request, and everyone sees the status and the answer.
-agent-room messages are limited to 12 KB, so Mini Flow drops older conversation and then block
-positions from a request for a large board. The connection resumes after a reload in the same tab.
+Keep the host tab open while agents work. Guests can use **Ask AI** too: the host's tab hands the
+request to the agent, and everyone sees the status and the answer. A host reload in the same tab
+keeps the agents and their open requests. Agents connect through the WebSocket relay, so a custom
+relay must allow the board's address. Anyone with the agent invite can edit the board, so keep it private.
+
+The helper downloads Mini Flow's own connection code from the board's site and checks each file
+against `mini-flow-agent.json`. After changing a listed file, run `node tools/agent-manifest.mjs`.
+`tests/agent-relay/agent-relay.e2e.cjs` runs an agent against the real relay; it is not part of CI.
 
 ## GitHub Gist backups
 
@@ -319,8 +312,7 @@ enables local Undo and Redo. During a connection interruption, guests can use
 **Leave session** to keep editing a copy while the host is away.
 
 Live sessions use p2p-core. A host reload in the same tab restores the board,
-comments, and invite, and reconnects to agent-room. Open guest tabs reconnect.
-Agent replies that arrive during the reload are picked up afterwards.
+comments, invite, AI agents, and their open requests. Open guest tabs and agents reconnect.
 **End session** clears recovery and closes the room explicitly.
 
 To keep one saved project current across devices, connect it to the same Gist
@@ -331,7 +323,7 @@ Flow pauses and lets you choose **Keep this board** or **Use latest cloud copy**
 Gist access and visibility are the same for sync and backups.
 
 
-Run the Node regressions with `node --test tests/live-session.test.mjs tests/parse.test.mjs tests/agent-room.test.mjs`.
+Run the Node regressions with `node --test tests/live-session.test.mjs tests/parse.test.mjs tests/agents.test.mjs`.
 Serve the repo and open `tests/auto-layout.html` to run the browser regression
 for bend reset, note attachments, Undo, and Redo.
 
