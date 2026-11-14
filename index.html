@@ -7,17 +7,17 @@
 <meta name="mini-flow-api" content="./mini-flow-api.json">
 <link rel="describedby" type="application/json" href="./mini-flow-api.json" title="Mini Flow agent API">
 <link rel="help" type="text/markdown" href="./agent-guide.md" title="Agent integration guide">
+<link rel="stylesheet" href="./tokens.css?v=1">
 <style>
-:root{color-scheme:light}
-body{margin:0;background:#faf8f5;color:#242b29;font:15px system-ui,sans-serif}
+body{margin:0;background:var(--mf-canvas);color:var(--mf-ink);font:15px system-ui,sans-serif}
 main{height:100dvh;display:flex;flex-direction:column}
-header{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:9px clamp(10px,2vw,28px);background:#faf8f5;border-bottom:1px solid #e7e2dc}
+header{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:9px clamp(10px,2vw,28px);background:var(--mf-canvas);border-bottom:1px solid var(--mf-border)}
 h1{display:flex;align-items:center;gap:9px;margin:0 12px 0 0;font-size:21px;font-weight:750;letter-spacing:-.035em}
-h1 svg{width:26px;height:26px;color:#087f71}
+h1 svg{width:26px;height:26px;color:var(--mf-accent)}
 header button svg{width:19px;height:19px;flex:none}
 header [data-fit] > svg{display:none}
 header [data-fit]::before{content:"";display:block;flex:0 0 19px;width:19px;height:19px;
-background:center / contain no-repeat url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23242b29%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M9%204H4v5m11-5h5v5M4%2015v5h5m11-5v5h-5%22%2F%3E%3C%2Fsvg%3E")}
+background:currentColor;-webkit-mask:center / contain no-repeat url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23242b29%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M9%204H4v5m11-5h5v5M4%2015v5h5m11-5v5h-5%22%2F%3E%3C%2Fsvg%3E");mask:center / contain no-repeat url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23242b29%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M9%204H4v5m11-5h5v5M4%2015v5h5m11-5v5h-5%22%2F%3E%3C%2Fsvg%3E")}
 header .header-actions{display:contents}
 header .view-actions{display:inline-flex;align-items:center;gap:2px;margin-right:auto;white-space:nowrap}
 header .compact-action{width:38px;justify-content:center;padding-inline:0}
@@ -25,25 +25,25 @@ header .compact-action > span:first-of-type{position:absolute;width:1px;height:1
 .arrange{position:relative;z-index:4}
 .arrange summary{display:flex;align-items:center;gap:6px;padding:7px 9px;min-height:38px;box-sizing:border-box;border-radius:8px;cursor:pointer;list-style:none}
 .arrange summary::-webkit-details-marker{display:none}
-.arrange summary:hover,.arrange[open] summary{background:#f0ece6}
-.arrange summary:focus-visible{outline:2px solid #087f71;outline-offset:2px}
+.arrange summary:hover,.arrange[open] summary{background:var(--mf-hover)}
+.arrange summary:focus-visible{outline:2px solid var(--mf-focus);outline-offset:2px}
 .arrange summary svg{width:18px;height:18px}
 .arrange summary::after{content:"";width:6px;height:6px;border-right:1.5px solid;border-bottom:1.5px solid;transform:translateY(-2px) rotate(45deg)}
-.arrange-options{position:absolute;top:calc(100% + 6px);right:0;display:grid;min-width:174px;padding:5px;border:1px solid #ded9d2;border-radius:10px;background:#fffdfb;box-shadow:0 6px 20px #332c2220}
+.arrange-options{position:absolute;top:calc(100% + 6px);right:0;display:grid;min-width:174px;padding:5px;border:1px solid var(--mf-border);border-radius:10px;background:var(--mf-surface);box-shadow:0 6px 20px #00000020}
 .toggle-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:38px;padding:0 8px;cursor:pointer}
 .arrange-options label svg{display:none}
-.toggle-row input{order:1;appearance:none;flex:none;width:34px;height:20px;margin:0;border:1px solid #aaa59e;border-radius:20px;background:#d9d6d1;cursor:pointer}
-.toggle-row input::after{content:"";display:block;width:14px;height:14px;margin:2px;border-radius:50%;background:white}
-.toggle-row input:checked{background:#087f71;border-color:#087f71}
+.toggle-row input{order:1;appearance:none;flex:none;width:34px;height:20px;margin:0;border:1px solid var(--mf-muted);border-radius:20px;background:var(--mf-border);cursor:pointer}
+.toggle-row input::after{content:"";display:block;width:14px;height:14px;margin:2px;border-radius:50%;background:var(--mf-surface)}
+.toggle-row input:checked{background:var(--mf-accent);border-color:var(--mf-accent)}
 .toggle-row input:checked::after{transform:translateX(14px)}
-.toggle-row input:focus-visible{outline:2px solid #087f71;outline-offset:2px}
+.toggle-row input:focus-visible{outline:2px solid var(--mf-focus);outline-offset:2px}
 header button{display:inline-flex;align-items:center;gap:7px;font:inherit;border:1px solid transparent;background:transparent;color:inherit;border-radius:8px;padding:7px 10px;min-height:38px;cursor:pointer}
-header button:hover:not(:disabled){background:#f0ece6}
+header button:hover:not(:disabled){background:var(--mf-hover)}
 header button[hidden],#live-session [hidden]{display:none}
 #live-toggle{white-space:nowrap}
-#live-toggle svg{color:#666f69}
-#live-toggle[data-active] svg{color:#087f71}
-.live-state{display:none;width:7px;height:7px;border-radius:50%;background:#087f71}
+#live-toggle svg{color:var(--mf-muted)}
+#live-toggle[data-active] svg{color:var(--mf-accent)}
+.live-state{display:none;width:7px;height:7px;border-radius:50%;background:var(--mf-accent)}
 #live-toggle[data-active] .live-state{display:block}
 #live-invite{display:block;width:100%;box-sizing:border-box;margin:6px 0 12px;font:inherit;padding:8px}
 #live-session form{flex-wrap:wrap}
@@ -51,45 +51,88 @@ header button[hidden],#live-session [hidden]{display:none}
 #live-session summary{cursor:pointer}
 #live-session details[open] > summary{margin-bottom:8px}
 #live-ai-approval-setting{margin-top:8px;padding-inline:0}
-#live-ai-approval-status{font-size:14px;color:#4c6660}
+#live-ai-approval-status{font-size:14px;color:var(--mf-muted)}
 #live-relay{display:block;width:100%;box-sizing:border-box;margin-top:6px;font:inherit;padding:8px}
 header button:disabled{opacity:.45;cursor:default}
-header #blank{border-color:#ded9d2}
-header :is([data-panel],#open-saved-projects)[aria-expanded=true]{background:#e4f4ee;border-color:#c9e8df;color:#175b50}
-header button:focus-visible{outline:2px solid #087f71;outline-offset:2px}
+header #blank{border-color:var(--mf-border)}
+header :is([data-panel],#open-saved-projects)[aria-expanded=true]{background:var(--mf-accent-soft);border-color:color-mix(in srgb, var(--mf-accent) 35%, var(--mf-surface));color:var(--mf-accent-ink)}
+header button:focus-visible{outline:2px solid var(--mf-focus);outline-offset:2px}
 #save-status:empty,#live-notice:empty{display:none}
-#save-status,#live-notice{order:1;flex-basis:100%;font-size:12px;color:#4c6660}
+#save-status,#live-notice{order:1;flex-basis:100%;font-size:12px;color:var(--mf-muted)}
 #editor{flex:1;min-width:0;min-height:0;--mini-flow-height:100%}
 #editor > div{height:100%}
-@media(max-width:550px){header{gap:3px;padding:5px 8px}h1{font-size:18px}
-header button,.arrange summary{font-size:13px;padding:5px 7px;min-height:44px}
-header .header-actions{display:flex;flex:1 1 100%;align-items:center;flex-wrap:wrap;gap:3px}
-header .view-actions{margin-right:0}
-.arrange-options{left:0;right:auto}}
-dialog{width:min(560px,calc(100% - 32px));max-height:85dvh;padding:22px;border:1px solid #ded9d2;border-radius:14px;color:inherit;background:#fffdfb}
-dialog::backdrop{background:#242b2959}
+header{position:relative}
+#more-button,#more-menu{display:none}
+header button[aria-disabled=true]{opacity:.45;cursor:default}
+header button[aria-disabled=true]:hover{background:transparent}
+#toast-region{position:fixed;z-index:20;left:0;right:0;bottom:calc(100px + env(safe-area-inset-bottom,0px));display:flex;justify-content:center;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));pointer-events:none}
+.toast{position:relative;display:flex;align-items:center;gap:8px;width:520px;max-width:100%;box-sizing:border-box;padding:10px 8px 13px 16px;
+  overflow:hidden;border-radius:12px;background:var(--mf-toast-bg);color:var(--mf-toast-ink);box-shadow:0 8px 24px rgba(0,0,0,.18);pointer-events:auto}
+.toast p{flex:1;margin:0;font-size:14px;line-height:1.4}
+.toast button{flex:none;display:inline-grid;place-items:center;min-width:44px;min-height:44px;padding:0 10px;border:0;border-radius:8px;
+  background:none;color:inherit;font:inherit;cursor:pointer}
+.toast .toast-undo{color:var(--mf-toast-action);font-weight:700}
+.toast button:hover{background:color-mix(in srgb,var(--mf-toast-ink) 12%,transparent)}
+.toast button:focus-visible{outline:2px solid var(--mf-toast-action);outline-offset:-2px}
+.toast button svg{width:18px;height:18px}
+.toast-bar{position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--mf-toast-action);transform-origin:right;
+  animation:toast-drain var(--toast-duration,8s) linear forwards}
+.toast:is(:hover,:focus-within) .toast-bar{animation-play-state:paused}
+@keyframes toast-drain{to{transform:scaleX(0)}}
+@media(prefers-reduced-motion:reduce){.toast-bar{animation:none}}
+@media(max-width:550px){.toast{width:100%}}
+.more-dot{position:absolute;top:9px;right:9px;width:8px;height:8px;border-radius:50%;background:var(--mf-good);box-shadow:0 0 0 2px var(--mf-canvas)}
+#more-menu{position:absolute;z-index:10;top:calc(100% - 4px);right:8px;width:264px;max-height:calc(100dvh - 72px);overflow:auto;box-sizing:border-box;padding:6px;
+  border:1px solid var(--mf-border);border-radius:12px;background:var(--mf-surface);box-shadow:0 8px 24px #0000002e}
+#more-menu .menu-item{display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:0 10px;border:0;border-radius:8px;
+  background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+#more-menu .menu-item:hover:not(:disabled),#more-menu .menu-item:focus-visible{background:var(--mf-hover)}
+#more-menu .menu-item:focus-visible{outline:2px solid var(--mf-focus);outline-offset:-2px}
+#more-menu .menu-item:disabled{opacity:.45;cursor:default}
+#more-menu .menu-item svg{width:20px;height:20px;flex:none}
+#more-menu .menu-item .menu-trail{margin-left:auto;color:var(--mf-accent-ink);font-size:13px}
+#more-menu .menu-label{padding:8px 10px 2px;font-size:12px;font-weight:650;color:var(--mf-muted)}
+#more-menu .menu-divider{height:1px;margin:4px 0;background:var(--mf-border)}
+#more-menu .menu-switch{margin-left:auto;flex:none;width:34px;height:20px;box-sizing:border-box;border:1px solid var(--mf-muted);border-radius:20px;background:var(--mf-border)}
+#more-menu .menu-switch::after{content:"";display:block;width:14px;height:14px;margin:2px;border-radius:50%;background:var(--mf-surface)}
+#more-menu [aria-checked=true] .menu-switch{background:var(--mf-accent);border-color:var(--mf-accent)}
+#more-menu [aria-checked=true] .menu-switch::after{transform:translateX(14px)}
+@media(max-width:550px){
+header{flex-wrap:nowrap;gap:0;min-height:56px;box-sizing:border-box;padding:6px max(4px,env(safe-area-inset-right,0px)) 6px max(12px,env(safe-area-inset-left,0px))}
+h1{font-size:17px;letter-spacing:-.02em;margin:0 auto 0 0}
+h1 svg{width:24px;height:24px}
+header .header-actions{display:flex;align-items:center;gap:0}
+header :is(#blank,#share,.view-actions,#live-toggle,#open-saved-projects,[data-panel]){display:none}
+header :is([data-undo],[data-redo],#more-button){width:44px;height:44px;min-height:44px;padding:0;justify-content:center}
+#more-button{display:inline-flex;position:relative}
+#more-menu:not([hidden]){display:block}
+#save-status,#live-notice{position:absolute;z-index:3;top:100%;left:0;right:0;padding:4px 12px;background:var(--mf-canvas)}}
+dialog{width:min(560px,calc(100% - 32px));max-height:85dvh;padding:22px;border:1px solid var(--mf-border);border-radius:14px;color:inherit;background:var(--mf-surface)}
+dialog::backdrop{background:rgb(0 0 0 / .4)}
 dialog h2{margin:0;font-size:20px}
 dialog p{margin:12px 0;overflow-wrap:anywhere}
 #edit-proposal{width:min(800px,calc(100% - 32px))}
 #proposal-preview{--mini-flow-height:clamp(170px,35dvh,360px);margin-top:8px}
 #proposal-preview-controls{display:flex;gap:6px}
-#proposal-preview-controls [aria-pressed=true]{background:#e4f4ee;border-color:#a7cfc4}
-dialog .diff{margin:12px 0;max-height:42dvh;overflow:auto;border:1px solid #e7e2dc;border-radius:8px;font:13px/1.5 ui-monospace,monospace}
+#proposal-preview-controls [aria-pressed=true]{background:var(--mf-accent-soft);border-color:color-mix(in srgb, var(--mf-accent) 35%, var(--mf-surface))}
+dialog .diff{margin:12px 0;max-height:42dvh;overflow:auto;border:1px solid var(--mf-border);border-radius:8px;font:13px/1.5 ui-monospace,monospace}
 dialog .diff-line{display:flex;gap:8px;padding:2px 9px;white-space:pre-wrap;overflow-wrap:anywhere}
 dialog .diff-line span{flex:0 0 1em;user-select:none}
-dialog .diff-add{background:#e3f6e8;color:#14532d}
-dialog .diff-remove{background:#ffe8e6;color:#8b1d19}
+dialog .diff-add{background:color-mix(in srgb, var(--mf-good) 14%, var(--mf-surface));color:var(--mf-good)}
+dialog .diff-remove{background:color-mix(in srgb, var(--mf-danger) 14%, var(--mf-surface));color:var(--mf-danger)}
 dialog form{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
-dialog button{font:inherit;padding:8px 12px;min-height:44px;border:1px solid #ded9d2;border-radius:8px;background:#fffdfb;color:inherit;cursor:pointer}
-dialog #apply-proposal{background:#e4f4ee;border-color:#a7cfc4}
+dialog button{font:inherit;padding:8px 12px;min-height:44px;border:1px solid var(--mf-border);border-radius:8px;background:var(--mf-surface);color:inherit;cursor:pointer}
+dialog #apply-proposal{background:var(--mf-accent-soft);border-color:color-mix(in srgb, var(--mf-accent) 35%, var(--mf-surface))}
 dialog button:disabled{opacity:.5;cursor:default}
-dialog button:hover:not(:disabled){border-color:#b8b2aa}
-dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid #087f71;outline-offset:2px}
+dialog button:hover:not(:disabled){border-color:var(--mf-border)}
+dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid var(--mf-focus);outline-offset:2px}
 </style>
 <main>
   <header><h1><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M3 19a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" /><path d="M19 7a2 2 0 1 0 0 -4a2 2 0 0 0 0 4" /><path d="M11 19h5.5a3.5 3.5 0 0 0 0 -7h-8a3.5 3.5 0 0 1 0 -7h4.5" /></svg>Mini Flow</h1><button id="blank"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M12 5l0 14" /><path d="M5 12l14 0" /></svg><span>Start blank</span></button><button id="share"><svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ><path d="M9 15l6 -6" /><path d="M11 6l.463 -.536a5 5 0 0 1 7.071 7.072l-.534 .464" /><path d="M13 18l-.397 .534a5.068 5.068 0 0 1 -7.127 0a4.972 4.972 0 0 1 0 -7.071l.524 -.463" /></svg><span>Copy link</span></button><span id="save-status" role="status"></span></header>
   <div id="editor"></div>
 </main>
+<div id="toast-region" role="status" aria-live="polite"></div>
 <template id="conversation-panel-template">
   <aside id="ai-reply" class="panel workspace-panel" aria-labelledby="ai-reply-title" hidden>
     <div class="workspace-panel-heading">
@@ -156,98 +199,114 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid #087f7
 <template id="workspace-panel-template">
   <style>
     .workspace-panel {overscroll-behavior:contain}
-    .workspace-panel :where(button:not(.workspace-panel-close)) {min-height:36px;border-color:#ded9d2}
-    .workspace-panel :where(button:hover:not(:disabled)) {background:#f0ece6}
+    .workspace-panel :where(button:not(.workspace-panel-close)) {min-height:36px;border-color:var(--mf-border)}
+    .workspace-panel :where(button:hover:not(:disabled)) {background:var(--mf-hover)}
     .workspace-panel :is(input,textarea,select,summary):focus-visible {
-      outline:2px solid var(--mf-accent);outline-offset:2px
+      outline:2px solid var(--mf-focus);outline-offset:2px
     }
     .workspace-panel-heading {position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;
-      gap:12px;padding:10px 14px;border-bottom:1px solid #e7e2dc;background:var(--mf-surface)}
+      gap:12px;padding:10px 14px;border-bottom:1px solid var(--mf-border);background:var(--mf-surface)}
     .workspace-panel-heading h2 {margin:0;font-size:15px;font-weight:700}
     .workspace-panel-close {display:grid;place-items:center;width:36px;height:36px;padding:0;border-color:transparent;background:transparent}
-    .workspace-panel-close:hover {background:#f0ece6}
+    .workspace-panel-close:hover {background:var(--mf-hover)}
     .workspace-panel-close svg {width:18px;height:18px}
     #ai-reply{display:flex;flex-direction:column}
     #ai-reply > :not(.workspace-panel-heading){margin-inline:14px}
     #ai-reply .workspace-panel-heading{flex:none;flex-wrap:wrap;gap:8px}
     #ai-reply .ai-thread-actions{flex:1}
     #ai-reply [data-role=status]{color:var(--mf-stroke)}
-    #ai-reply-note{font-size:14px;color:#4c6660;max-height:20dvh;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap}
+    #ai-reply-note{font-size:14px;color:var(--mf-muted);max-height:20dvh;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap}
     .ai-thread-actions,.ai-reply-edit-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px}
     .ai-reply-meta{display:flex;align-items:center;gap:8px;min-height:30px}
-    .ai-reply-meta small{color:#52625e}
+    .ai-reply-meta small{color:var(--mf-muted)}
     #ai-reply .ai-reply-menu{position:relative;margin-left:auto;padding:0;border:0;background:transparent}
     .ai-reply-menu summary{cursor:pointer;list-style:none;border-radius:6px;min-width:32px;min-height:30px;text-align:center;line-height:30px}
     .ai-reply-menu summary::-webkit-details-marker{display:none}
-    .ai-reply-menu summary:hover,.ai-reply-menu[open] summary{background:#fffdfb}
-    .ai-reply-menu div{position:fixed;z-index:2;display:grid;min-width:110px;padding:4px;background:#fffdfb;border:1px solid #ded9d2;border-radius:8px;box-shadow:0 4px 12px #2a242019}
+    .ai-reply-menu summary:hover,.ai-reply-menu[open] summary{background:var(--mf-surface)}
+    .ai-reply-menu div{position:fixed;z-index:2;display:grid;min-width:110px;padding:4px;background:var(--mf-surface);border:1px solid var(--mf-border);border-radius:8px;box-shadow:0 4px 12px #00000019}
     .ai-reply-menu div:not([data-positioned]){visibility:hidden}
     #ai-reply .ai-reply-menu button{text-align:left;border:0;padding:6px 10px}
-    .ai-reply-delete{color:#9c2c25}
+    .ai-reply-delete{color:var(--mf-danger)}
     .ai-reply-edit-actions{margin-top:8px}
     #ai-reply-messages{flex:1;list-style:none;margin:12px 0 0;padding:0;min-height:0;overflow:auto;display:grid;align-content:start;gap:8px;scrollbar-gutter:stable;overscroll-behavior:contain}
-    #ai-reply-messages li{padding:9px 12px;background:#f2eee8;border-radius:8px;overflow-wrap:anywhere}
-    #ai-reply-messages li[data-role=assistant]{background:#e4f4ee}
+    #ai-reply-messages li{padding:9px 12px;background:var(--mf-hover);border-radius:8px;overflow-wrap:anywhere}
+    #ai-reply-messages li[data-role=assistant]{background:var(--mf-accent-soft)}
     #ai-reply-messages strong{font-size:12px}
     #ai-reply-messages p{white-space:pre-wrap;margin:3px 0 0}
-    #ai-reply-form{flex:none;display:grid;grid-template-columns:minmax(0,1fr);justify-content:stretch;gap:7px;margin-block:12px 14px;padding-top:12px;border-top:1px solid #e7e2dc}
-    #ai-reply textarea{min-height:0;max-height:25dvh;margin:0;box-sizing:border-box;width:100%;font:inherit;padding:8px;border:1px solid #b8b2aa;border-radius:8px;resize:vertical}
+    #ai-reply-form{flex:none;display:grid;grid-template-columns:minmax(0,1fr);justify-content:stretch;gap:7px;margin-block:12px 14px;padding-top:12px;border-top:1px solid var(--mf-border)}
+    #ai-reply textarea{min-height:0;max-height:25dvh;margin:0;box-sizing:border-box;width:100%;font:inherit;padding:8px;border:1px solid var(--mf-border);border-radius:8px;resize:vertical}
     #ai-reply-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
-    #ai-reply-ask{background:#e4f4ee;border-color:#a7cfc4}
-    #ai-reply-status{font-size:13px;color:#4c6660;margin:0}
+    #ai-reply-ask{background:var(--mf-accent-soft);border-color:color-mix(in srgb, var(--mf-accent) 35%, var(--mf-surface))}
+    #ai-reply-status{font-size:13px;color:var(--mf-muted);margin:0}
     #ai-reply-status:empty{display:none}
-    #ai-reply-form button[type=submit]{background:var(--mf-accent);border-color:var(--mf-accent);color:white}
-    #ai-reply-form button[type=submit]:disabled{background:#f2eee8;border-color:#ded9d2;color:#52625e}
-    #ai-reply-status[data-error]{color:#9c2c25}
+    #ai-reply-form button[type=submit]{background:var(--mf-accent);border-color:var(--mf-accent);color:var(--mf-on-accent)}
+    #ai-reply-form button[type=submit]:disabled{background:var(--mf-hover);border-color:var(--mf-border);color:var(--mf-muted)}
+    #ai-reply-status[data-error]{color:var(--mf-danger)}
     .projects-body {padding:14px}
     #saved-project-form {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 8px;align-items:end}
     #saved-project-form label {grid-column:1/-1;font-size:13px;font-weight:650}
     #saved-project-hint {margin:10px 0 0;font-size:12px;color:var(--mf-stroke)}
-    #saved-project-name {min-width:0;min-height:40px;border-color:#ded9d2}
-    [data-gist-backups] {margin:12px 0;padding:10px;border:1px solid #ded9d2;border-radius:8px}
+    #saved-project-name {min-width:0;min-height:40px;border-color:var(--mf-border)}
+    [data-gist-backups] {margin:12px 0;padding:10px;border:1px solid var(--mf-border);border-radius:8px}
     [data-gist-backups] label {display:grid;gap:4px;margin-top:8px;font-size:13px}
     [data-gist-backups] input,[data-gist-backups] select {width:100%;min-width:0}
     [data-gist-backups] small:not([hidden]) {display:block;margin-top:8px}
     .gist-actions {display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
     [data-gist-backups] .gist-auto {display:flex;align-items:center;gap:8px;margin-top:12px}
-    [data-gist-backups] .gist-auto input {width:auto;margin:0;accent-color:#087f71}
+    [data-gist-backups] .gist-auto input {width:auto;margin:0;accent-color:var(--mf-accent)}
     [data-gist-picker]:not([hidden]) {display:grid;gap:10px;margin-top:14px;padding:12px;
-      border:1px solid #ded9d2;border-radius:8px;background:var(--mf-surface)}
+      border:1px solid var(--mf-border);border-radius:8px;background:var(--mf-surface)}
     [data-gist-picker] label {margin:0;gap:6px;font-weight:650}
-    [data-gist-picker] select {min-height:40px;padding:7px 10px;border:1px solid #ded9d2;
-      border-radius:6px;background:#fff;color:inherit;font:inherit;font-weight:400}
-    [data-gist-picker] select:focus-visible {outline:2px solid #087f71;outline-offset:2px}
-    [data-gist-picker] button {justify-self:start;min-height:36px;background:#e4f4ee;border-color:#a7cfc4}
+    [data-gist-picker] select {min-height:40px;padding:7px 10px;border:1px solid var(--mf-border);
+      border-radius:6px;background:var(--mf-surface);color:inherit;font:inherit;font-weight:400}
+    [data-gist-picker] select:focus-visible {outline:2px solid var(--mf-focus);outline-offset:2px}
+    [data-gist-picker] button {justify-self:start;min-height:36px;background:var(--mf-accent-soft);border-color:color-mix(in srgb, var(--mf-accent) 35%, var(--mf-surface))}
     :is([data-gist-status],[data-gist-sync-status]) {margin:8px 0 0;font-size:12px;color:var(--mf-stroke)}
     :is([data-gist-status],[data-gist-sync-status]):empty {display:none}
-    #show-save-project {min-height:38px;border-color:#ded9d2;margin-bottom:10px}
-    #save-project {min-height:40px;background:#e4f4ee;border-color:#a7cfc4}
+    #show-save-project {min-height:38px;border-color:var(--mf-border);margin-bottom:10px}
+    #save-project {min-height:40px;background:var(--mf-accent-soft);border-color:color-mix(in srgb, var(--mf-accent) 35%, var(--mf-surface))}
     #saved-project-status {margin:10px 0 0;font-size:13px;color:var(--mf-stroke);overflow-wrap:anywhere}
     #saved-project-status:empty {display:none}
     #saved-project-list {margin:14px 0 0;padding:0;list-style:none}
     #saved-project-list li {display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 8px;
-      border-top:1px solid #e7e2dc;overflow-wrap:anywhere;flex-wrap:wrap}
-    #saved-project-list li:has([aria-current=true]) {background:#eaf4ef;border-radius:8px}
+      border-top:1px solid var(--mf-border);overflow-wrap:anywhere;flex-wrap:wrap}
+    #saved-project-list li:has([aria-current=true]) {background:var(--mf-accent-soft);border-radius:8px}
     #saved-project-list li > div {min-width:0}
     #saved-project-list small {display:block;margin-top:2px;color:var(--mf-stroke);font-size:12px}
-    #saved-project-list button {flex:none;min-height:36px;border-color:#ded9d2}
+    #saved-project-list button {flex:none;min-height:36px;border-color:var(--mf-border)}
     .project-row-actions {display:flex;gap:5px}
     .project-gist-actions {display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;flex-basis:100%}
-    .project-gist-actions a {color:#175b50;font-size:13px}
+    .project-gist-actions a {color:var(--mf-accent-ink);font-size:13px}
     .project-gist-actions small {flex-basis:100%}
     .project-row-actions button:not(:first-child) {background:transparent;border-color:transparent;font-size:13px}
     .project-action-form {flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
     .project-action-form label {width:100%;font-size:13px}
     #saved-project-list .project-title {display:block;max-width:100%;min-height:28px;padding:2px 4px;margin-left:-4px;
       border:1px solid transparent;background:transparent;font-weight:700;text-align:left;overflow-wrap:anywhere}
-    #saved-project-list .project-title:hover {background:#f1ede7}
+    #saved-project-list .project-title:hover {background:var(--mf-hover)}
     .project-title-input {width:100%;min-width:0;padding:2px 4px;margin-left:-4px;font-weight:700}
-    .project-current {display:inline-block;margin-left:6px;color:#175b50;font-size:11px;font-weight:650}
+    .project-current {display:inline-block;margin-left:6px;color:var(--mf-accent-ink);font-size:11px;font-weight:650}
     #saved-project-list li:has(.project-title-input:not([hidden])) > div:first-child {flex:1 1 100%}
     .live-guest-counter {position:absolute;bottom:calc(var(--dock-height) + var(--dock-bottom) + 10px);right:12px;z-index:2;pointer-events:none;
-      padding:5px 9px;background:var(--mf-surface);border:1px solid #ded9d2;border-radius:8px;color:var(--mf-stroke);font-size:12px}
+      padding:5px 9px;background:var(--mf-surface);border:1px solid var(--mf-border);border-radius:8px;color:var(--mf-stroke);font-size:12px}
     @media (max-width:849px) {
-      .dock-layout .workspace-panel {bottom:auto;max-height:56%;box-shadow:0 4px 16px #332c221c}
+      .dock-layout .workspace-panel {bottom:auto;max-height:56%;box-shadow:0 4px 16px #0000001c}
+    }
+    .sheet-grabber,.sheet-scrim {display:none}
+    @media (max-width:550px) {
+      .dock-layout .sheet-scrim {position:absolute;inset:0;z-index:4;background:rgb(0 0 0 / .4)}
+      .dock-layout .sheet-scrim:not([hidden]) {display:block}
+      .dock-layout .workspace-panel {inset:auto 0 0 0;width:auto;height:min(67dvh,100%);max-height:100%;z-index:5;
+        border:0;border-radius:16px 16px 0 0;box-shadow:0 -4px 24px #00000026;padding-bottom:env(safe-area-inset-bottom,0px)}
+      .dock-layout .workspace-panel[data-expanded] {height:100%;border-radius:0}
+      .workspace-panel-heading {padding-top:20px}
+      .sheet-grabber {display:block;position:absolute;top:0;left:50%;width:72px;height:22px;margin:0 0 0 -36px;padding:0;
+        border:0;background:none;cursor:grab;touch-action:none}
+      .sheet-grabber::after {content:"";display:block;width:36px;height:4px;margin:8px auto 0;border-radius:2px;background:var(--mf-border)}
+      .sheet-grabber:focus-visible {outline:2px solid var(--mf-focus);outline-offset:-2px;border-radius:6px}
+      .workspace-panel-close {width:44px;height:44px}
+      #show-save-project {width:100%;min-height:44px;background:var(--mf-accent);border-color:var(--mf-accent);color:var(--mf-on-accent);font-weight:650}
+      #saved-project-list li {min-height:60px;box-sizing:border-box}
     }
   </style>
   <div class="workspace-panel-heading">
@@ -322,7 +381,7 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid #087f7
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=audit-fixes-2"></script>
+<script src="./mini-flow.js?v=design-p0"></script>
 <script type="module">
 const example = `flowchart TD
     A([Prompt In])
@@ -487,7 +546,10 @@ function saveLocal(source, positions) {
     try { localStorage.setItem(key, JSON.stringify(includeThreads({ source, positions, savedProject: activeSavedProject }))); } catch {}
   }
 }
+let toast, clearingBoard = false;
 function save(source, positions) {
+  updateBlankState(source);
+  if (toast && !clearingBoard && source !== 'flowchart TD') dismissToast();
   const raw = JSON.stringify({ source, positions });
   saveLocal(source, positions);
   const hash = prefix + encodeURIComponent(raw);
@@ -537,9 +599,7 @@ const editor = MiniFlow.mount(editorHost, saved?.source ?? example,
       selectedNoteId = item?.type === 'note' ? item.id : undefined;
       refreshAskAI?.();
     },
-    features: { history: !joiningLive }, header: document.querySelector('header'), layout: 'dock', dagre: window.dagre, settingsKey: 'mini-flow-preferences',
-    colors: { canvas: '#faf8f5', grid: '#ded9d2', text: '#242b29', surface: '#fffdfb',
-      stroke: '#464d49', accent: '#087f71', terminal: '#d4f2e5', step: '#e0edf8', decision: '#fff0cd' } });
+    features: { history: !joiningLive }, header: document.querySelector('header'), layout: 'dock', dagre: window.dagre, settingsKey: 'mini-flow-preferences' });
 window.miniFlowEditor = { ...editor, setProject: openSavedProject };
 const repositoryLink = document.createElement('a');
 repositoryLink.className = 'repo-link';
@@ -733,16 +793,96 @@ window.addEventListener('hashchange', () => {
   else if (proposalDialog.open) proposalDialog.close();
 });
 reviewProposal(initialProposal);
-document.querySelector('#blank').onclick = () => {
+const blankButton = document.querySelector('#blank');
+function boardCounts(source = editor.getProject().source) {
+  const nodes = MiniFlow.parse(source).nodes;
+  const notes = nodes.filter(node => node.type === 'note');
+  return { blocks: nodes.length - notes.length, notes: notes.length,
+    threads: notes.filter(note => noteThreads.get(note.id)?.length).length };
+}
+function updateBlankState(source) {
+  const blankButton = document.querySelector('#blank');
+  let empty = false;
+  try { empty = !MiniFlow.parse(source ?? editor.getProject().source).nodes.length; } catch {}
+  const reason = joiningLive ? 'Only the host can clear the board' : empty ? 'Board is already empty' : '';
+  if (reason) blankButton.setAttribute('aria-disabled', 'true');
+  else blankButton.removeAttribute('aria-disabled');
+  blankButton.title = reason;
+}
+const toastRegion = document.querySelector('#toast-region');
+const toastDuration = 8000;
+function dismissToast() {
+  if (!toast) return;
+  clearTimeout(toast.timer);
+  toast.element.remove();
+  toast = undefined;
+}
+function showToast(message, { onUndo } = {}) {
+  dismissToast();
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const element = document.createElement('div');
+  element.className = 'toast';
+  const text = document.createElement('p');
+  text.textContent = message + (onUndo && reduced ? ' Undo available for 8 seconds.' : '');
+  element.append(text);
+  if (onUndo) {
+    const undo = document.createElement('button');
+    undo.type = 'button';
+    undo.className = 'toast-undo';
+    undo.textContent = 'Undo';
+    undo.onclick = () => {
+      dismissToast();
+      onUndo();
+    };
+    element.append(undo);
+  }
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.setAttribute('aria-label', 'Dismiss');
+  close.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg>';
+  close.onclick = dismissToast;
+  const bar = document.createElement('span');
+  bar.className = 'toast-bar';
+  bar.style.setProperty('--toast-duration', toastDuration + 'ms');
+  element.append(close, bar);
+  const current = toast = { element, remaining: toastDuration, started: Date.now(), paused: 0 };
+  const run = () => { current.started = Date.now(); current.timer = setTimeout(dismissToast, current.remaining); };
+  const pause = () => {
+    if (current.paused++) return;
+    clearTimeout(current.timer);
+    current.remaining -= Date.now() - current.started;
+  };
+  const resume = () => { if (--current.paused === 0 && toast === current) run(); };
+  element.addEventListener('mouseenter', pause);
+  element.addEventListener('mouseleave', resume);
+  element.addEventListener('focusin', pause);
+  element.addEventListener('focusout', resume);
+  toastRegion.append(element);
+  run();
+}
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && toast && !document.querySelector('dialog[open]')) dismissToast();
+});
+function listCounts({ blocks, notes, threads }) {
+  const parts = [[blocks, 'block'], [notes, 'note'], [threads, 'comment thread']]
+    .filter(([count]) => count).map(([count, noun]) => count + ' ' + noun + (count === 1 ? '' : 's'));
+  return parts.length > 1 ? parts.slice(0, -1).join(', ') + ' and ' + parts.at(-1) : parts[0];
+}
+blankButton.onclick = () => {
+  if (blankButton.getAttribute('aria-disabled') === 'true') return;
+  const counts = boardCounts();
   closeAIReply();
   replyDrafts.clear();
   // Keep threads in memory so Undo restores the notes with their comments.
   // Saves and live publishes already include only threads for notes on the board.
   setActiveSavedProject(null);
-  editor.setMermaid('flowchart TD');
+  clearingBoard = true;
+  try { editor.setMermaid('flowchart TD', { highlight: false }); } finally { clearingBoard = false; }
   save('flowchart TD', {});
   updateNoteRequestBadges();
+  showToast('Board cleared. ' + listCounts(counts) + ' removed.', { onUndo: () => editor.undo() });
 };
+updateBlankState();
 let copyTimer;
 document.querySelector('#share').onclick = async () => {
   const { source, positions } = editor.getProject();
@@ -774,6 +914,139 @@ projectsButton.type = 'button';
 projectsButton.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span>Projects</span>';
 projectsButton.inert = joiningLive;
 panelButton.before(projectsButton);
+
+// Phone header: one row with Undo, Redo and a More menu that mirrors the hidden header controls.
+const moreButton = document.createElement('button');
+moreButton.id = 'more-button';
+moreButton.type = 'button';
+moreButton.title = 'More actions';
+moreButton.setAttribute('aria-label', 'More actions');
+moreButton.setAttribute('aria-haspopup', 'menu');
+moreButton.setAttribute('aria-expanded', 'false');
+moreButton.setAttribute('aria-controls', 'more-menu');
+moreButton.innerHTML = '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg><span class="more-dot" hidden></span>';
+const moreDot = moreButton.querySelector('.more-dot');
+const moreMenu = document.createElement('div');
+moreMenu.id = 'more-menu';
+moreMenu.setAttribute('role', 'menu');
+moreMenu.setAttribute('aria-label', 'More actions');
+moreMenu.hidden = true;
+headerActions.append(moreButton);
+headerActions.closest('header').append(moreMenu);
+let liveHere = 0;
+const fitAction = viewActions.querySelector('[data-fit]');
+const snapInput = snapControl.querySelector('input');
+const isUnavailable = control => !control || control.hidden || control.closest('[hidden]') && control !== snapInput && control !== fitAction && control !== layoutAction;
+const isBlocked = control => control.disabled || control.inert || control.getAttribute('aria-disabled') === 'true';
+function menuItem(label, source, options = {}) {
+  const item = document.createElement('button');
+  item.type = 'button';
+  item.className = 'menu-item';
+  item.tabIndex = -1;
+  item.setAttribute('role', options.checkbox ? 'menuitemcheckbox' : 'menuitem');
+  const icon = (options.icon ?? source).querySelector?.('svg')?.cloneNode(true);
+  if (icon) {
+    icon.removeAttribute('style');
+    item.append(icon);
+  }
+  const text = document.createElement('span');
+  text.textContent = label;
+  item.append(text);
+  if (options.checkbox) {
+    item.setAttribute('aria-checked', String(source.checked));
+    const knob = document.createElement('span');
+    knob.className = 'menu-switch';
+    knob.setAttribute('aria-hidden', 'true');
+    item.append(knob);
+  }
+  if (options.trail) {
+    const trail = document.createElement('span');
+    trail.className = 'menu-trail';
+    trail.textContent = options.trail;
+    item.append(trail);
+  }
+  if (isBlocked(source)) {
+    item.disabled = true;
+    if (source.title) item.title = source.title;
+  }
+  item.onclick = () => {
+    if (options.checkbox) {
+      source.click();
+      item.setAttribute('aria-checked', String(source.checked));
+      return;
+    }
+    closeMore(false);
+    source.click();
+  };
+  return item;
+}
+function buildMoreMenu() {
+  const blank = document.querySelector('#blank');
+  const groups = [
+    { label: 'Arrange', items: [
+      !snapControl.hidden && !snapInput.hidden && menuItem('Snap to grid', snapInput, { checkbox: true, icon: snapControl }),
+      !layoutAction.hidden && menuItem('Auto layout', layoutAction),
+      !fitAction.hidden && menuItem('Fit to screen', fitAction)
+    ] },
+    { items: [
+      !isUnavailable(document.querySelector('#share')) && menuItem('Copy link', document.querySelector('#share')),
+      menuItem('Live session', liveToggle, { trail: liveToggle.hasAttribute('data-active') && liveHere ? liveHere + ' here' : '' }),
+      menuItem('Projects', projectsButton),
+      !isUnavailable(panelButton) && menuItem('Code & export', panelButton)
+    ] },
+    { items: [!isUnavailable(blank) && menuItem('Start blank', blank)] }
+  ].map(group => ({ ...group, items: group.items.filter(Boolean) })).filter(group => group.items.length);
+  moreMenu.replaceChildren();
+  groups.forEach((group, index) => {
+    if (index) {
+      const divider = document.createElement('div');
+      divider.className = 'menu-divider';
+      divider.setAttribute('role', 'separator');
+      moreMenu.append(divider);
+    }
+    if (group.label) {
+      const label = document.createElement('div');
+      label.className = 'menu-label';
+      label.setAttribute('role', 'presentation');
+      label.textContent = group.label;
+      moreMenu.append(label);
+    }
+    moreMenu.append(...group.items);
+  });
+}
+const menuItems = () => [...moreMenu.querySelectorAll('.menu-item:not(:disabled)')];
+function openMore() {
+  buildMoreMenu();
+  moreMenu.hidden = false;
+  moreButton.setAttribute('aria-expanded', 'true');
+  menuItems()[0]?.focus();
+}
+function closeMore(restoreFocus = true) {
+  if (moreMenu.hidden) return;
+  moreMenu.hidden = true;
+  moreButton.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) moreButton.focus();
+}
+moreButton.onclick = () => moreMenu.hidden ? openMore() : closeMore();
+moreMenu.addEventListener('keydown', event => {
+  const items = menuItems();
+  const index = items.indexOf(document.activeElement);
+  const move = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: items.length - 1 }[event.key];
+  if (move !== undefined && items.length) {
+    event.preventDefault();
+    items[(move + items.length) % items.length].focus();
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    closeMore();
+  } else if (event.key === 'Tab') {
+    closeMore(false);
+  }
+});
+document.addEventListener('pointerdown', event => {
+  if (!moreMenu.hidden && !event.composedPath().some(node => node === moreMenu || node === moreButton)) closeMore(false);
+});
+new MutationObserver(() => { moreDot.hidden = !liveToggle.hasAttribute('data-active'); })
+  .observe(liveToggle, { attributes: true, attributeFilter: ['data-active'] });
 
 const editorRoot = editorHost.firstElementChild.shadowRoot;
 const panelTemplate = document.querySelector('#workspace-panel-template').content.cloneNode(true);
@@ -1174,6 +1447,7 @@ refreshAskAI = () => {
 refreshAskAI();
 updateNoteRequestBadges();
 function showGuestCounts(counts) {
+  liveHere = counts ? counts.human + counts.ai + 1 : 0;
   refreshAskAI();
   guestCounter.hidden = !counts;
   if (!counts) return;
@@ -1252,6 +1526,68 @@ for (const { button, panel, title } of panels) {
   button.onclick = () => showPanel(panel.hidden ? panel : null);
 }
 showPanel(null);
+
+// Phone: panels open as bottom sheets with a scrim and a grabber to resize or dismiss.
+const sheetScrim = document.createElement('div');
+sheetScrim.className = 'sheet-scrim';
+sheetScrim.hidden = true;
+projectsPanel.after(sheetScrim);
+const syncSheetScrim = () => { sheetScrim.hidden = [projectsPanel, codePanel, replyPanel].every(panel => panel.hidden); };
+sheetScrim.addEventListener('click', () => {
+  if (!replyPanel.hidden) closeAIReply();
+  else showPanel(null);
+});
+function addSheetGrabber(panel, close) {
+  const heading = panel.querySelector('.workspace-panel-heading');
+  const grabber = document.createElement('button');
+  grabber.type = 'button';
+  grabber.className = 'sheet-grabber';
+  grabber.setAttribute('aria-label', 'Expand or collapse panel');
+  heading.prepend(grabber);
+  let start, startHeight, moved = false;
+  grabber.addEventListener('pointerdown', event => {
+    start = event.clientY;
+    startHeight = panel.getBoundingClientRect().height;
+    moved = false;
+    grabber.setPointerCapture(event.pointerId);
+  });
+  grabber.addEventListener('pointermove', event => {
+    if (start === undefined) return;
+    const distance = event.clientY - start;
+    if (Math.abs(distance) > 6) moved = true;
+    if (moved) panel.style.height = Math.max(120, startHeight - distance) + 'px';
+  });
+  const finish = event => {
+    if (start === undefined) return;
+    const distance = event.clientY - start;
+    start = undefined;
+    panel.style.height = '';
+    if (!moved) return;
+    if (distance > startHeight * .25) close();
+    else if (distance < -40) panel.setAttribute('data-expanded', '');
+    else if (distance > 40) panel.removeAttribute('data-expanded');
+  };
+  grabber.addEventListener('pointerup', finish);
+  grabber.addEventListener('pointercancel', finish);
+  grabber.addEventListener('click', () => {
+    if (moved) {
+      moved = false;
+      return;
+    }
+    panel.toggleAttribute('data-expanded');
+  });
+  new MutationObserver(() => {
+    if (panel.hidden) panel.removeAttribute('data-expanded');
+    syncSheetScrim();
+  })
+    .observe(panel, { attributes: true, attributeFilter: ['hidden'] });
+}
+for (const { button, panel } of panels) addSheetGrabber(panel, () => {
+  showPanel(null);
+  button.focus();
+});
+addSheetGrabber(replyPanel, () => closeAIReply(true));
+syncSheetScrim();
 
 const liveDialog = document.querySelector('#live-session');
 const liveStatus = document.querySelector('#live-status');
@@ -1383,6 +1719,7 @@ function ended() {
     } catch {}
   }
   joiningLive = false;
+  updateBlankState();
   liveBoard = undefined;
   refreshAskAI();
   liveNetwork = undefined;
@@ -1438,7 +1775,13 @@ async function startLive(invite, host, recovery) {
   relayInput.readOnly = true;
   try {
     liveBoard = await connectLiveBoard(invite, host, {
-      getProject: editor.getProject, setProject: editor.setProject, normalize: normalizeProject,
+      getProject: editor.getProject, normalize: normalizeProject,
+      setProject(project, options) {
+        const hadBlocks = joiningLive && MiniFlow.parse(editor.getProject().source).nodes.length > 0;
+        const result = editor.setProject(project, options);
+        if (hadBlocks && !MiniFlow.parse(editor.getProject().source).nodes.length) showToast('The host cleared the board.');
+        return result;
+      },
       canAccept: () => !editor.isInteracting(), onAIProposal: host ? reviewLiveProposal : undefined, onStatus: showStatus, onEnd: ended,
       onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts,
       onNetworkStatus: showNetworkStatus, debug: debugEnabled,
