@@ -1,4 +1,4 @@
-import { createHostKey, deriveRoomKey, hostSigner, secureRoom, verifyHostProfile } from './mini-flow-secure-room.js?v=audit-fixes';
+import { createHostKey, deriveRoomKey, hostSigner, secureRoom, verifyHostProfile } from './mini-flow-secure-room.js?v=agent-run-2';
 
 const kinds = ['read', 'state', 'edit', 'end', 'presence', 'ask'];
 const maxGuests = 8;
@@ -92,6 +92,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   onCheckpoint = () => {}, onAIRequest, onAgentMessage, onAgentLeave = () => {} }) {
   // AI agents connect with the mini-flow-agent helper. They talk only to the host and never see guests' traffic.
   const agentPeers = new Set();
+  let agentSummary = [];
+  let departedHost; // [{ name, listening }] set by the host page, shown to everyone
   let hostPeer;
   const guests = new Map();
   let closed = false;
@@ -383,7 +385,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   }
 
   function guestCounts() {
-    return { human: guests.size };
+    return { human: guests.size, agents: agentSummary };
   }
 
   function presenceSnapshot() {
@@ -446,6 +448,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       return;
     }
     if (from !== hostPeer) return;
+    departedHost = from;
     hostPeer = undefined;
     finish(failure('live_disconnected', 'The other tab disconnected.'));
     state = undefined;
@@ -538,7 +541,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       Number.isSafeInteger(data.revision) && data.revision > presenceRevision) {
       presenceRevision = data.revision;
       if (Number.isInteger(data.counts?.human) && data.counts.human >= 0 && data.counts.human <= maxGuests) {
-        onGuestCounts({ human: data.counts.human });
+        onGuestCounts({ human: data.counts.human, agents: readAgentSummary(data.counts.agents) });
       }
       onPresence(data.peers.slice(0, maxGuests + 1).filter(item => typeof item?.id === 'string' &&
         item.id !== room.selfId && typeof item.label === 'string').map(item => ({
@@ -580,8 +583,9 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       receiveThread(data);
     }
   });
+  // The host sends end just before leaving, so it can arrive after the leave.
   room.onMessage('end', (_, from) => {
-    if (!host && from === hostPeer && !closed) stop(false);
+    if (!host && (from === hostPeer || from === departedHost) && !closed) stop(false);
   });
 
   function stop(notify = true, ended = true) {
@@ -629,6 +633,12 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     },
     submit,
     askAI: (noteId, prompt) => submitNoteMessage('request', noteId, prompt),
+    setAgents(next) {
+      if (!host || closed) return;
+      agentSummary = readAgentSummary(next);
+      onGuestCounts(guestCounts());
+      publishPresence();
+    },
     setAIRequests(next) {
       if (!host || closed) return;
       aiRequests = Object.fromEntries(Object.entries(next).slice(0, 64));
@@ -661,6 +671,11 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
 }
 
 const presenceTools = new Set(['terminal', 'step', 'decision', 'note', 'connect', 'laser', 'bend']);
+function readAgentSummary(agents) {
+  return Array.isArray(agents) ? agents.slice(0, 32).filter(agent => typeof agent?.name === 'string' && agent.name.length <= 40)
+    .map(agent => ({ name: agent.name, listening: agent.listening === true })) : [];
+}
+
 function readPresence(data) {
   const point = Array.isArray(data?.point) && data.point.length === 2 && data.point.every(Number.isFinite) ? data.point : null;
   const focus = typeof data?.focus === 'string' && data.focus.length <= 128 ? data.focus : null;
@@ -714,7 +729,9 @@ export async function connectLiveBoard(invite, host, handlers) {
 
 // Connects an AI agent (for example the Node helper mini-flow-agent.mjs) to the host of a live session.
 // The agent only reaches the host, which must be the one the invite names.
-export async function connectAsAgent(invite, { WebSocketImpl = globalThis.WebSocket, origin, timeoutMs = 20000, onHostLeave = () => {} } = {}) {
+// transports overrides the default (the WebSocket relay only), for example to connect browser tabs in tests.
+export async function connectAsAgent(invite, { WebSocketImpl = globalThis.WebSocket, origin, timeoutMs = 20000, onHostLeave = () => {},
+  transports = { relays: false, pair: false, tabs: false } } = {}) {
   const { joinRoom } = await import('./vendor/p2p-core/p2p-core.js');
   const key = await deriveRoomKey(invite);
   const hostKeys = new Map();
@@ -725,8 +742,7 @@ export async function connectAsAgent(invite, { WebSocketImpl = globalThis.WebSoc
   // A fresh peer ID per connection: a reconnect must not be mistaken for the previous connection leaving.
   const raw = joinRoom({ app: 'mini-flow-live', room: invite.room, password: invite.password, mode: 'online', protocol: liveProtocol,
     selfId: 'agent-' + id(), maxPeers: 1, server: { url: invite.relay ?? defaultRelayUrl, roomInUrl: true, WebSocketImpl: Socket },
-    transports: { relays: false, pair: false, tabs: false },
-    maxMessageBytes, rateLimit: 60, kinds, profile: { role: 'agent' },
+    transports, maxMessageBytes, rateLimit: 60, kinds, profile: { role: 'agent' },
     acceptPeer: async peer => {
       if (peer.profile?.role !== 'host') return false;
       if (!invite.host) return true;

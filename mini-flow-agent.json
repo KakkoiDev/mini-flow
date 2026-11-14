@@ -1,9 +1,9 @@
 {
   "helper": "mini-flow-agent.mjs",
   "files": {
-    "mini-flow-agents.js": "5556d3e0c6a57d217e70139fdcd6df380e6fe14daaa2e1ef7243eda1f7316c35",
-    "mini-flow-live.js": "a4ba117bce82c726d96789701a809edb21bf09eb553258c6aa8c0aa4fef2afda",
-    "mini-flow-secure-room.js": "c8221b554313e5dd1fcb80da902e1f8349a1c67f3a1e4bbe4e2514c929dd4260",
+    "mini-flow-agents.js": "8a8590cc8c020e5fac2c3d6d5602849631212e9904705e400839dff7ba4d8a7b",
+    "mini-flow-live.js": "984ed061ac5f475a656e0a51aacf49cf795dd754a80418e5f5f889d1ae127a6f",
+    "mini-flow-secure-room.js": "5b21cd0ed54d74c57cba81fa1913e91297d7d2af6381bf04d8cfe46084e034df",
     "vendor/p2p-core/p2p-core.js": "cce10dfe634ea7c062d0c3ea542df857623792ab607b0ba7ea5a597fa85ae61c",
     "vendor/p2p-core/src/debug.js": "62691c7e2a02d0f81f15ff7074748c26dfdfbd75eb41890107ffce0781a33ccb",
     "vendor/p2p-core/src/relays.js": "73d1b7eb98fcdc52e1a9326588c198125a68c4a9e4da7f961bad30c606f8b536",

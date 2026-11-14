@@ -64,6 +64,13 @@ export function formatAgentRequest(request) {
   ].join('\n');
 }
 
+// Removes terminal escape codes and a model's visible thinking from a command's output.
+export function cleanWorkerOutput(text) {
+  return text.replace(/\u001b\[[0-9;?]*[ -\/]*[@-~]/g, '').replace(/\r/g, '')
+    .replace(/^\s*Thinking\.\.\.[\s\S]*?\.\.\.done thinking\.\s*/, '')
+    .replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
+}
+
 // Splits an agent answer into its text and an optional edit proposal.
 export function parseAgentReply(text) {
   const fence = new RegExp('```' + editFence + '[ \\t]*\\r?\\n([\\s\\S]*?)\\r?\\n?```');
@@ -80,6 +87,12 @@ export function parseAgentReply(text) {
   } catch (error) {
     return { text: answer, edit: null, error: error instanceof SyntaxError ? 'The edit block is not valid JSON.' : error.message };
   }
+}
+
+// Ask AI goes to the agent the owner picked, otherwise the first agent that is listening.
+export function pickAgent(agents, preferred) {
+  if (agents.some(agent => agent.name === preferred)) return preferred;
+  return (agents.find(agent => agent.listening) ?? agents[0])?.name;
 }
 
 // Host-side state for agents and their requests. send(peer, data) is unused: replies travel as results of agent calls.

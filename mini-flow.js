@@ -509,7 +509,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       const request = node && aiRequests[node.id];
       const active = node && ['waiting', 'working'].includes(aiRequests[node.id]?.phase);
       const ask = noteAction.querySelector('[data-ask-ai]');
-      if (ask) ask.disabled = Boolean(active);
+      // The host page marks Ask AI unavailable (for example with no agent connected); keep that.
+      if (ask) ask.disabled = Boolean(active) || ask.hasAttribute('data-unavailable');
       const badge = noteActionBelow && node && (request?.hasThread || request?.phase === 'result')
         ? svg.querySelector(`[data-note-reply="${CSS.escape(node.id)}"]`) : null;
       const emptyAction = noteAction.querySelector('[data-note-empty]');
@@ -619,9 +620,11 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .map(([noteId, request]) => [request.label, noteId]));
       const notes = new Map(graph.nodes.filter(node => node.type === 'note').map(node => [node.id, node.label]));
       const queued = Object.entries(aiRequests)
-        .filter(([id, request]) => ['waiting', 'interrupted'].includes(request.phase) && notes.has(id))
-        .map(([id, request]) => [request.phase === 'interrupted'
-          ? request.label + ' · ' + notes.get(id) : 'Queued · ' + notes.get(id), id, request.phase]);
+        .filter(([id, request]) => ['waiting', 'working', 'interrupted'].includes(request.phase) && notes.has(id) &&
+          !(request.phase === 'working' && peerPresence.some(peer => peer.activity && peer.label === request.label)))
+        .map(([id, request]) => [request.phase === 'interrupted' ? request.label + ' · ' + notes.get(id)
+          : request.phase === 'working' ? request.label + ' is working · ' + notes.get(id)
+            : 'Queued · ' + notes.get(id), id, request.phase]);
       const activities = peerPresence.filter(peer => peer.activity)
         .map(peer => [peer.label + ' · ' + peer.activity, noteByAgent.get(peer.label)]);
       const rows = [...queued, ...activities];

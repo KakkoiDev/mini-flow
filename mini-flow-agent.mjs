@@ -14,9 +14,14 @@
 //   failed ID [TEXT]      give up on a request with a reason
 //   done ID               close a request without an answer
 //   board                 print the current board
+//   run [--worker-timeout S] -- COMMAND [ARGS]
+//                         keep listening and answer each request with COMMAND: it gets the request
+//                         on stdin and its output is sent as the answer. Use it for agents that cannot
+//                         wait between turns, for example: run -- ollama run qwen3 --hidethinking
 // Exit codes: 0 done (or a request arrived), 1 error, 3 the board owner stopped you.
 // Needs Node.js 22 or newer.
 
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -32,17 +37,22 @@ class Fatal extends Error {}
 
 function usage(message) {
   if (message) console.error('ERROR: ' + message);
-  console.error('Usage: node mini-flow-agent.mjs "INVITE LINK" NAME check|join|listen|reply|progress|failed|done|board');
+  console.error('Usage: node mini-flow-agent.mjs "INVITE LINK" NAME check|join|listen|reply|progress|failed|done|board|run -- COMMAND');
   process.exit(1);
 }
 
 function parseArgs(argv) {
   const [link, name, command, ...rest] = argv;
   if (!link || !name || !command) usage();
-  const options = { positional: [] };
+  const options = { positional: [], worker: [] };
   for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === '--') {
+      options.worker = rest.slice(i + 1);
+      break;
+    }
     if (rest[i] === '--file') options.file = rest[++i];
     else if (rest[i] === '--timeout') options.timeout = Number(rest[++i]);
+    else if (rest[i] === '--worker-timeout') options.workerTimeout = Number(rest[++i]);
     else options.positional.push(rest[i]);
   }
   return { link, name: name.trim(), command, options };
@@ -116,6 +126,39 @@ async function readStdin() {
   const chunks = [];
   for await (const chunk of process.stdin) chunks.push(chunk);
   return Buffer.concat(chunks).toString('utf8');
+}
+
+// Runs the worker command for one request: the request text on stdin, the answer on stdout.
+function runWorker(command, input, requestId, timeoutMs, cleanOutput) {
+  return new Promise(resolve => {
+    let stdout = '', stderr = '', settled = false;
+    const finish = result => { if (!settled) { settled = true; clearTimeout(timer); resolve(result); } };
+    let child;
+    try {
+      child = spawn(command[0], command.slice(1), { stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, MINI_FLOW_REQUEST_ID: requestId } });
+    } catch (error) {
+      finish({ action: 'failed', text: `Could not start ${command[0]}: ${error.message}` });
+      return;
+    }
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM');
+      finish({ action: 'failed', text: `${command[0]} did not answer within ${Math.round(timeoutMs / 1000)} seconds.` });
+    }, timeoutMs);
+    child.stdout.on('data', chunk => { if (stdout.length < 200000) stdout += chunk; });
+    child.stderr.on('data', chunk => { if (stderr.length < 20000) stderr += chunk; });
+    child.on('error', error => finish({ action: 'failed', text: `Could not start ${command[0]}: ${error.message}` }));
+    child.on('close', code => {
+      const answer = cleanOutput(stdout);
+      if (code !== 0) {
+        const detail = cleanOutput(stderr).split('\n').filter(Boolean).at(-1) ?? '';
+        finish({ action: 'failed', text: `${command[0]} exited with status ${code}. ${detail}`.trim() });
+      } else if (!answer) finish({ action: 'failed', text: `${command[0]} returned an empty answer.` });
+      else finish({ action: 'reply', text: answer.slice(0, 12000) });
+    });
+    child.stdin.on('error', () => {});
+    child.stdin.end(input);
+  });
 }
 
 async function main() {
@@ -209,6 +252,39 @@ async function main() {
           await new Promise(resolve => setTimeout(resolve, delay));
           delay = Math.min(delay * 2, 30000);
           await connect().catch(reason => console.error(reason.message));
+        }
+      }
+    }
+    if (command === 'run') {
+      if (!options.worker.length) throw new Fatal('Supply the command after run --, for example: run -- ollama run qwen3 --hidethinking');
+      const timeoutMs = (options.workerTimeout > 0 ? options.workerTimeout : 600) * 1000;
+      if (!state.token) await join();
+      console.log(`Listening as ${name}. Each request goes to: ${options.worker.join(' ')}`);
+      let delay = 2000;
+      while (true) {
+        let result;
+        try {
+          result = await authed('wait', { timeoutMs: 45000 }, 60000);
+          delay = 2000;
+        } catch (error) {
+          if (error instanceof Stopped || error instanceof Fatal) throw error;
+          console.error(`Connection problem (${error.message}). Retrying in ${delay / 1000}s.`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          delay = Math.min(delay * 2, 30000);
+          await connect().catch(reason => console.error(reason.message));
+          continue;
+        }
+        for (const request of result.requests) {
+          console.log(`Request ${request.id} from ${request.requester}: running ${options.worker[0]}…`);
+          const outcome = await runWorker(options.worker, agents.formatAgentRequest(request), request.id, timeoutMs, agents.cleanWorkerOutput);
+          const operationId = sha256([outcome.action, request.id, outcome.text].join('\n')).slice(0, 32);
+          try {
+            await authed('action', { requestId: request.id, action: outcome.action, text: outcome.text, operationId });
+            console.log(outcome.action === 'reply' ? 'Answered.' : 'Reported a failure: ' + outcome.text);
+          } catch (error) {
+            if (error instanceof Stopped) throw error;
+            console.error(`Could not send the answer (${error.message}).`);
+          }
         }
       }
     }

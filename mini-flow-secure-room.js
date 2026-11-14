@@ -110,6 +110,8 @@ export function secureRoom(room, key, { signKey, verifyKey } = {}) {
           peer = { last: 0, seen: new Set(), pending: Promise.resolve() };
           incoming.set(from, peer);
         }
+        // Judge the sender when the message arrives: a message sent just before leaving still counts.
+        const present = Boolean(room.peer(from));
         peer.pending = peer.pending.then(async () => {
           if (counter <= peer.last - replayWindow || peer.seen.has(counter)) return;
           const expected = verifyKey?.(from);
@@ -118,7 +120,7 @@ export function secureRoom(room, key, { signKey, verifyKey } = {}) {
             base64ToBytes(signed), signedBytes(kind, from, packet)))) return;
           const plaintext = await crypto.subtle.decrypt(
             parameters(base64ToBytes(nonce), kind, from, recipients, counter), key, base64ToBytes(ciphertext));
-          if (!room.peer(from)) return;
+          if (!present) return;
           peer.last = Math.max(peer.last, counter);
           peer.seen.add(counter);
           for (const previous of peer.seen) if (previous <= peer.last - replayWindow) peer.seen.delete(previous);
