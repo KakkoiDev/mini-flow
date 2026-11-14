@@ -1,9 +1,8 @@
 import { createHostKey, deriveRoomKey, hostSigner, secureRoom, verifyHostProfile } from './mini-flow-secure-room.js?v=audit-fixes';
 
-const kinds = ['read', 'state', 'edit', 'end', 'presence', 'agent', 'ask'];
+const kinds = ['read', 'state', 'edit', 'end', 'presence', 'ask'];
 const maxGuests = 8;
 const threadPageSize = 12;
-const agentContextMessages = 12;
 export const maxThreadMessages = 200;
 const commentRateWindowMs = 60_000;
 const commentRateLimit = 20;
@@ -11,9 +10,6 @@ export const maxReplyLength = 1000;
 export const maxAnswerLength = 2000;
 const defaultRelayUrl = 'wss://p2p-core-cloudflare.kakkoidev.workers.dev';
 const invitePattern = /^#live=([a-f0-9]{32})\.([a-f0-9]{32})(?:&relay=([^&]+))?(?:&host=([A-Za-z0-9_-]{43}))?$/;
-const aiIdleLimits = [5, 15, 30];
-const aiTimedOut = 'ai_request_timed_out';
-const aiCancelled = 'ai_request_cancelled';
 const id = () => crypto.randomUUID().replaceAll('-', '');
 
 export function normalizeLiveRelay(value) {
@@ -89,8 +85,8 @@ export function changeThreadReply(messages, { replyId, previousText, text }, hos
 
 export function createLiveSession({ room, host, getProject, setProject, normalize, canAccept, onStatus, onEnd,
   onAvailability = () => {}, onPresence = () => {}, onGuestCounts = () => {}, readNote = () => null,
-  noteIds = () => [], onNoteColors = () => {}, onAIRequests = () => {}, onAIThread = () => {}, initialThreads = [], initialQueue = [],
-  initialRequireAIApproval = true, initialAIIdleMinutes = 5, onAIApprovalChange = () => {}, onCheckpoint = () => {}, onAIProposal }) {
+  noteIds = () => [], onNoteColors = () => {}, onAIRequests = () => {}, onAIThread = () => {}, initialThreads = [],
+  onCheckpoint = () => {}, onAIRequest }) {
   let hostPeer;
   const guests = new Map();
   let closed = false;
@@ -104,40 +100,19 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   let flushTimer;
   let presenceTimer;
   let presenceRevision = 0;
-  let requireAIApproval = host ? initialRequireAIApproval !== false : null;
   let presence = { point: null, focus: null };
-  let agentRegistration;
-  let agentRegistered = false;
-  let reportedActivity = false;
-  let activeRequestId;
-  let requestEndReason;
-  let aiIdleMinutes = aiIdleLimits.includes(initialAIIdleMinutes) ? initialAIIdleMinutes : 5;
-  const requests = [];
+  // The host page sends AI requests to agent-room and sets their status here for guests to see.
+  let aiRequests = {};
   const ownerSecret = host ? undefined : id();
   let selfOwner = host ? room.selfId : undefined;
   if (!host) ownerTag(ownerSecret).then(tag => { selfOwner = tag; }).catch(() => {});
-  const requestWaiters = new Set();
   const pendingAsks = new Map();
-  const offers = new Map();
-  let offerRetryTimer;
-  const reviews = new Map();
   const epoch = host ? id() : undefined;
   let hostEpoch;
-  for (const item of host ? initialQueue : []) {
-    const note = readNote(getProject(), item.noteId);
-    if (!note || typeof item.text !== 'string') continue;
-    offers.set(id(), { noteId: item.noteId, note: { ...note, text: item.text }, requester: item.requester,
-      interrupted: item.interrupted, failure: typeof item.failure === 'string' ? item.failure.slice(0, 200) : undefined,
-      lastEdit: item.lastEdit, agents: new Set() });
-  }
   function checkpoint() {
     if (!host || closed) return;
-    onCheckpoint({ project: getProject(), threads: [...threads], requireAIApproval, aiIdleMinutes, queue: [...offers.values()].map(offer => ({
-      noteId: offer.noteId, text: offer.note.text, requester: offer.requester,
-      interrupted: Boolean(offer.interrupted || offer.winner), failure: offer.failure, lastEdit: offer.lastEdit
-    })) });
+    onCheckpoint({ project: getProject(), threads: [...threads] });
   }
-  const results = new Map();
   const threads = new Map(host ? initialThreads : []);
   const deletedThreads = new Map();
   if (host) for (const [noteId, messages] of threads) {
@@ -155,8 +130,6 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     }
   }
   reserveGuestNumbers(threads);
-  const pendingClaims = new Map();
-  let requestSequence = 0;
 
   async function publishThread(noteId, to) {
     const messages = threads.get(noteId);
@@ -232,200 +205,31 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     const messages = threads.get(noteId) ?? [];
     const result = changeThreadReply(messages, change, from === room.selfId, owner);
     if (!result.ok) return result;
-    const latest = messages.findLast(message => message.role === 'assistant');
-    const preview = results.get(noteId);
-    if (latest?.replyId === change.replyId && preview?.author === latest.author && preview.label === latest.text.slice(0, 200)) {
-      const edited = result.messages.find(message => message.replyId === change.replyId);
-      if (edited) results.set(noteId, { ...preview, label: edited.text.slice(0, 200) });
-      else results.delete(noteId);
-      publishPresence();
-    }
     updateThread(noteId, result.messages);
     return { ok: true };
   }
 
-  function finishOffer(requestId, label, author, cancelled = false) {
-    const offer = offers.get(requestId);
-    if (!offer) return;
-    clearTimeout(offer.timer);
-    reviews.get(offer.winner)?.abort();
-    offers.delete(requestId);
-    const winner = guests.get(offer.winner);
-    if (winner) {
-      winner.presence = { ...winner.presence, activity: undefined };
-      winner.lastFinishedRequest = { id: requestId, cancelled };
-    }
-    if (offer.agents.size && !closed) {
-      send('ask', { type: 'withdraw', requestId, cancelled }, [...offer.agents]).catch(() => {});
-    }
-    if (label) {
-      results.delete(offer.noteId);
-      results.set(offer.noteId, { phase: 'result', label: label.slice(0, 200), ...(author && { author }) });
-      if (results.size > 32) results.delete(results.keys().next().value);
-      appendThread(offer.noteId, { role: author ? 'assistant' : 'status', author: author ?? 'Mini Flow', text: label });
-    }
-    if (!closed) {
-      checkpoint();
-      publishPresence();
-      dispatchOffers();
-    }
-  }
-
-  function interruptOffer(requestId, label, reason = aiCancelled) {
-    const offer = offers.get(requestId);
-    if (!offer?.winner) return;
-    clearTimeout(offer.timer);
-    reviews.get(offer.winner)?.abort();
-    const guest = guests.get(offer.winner);
-    if (guest) {
-      guest.lastFinishedRequest = { id: requestId, cancelled: true, reason };
-      guest.presence = { ...guest.presence, activity: undefined };
-    }
-    send('ask', { type: 'withdraw', requestId, cancelled: true, reason }, [...offer.agents]).catch(() => {});
-    offer.winner = undefined;
-    offer.agents.clear();
-    offer.interrupted = true;
-    offer.failure = label;
-    appendThread(offer.noteId, { role: 'status', author: 'Mini Flow', text: label });
-    publishPresence();
-    dispatchOffers();
-  }
-
-  function renewAIWork(requestId, offer) {
-    clearTimeout(offer.timer);
-    offer.expiresAt = Date.now() + aiIdleMinutes * 60_000;
-    offer.timer = setTimeout(() => interruptOffer(requestId, 'AI request timed out', aiTimedOut), aiIdleMinutes * 60_000);
-  }
-
-  function waitForAIRequest(after = 0, timeoutMs = 10000) {
-    if (closed) return Promise.resolve(failure('session_ended', 'The live session ended.'));
-    if (!host && !hostPeer) return Promise.resolve(failure('live_not_ready', 'Waiting for the host to reconnect.'));
-    if (host || !agentRegistered) {
-      return Promise.resolve(failure('ai_not_connected', 'Register as a live AI guest first.'));
-    }
-    if (!Number.isSafeInteger(after) || after < 0 || !Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 15000) {
-      return Promise.resolve(failure('invalid_wait', 'Use a nonnegative cursor and a timeout of up to 15000 ms.'));
-    }
-    if (pendingClaims.size) return Promise.resolve(failure('already_waiting', 'Another request check is already claiming a request.'));
-    const request = !activeRequestId && requests.find(item => item.sequence > after);
-    if (request) return claimRequest(request);
-    if (!timeoutMs) return Promise.resolve({ ok: true, request: null });
-    if (requestWaiters.size >= 8) return Promise.resolve(failure('too_many_waiters', 'Finish a pending request check first.'));
-    return new Promise(resolve => {
-      const waiter = { after, finish(result) {
-        clearTimeout(timer);
-        requestWaiters.delete(waiter);
-        resolve(result);
-      } };
-      const timer = setTimeout(() => waiter.finish(hostPeer ? { ok: true, request: null }
-        : failure('live_not_ready', 'Waiting for the host to reconnect.')), timeoutMs);
-      requestWaiters.add(waiter);
-    });
-  }
-
-  function wakeRequestWaiter() {
-    if (activeRequestId || pendingClaims.size) return;
-    for (const waiter of requestWaiters) {
-      const request = requests.find(item => item.sequence > waiter.after);
-      if (!request) continue;
-      waiter.finish(claimRequest(request));
-      break;
-    }
-  }
-
-  function claimRequest(request) {
-    const existing = pendingClaims.get(request.id);
-    if (existing) return existing.promise;
-    let finish;
-    const promise = new Promise(resolve => {
-      finish = granted => {
-        clearTimeout(timer);
-        pendingClaims.delete(request.id);
-        const index = requests.indexOf(request);
-        if (index >= 0) requests.splice(index, 1);
-        resolve({ ok: true, request: granted ? request : null });
-      };
-      const timer = setTimeout(() => finish(false), 3000);
-    });
-    pendingClaims.set(request.id, { promise, finish });
-    send('ask', { type: 'claim', requestId: request.id }).catch(() => finish(false));
-    return promise;
-  }
-
-  function clearAIRequests(reconnecting = false) {
-    const result = failure('live_disconnected', 'The live connection ended.');
-    if (!reconnecting) for (const waiter of requestWaiters) waiter.finish(failure('session_ended', 'The live session ended.'));
-    for (const finish of pendingAsks.values()) finish(result);
-    for (const claim of pendingClaims.values()) claim.finish(false);
-    for (const offer of offers.values()) clearTimeout(offer.timer);
-    offers.clear();
-    results.clear();
-    if (!host) {
-      if (!reconnecting) threads.clear();
-      incomingThreads.clear();
-    }
-    onAIRequests({});
-    requests.length = 0;
-    requestEndReason = reconnecting && (activeRequestId || requestEndReason) ? aiCancelled : undefined;
-    activeRequestId = undefined;
-    reportedActivity = false;
-  }
-
-  function forwardAIRequest(noteId, from, prompt, owner) {
+  async function forwardAIRequest(noteId, from, prompt, owner) {
     const note = readNote(getProject(), noteId);
     if (!note) return failure('note_missing', 'The note is no longer on the board.');
-    const existing = [...offers].find(([, offer]) => offer.noteId === noteId);
-    if (existing && !existing[1].interrupted) {
-      return failure('already_requested', 'This note already has an active AI request.');
-    }
-    if (!existing && offers.size >= 32) return failure('too_many_requests', 'Wait for a pending request to finish.');
     if (prompt !== undefined && (typeof prompt !== 'string' || !prompt.trim() || prompt.length > maxReplyLength)) {
       return failure('invalid_reply', 'Enter a comment of up to 1000 characters.');
     }
     const thread = threads.get(noteId);
-    if (!thread || prompt !== undefined) {
+    const addsMessage = !thread || prompt !== undefined;
+    if (addsMessage) {
       const rejected = commentRejection(noteId, from);
       if (rejected) return rejected;
     }
     const requester = guests.get(from)?.label ?? 'Host';
-    const text = prompt?.trim() ?? existing?.[1].note.text ?? thread?.findLast(message => message.role === 'user')?.text ?? note.text;
-    const requestId = id();
-    results.delete(noteId);
-    if (existing) offers.delete(existing[0]);
-    const offer = { noteId, agents: new Set(), note: { ...note, text }, requester, lastEdit: existing?.[1].lastEdit };
-    offers.set(requestId, offer);
-    if (!thread || prompt !== undefined) {
+    const text = prompt?.trim() ?? thread?.findLast(message => message.role === 'user')?.text ?? note.text;
+    if (!onAIRequest) return failure('ai_unavailable', 'Connect AI agents in Live session before asking.');
+    const result = await onAIRequest({ noteId, note: { ...note, text }, prompt: text, requester, thread: thread ?? [] });
+    if (!result?.ok) return result ?? failure('ai_unavailable', 'No AI agent took the request.');
+    if (addsMessage) {
       appendThread(noteId, { role: 'user', author: requester, owner, text, ...(!thread && prompt === undefined && { original: true }) });
     }
-    checkpoint();
-    publishPresence();
-    dispatchOffers();
     return { ok: true };
-  }
-
-  function dispatchOffers(retry = false) {
-    if (closed) return;
-    const queue = [...offers];
-    const working = new Set(queue.map(([, offer]) => offer.winner));
-    let hasUnclaimedDelivery = false;
-    for (const [peer, guest] of guests) {
-      if (!guest.agent || working.has(peer)) continue;
-      const next = queue.find(([, offer]) => !offer.winner && !offer.interrupted);
-      if (!next) continue;
-      hasUnclaimedDelivery = true;
-      const [requestId, offer] = next;
-      if (offer.agents.has(peer) && !retry) continue;
-      offer.agents.add(peer);
-      const thread = threads.get(offer.noteId);
-      send('ask', { type: 'delivery', requestId, note: offer.note, requester: offer.requester,
-        ...(guest.lastFinishedRequest && { lastFinishedRequest: guest.lastFinishedRequest }),
-        ...(thread && { thread: thread.slice(-agentContextMessages) }),
-        ...(offer.lastEdit && { lastAppliedEdit: offer.lastEdit }) }, peer).catch(() => {});
-    }
-    if (hasUnclaimedDelivery && !offerRetryTimer) offerRetryTimer = setTimeout(() => {
-      offerRetryTimer = undefined;
-      dispatchOffers(true);
-    }, 1500);
   }
 
   function appendComment(noteId, from, text, owner) {
@@ -462,31 +266,12 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
         pendingAsks.delete(requestId);
         resolve(result);
       };
-      const timer = setTimeout(() => finish(failure('ask_timeout', 'The host did not confirm the request.')), 5000);
+      const timer = setTimeout(() => finish(failure('ask_timeout', 'The host did not confirm the request.')),
+        type === 'request' ? 20000 : 5000);
       pendingAsks.set(requestId, finish);
       send('ask', { type, requestId, noteId, prompt, owner: ownerSecret }).catch(() =>
         finish(failure('ask_failed', 'Could not send the request to the host.')));
     });
-  }
-
-  function finishAgentRegistration(ok) {
-    if (!agentRegistration) return;
-    const { resolve, timer } = agentRegistration;
-    agentRegistration = undefined;
-    clearTimeout(timer);
-    resolve(ok ? { ok: true } : failure('agent_registration_failed', 'The host did not confirm registration. Try again.'));
-  }
-
-  function registerAgent() {
-    if (host || closed || !hostPeer || !state) {
-      return Promise.resolve(failure('live_not_ready', 'Join a live session as a guest before registering.'));
-    }
-    if (agentRegistration) return agentRegistration.promise;
-    let resolve;
-    const promise = new Promise(done => { resolve = done; });
-    agentRegistration = { promise, resolve, timer: setTimeout(() => finishAgentRegistration(false), 5000) };
-    send('agent', true).catch(() => finishAgentRegistration(false));
-    return promise;
   }
 
   function available() {
@@ -522,9 +307,6 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       deletedThreads.delete(noteId);
       updateThread(noteId, messages);
     }
-    for (const [requestId, offer] of offers) {
-      if (before.has(offer.noteId) && !after.has(offer.noteId) && !offer.winner) finishOffer(requestId, undefined, undefined, true);
-    }
     for (const note of noteColors.keys()) if (!after.has(note)) noteColors.delete(note);
     for (const note of after) if (!before.has(note) && color) noteColors.set(note, color);
     onNoteColors(Object.fromEntries(noteColors));
@@ -550,7 +332,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     request.resolve(result);
   }
 
-  function submit(project, message, { keepClaim = false, aiRequestId, aiEdit } = {}) {
+  function submit(project, message) {
     if (!hostPeer || !state || closed) return Promise.resolve(failure('live_not_ready', 'The host is not connected.'));
     if (pending) return Promise.resolve(failure('edit_pending', 'Wait for the current edit to finish.'));
     return new Promise(resolve => {
@@ -562,7 +344,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       pending = request;
       available();
       onStatus('Sending edit…');
-      send('edit', { id: request.id, revision: state.revision, epoch: hostEpoch, project, message, keepClaim, aiRequestId, aiEdit }).catch(() => {
+      send('edit', { id: request.id, revision: state.revision, epoch: hostEpoch, project, message }).catch(() => {
         if (pending === request) finish(failure('live_send_failed', 'Could not send the edit.'));
       });
     });
@@ -596,8 +378,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   }
 
   function guestCounts() {
-    const ai = Array.from(guests.values()).filter(guest => guest.agent).length;
-    return { human: guests.size - ai, ai };
+    return { human: guests.size };
   }
 
   function presenceSnapshot() {
@@ -607,18 +388,11 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
 
   function publishPresence() {
     if (!host) return;
-    const aiRequests = Object.fromEntries([...results, ...[...offers.values()].map(offer => [
-      offer.noteId, offer.interrupted
-        ? { phase: 'interrupted', label: offer.failure ?? (offer.lastEdit ? 'Last applied: ' + offer.lastEdit.slice(0, 185) : 'AI work interrupted') }
-        : offer.winner
-        ? { phase: 'working', label: guests.get(offer.winner)?.label ?? 'AI' }
-        : { phase: 'waiting', label: 'Waiting for AI' }
-    ])]);
     onAIRequests(aiRequests);
     if (!guests.size) return;
     const snapshot = presenceSnapshot();
     onPresence(snapshot.filter(item => item.id !== room.selfId));
-    send('presence', { revision: ++presenceRevision, peers: snapshot, counts: guestCounts(), aiRequests, requireAIApproval },
+    send('presence', { revision: ++presenceRevision, peers: snapshot, counts: guestCounts(), aiRequests },
       [...guests.keys()]).catch(() => {});
   }
 
@@ -644,7 +418,6 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     } else {
       if (hostPeer) return;
       hostPeer = from;
-      if (agentRegistered) send('agent', true).catch(() => {});
       onStatus('Receiving the board…');
       send('read', null).catch(() => onStatus('Could not request the board.'));
     }
@@ -653,25 +426,14 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (closed) return;
     if (host) {
       if (!guests.delete(from)) return;
-      reviews.get(from)?.abort();
-      for (const offer of offers.values()) {
-        offer.agents.delete(from);
-        if (offer.winner !== from) continue;
-        clearTimeout(offer.timer);
-        offer.winner = undefined;
-        offer.interrupted = true;
-        offer.agents.clear();
-      }
       checkpoint();
       reportGuestCount();
       if (guests.size) publishPresence();
       else onPresence([]);
-      dispatchOffers();
       return;
     }
     if (from !== hostPeer) return;
     hostPeer = undefined;
-    finishAgentRegistration(false);
     finish(failure('live_disconnected', 'The other tab disconnected.'));
     state = undefined;
     presenceRevision = 0;
@@ -680,10 +442,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     available();
     onPresence([]);
     onGuestCounts(null);
-    requireAIApproval = null;
-    onAIApprovalChange(null);
     onNoteColors({});
-    clearAIRequests(true);
+    onAIRequests({});
     onStatus('Reconnecting… You can also leave to keep editing a copy.');
   });
   room.onRefused?.((_, reason) => {
@@ -698,13 +458,6 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   });
   room.onMessage('edit', async (data, from) => {
     if (!host || !guests.has(from) || closed || typeof data?.id !== 'string') return;
-    if (data.aiRequestId && offers.get(data.aiRequestId)?.winner !== from) {
-      const last = guests.get(from).lastFinishedRequest;
-      const timedOut = last?.id === data.aiRequestId && last.reason === aiTimedOut;
-      publish({ id: data.id, ...failure(timedOut ? aiTimedOut : aiCancelled,
-        timedOut ? 'This AI request timed out.' : 'This AI request is no longer active.') }, from);
-      return;
-    }
     if (data.epoch !== epoch || data.revision !== state.revision) {
       publish({ id: data.id, ...failure('revision_conflict', 'The board changed. Review the latest version before retrying.') }, from);
       return;
@@ -718,45 +471,10 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     try {
       const guest = guests.get(from);
       const project = normalize(data.project);
-      const offer = data.aiRequestId && offers.get(data.aiRequestId);
-      if (offer) renewAIWork(data.aiRequestId, offer);
-      if (requireAIApproval && onAIProposal && (guest.agent || data.aiEdit === true)) {
-        if (reviews.size) {
-          publish({ id: data.id, ...failure('review_busy', 'Another edit is being reviewed. Try again shortly.') }, from);
-          return;
-        }
-        const review = new AbortController();
-        reviews.set(from, review);
-        const timer = setTimeout(() => review.abort(), 90_000);
-        publish({ id: data.id, reviewing: true }, from);
-        let approved;
-        try {
-          approved = await onAIProposal({ base: state.project, project, message, signal: review.signal });
-        } finally {
-          clearTimeout(timer);
-          reviews.delete(from);
-        }
-        if (closed || !guests.has(from)) return;
-        if (!approved || review.signal.aborted) {
-          publish({ id: data.id, ...failure('edit_declined', 'The proposed edit was declined or its review expired.') }, from);
-          return;
-        }
-        if (data.revision !== state.revision || !canAccept() ||
-          (data.aiRequestId && offers.get(data.aiRequestId)?.winner !== from)) {
-          publish({ id: data.id, ...failure('revision_conflict', 'The board or AI request changed during review.') }, from);
-          return;
-        }
-      }
       install(project, message);
-      if (offer) offer.lastEdit = message;
       const changed = refresh(guest.color);
       publish({ id: data.id, ok: true, message }, from);
       if (changed) publish({ message }, [...guests.keys()].filter(id => id !== from));
-      if (guest.agent) for (const [requestId, offer] of offers) {
-        if (offer.winner !== from) continue;
-        if (data.keepClaim === true) { offer.lastEdit = message; checkpoint(); }
-        else finishOffer(requestId, message, guest.label);
-      }
     } catch {
       publish({ id: data.id, ...failure('invalid_edit', 'The host rejected an invalid board.') }, from);
     }
@@ -782,11 +500,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       }
     }
     if (pending && data.id === pending.id) {
-      if (data.reviewing) {
-        clearTimeout(pending.timer);
-        pending.timer = setTimeout(() => finish(failure('live_timeout', 'The edit review did not complete.')), 100_000);
-        onStatus('Waiting for the host to review the edit…');
-      } else finish(data.ok ? { ok: true } : failure(data.reason, data.message));
+      finish(data.ok ? { ok: true } : failure(data.reason, data.message));
     }
     else if (!pending) onStatus('Live · Connected');
     available();
@@ -805,24 +519,19 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (host) {
       const guest = guests.get(from);
       if (!guest) return;
-      guest.presence = readPresence(data, guest.agent);
+      guest.presence = readPresence(data);
       schedulePresence();
     } else if (from === hostPeer && Array.isArray(data?.peers) &&
       Number.isSafeInteger(data.revision) && data.revision > presenceRevision) {
       presenceRevision = data.revision;
-      const required = data.requireAIApproval !== false;
-      if (required !== requireAIApproval) {
-        requireAIApproval = required;
-        onAIApprovalChange(required);
-      }
-      if ([data.counts?.human, data.counts?.ai].every(n => Number.isInteger(n) && n >= 0 && n <= maxGuests)) {
-        onGuestCounts(data.counts);
+      if (Number.isInteger(data.counts?.human) && data.counts.human >= 0 && data.counts.human <= maxGuests) {
+        onGuestCounts({ human: data.counts.human });
       }
       onPresence(data.peers.slice(0, maxGuests + 1).filter(item => typeof item?.id === 'string' &&
         item.id !== room.selfId && typeof item.label === 'string').map(item => ({
         id: item.id, label: item.label.slice(0, 32),
         ...(Number.isSafeInteger(item.color) && item.color > 0 ? { color: item.color } : {}),
-        ...readPresence(item, /^AI \d+$/.test(item.label))
+        ...readPresence(item)
       })));
       onAIRequests(Object.fromEntries(Object.entries(data.aiRequests ?? {}).slice(0, 64)
         .filter(([id, status]) => id.length <= 128 && (typeof status === 'string' && status.length <= 32 ||
@@ -830,90 +539,9 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
           typeof status.label === 'string' && status.label.length <= 200))));
     }
   });
-  room.onMessage('agent', (data, from) => {
-    if (closed || data !== true) return;
-    if (host) {
-      const guest = guests.get(from);
-      if (!guest) return;
-      guest.agent = true;
-      guest.label = `AI ${guest.number}`;
-      onGuestCounts(guestCounts());
-      publishPresence();
-      send('agent', true, from).then(() => dispatchOffers()).catch(() => {});
-    } else if (from === hostPeer) {
-      agentRegistered = true;
-      finishAgentRegistration(true);
-    }
-  });
-
-  function requestEnded() {
-    return failure(requestEndReason, requestEndReason === aiTimedOut
-      ? 'This AI request timed out. Wait for the next request.'
-      : 'This AI request was cancelled. Wait for the next request.');
-  }
-
-  function releaseAIRequest(requestId, cancelled, reason) {
-    if (!activeRequestId || activeRequestId !== requestId) return;
-    activeRequestId = undefined;
-    requestEndReason = cancelled ? (reason === aiTimedOut ? aiTimedOut : aiCancelled) : undefined;
-    reportedActivity = false;
-    presence = { ...presence, activity: undefined };
-    schedulePresence();
-  }
-
   room.onMessage('ask', async (data, from) => {
     if (closed) return;
     if (host) {
-      if (['progress', 'failed'].includes(data?.type)) {
-        const offer = offers.get(data.requestId);
-        if (offer?.winner !== from) return;
-        if (data.type === 'progress') renewAIWork(data.requestId, offer);
-        else if (typeof data.result === 'string' && data.result.trim()) {
-          interruptOffer(data.requestId, 'AI failed · ' + data.result.trim().slice(0, 180));
-        }
-        return;
-      }
-      if (data?.type === 'done' && guests.get(from)?.agent) {
-        for (const [requestId, offer] of offers) {
-          if (offer.winner === from && (data.requestId === undefined || data.requestId === requestId)) finishOffer(requestId,
-            typeof data.result === 'string' && data.result.trim() ? data.result.trim().slice(0, maxAnswerLength)
-              : offer.lastEdit ?? 'AI finished the request', guests.get(from).label);
-        }
-        return;
-      }
-      if (data?.type === 'claim') {
-        const offer = offers.get(data.requestId);
-        if (!guests.get(from)?.agent) return;
-        const busy = [...offers.values()].some(other => other !== offer && other.winner === from);
-        if (offer?.agents.has(from) && !offer.winner && !offer.interrupted && !busy) {
-          offer.winner = from;
-          renewAIWork(data.requestId, offer);
-          const guest = guests.get(from);
-          guest.presence = { ...guest.presence, activity: 'Reviewing a note…' };
-          checkpoint();
-          publishPresence();
-        }
-        await send('ask', { type: 'claim_result', requestId: data.requestId, granted: offer?.winner === from, expiresAt: offer?.winner === from ? offer.expiresAt : undefined }, from)
-          .catch(() => {});
-        dispatchOffers();
-        return;
-      }
-      if (data?.type === 'release') {
-        // The agent gave up waiting for the grant, so return the request to the queue.
-        const offer = offers.get(data.requestId);
-        if (!offer || offer.winner !== from) return;
-        clearTimeout(offer.timer);
-        reviews.get(from)?.abort();
-        offer.winner = undefined;
-        offer.expiresAt = undefined;
-        offer.agents.delete(from);
-        const guest = guests.get(from);
-        if (guest) guest.presence = { ...guest.presence, activity: undefined };
-        checkpoint();
-        publishPresence();
-        dispatchOffers();
-        return;
-      }
       if (!guests.has(from) || !['request', 'comment', 'manage_reply'].includes(data?.type) ||
           typeof data.noteId !== 'string' || data.noteId.length > 128 ||
           typeof data.requestId !== 'string' || data.requestId.length !== 32) return;
@@ -926,35 +554,6 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     } else if (from === hostPeer && data?.type === 'thread' &&
       typeof data.noteId === 'string' && data.noteId.length <= 128) {
       receiveThread(data);
-    } else if (from === hostPeer && data?.type === 'claim_result') {
-      if (data.granted === true && !pendingClaims.has(data.requestId) && activeRequestId !== data.requestId) {
-        send('ask', { type: 'release', requestId: data.requestId }).catch(() => {});
-        return;
-      }
-      if (data.granted === true && pendingClaims.has(data.requestId)) {
-        const request = requests.find(item => item.id === data.requestId);
-        if (request && Number.isFinite(data.expiresAt)) request.expiresAt = data.expiresAt;
-        activeRequestId = data.requestId;
-        requestEndReason = undefined;
-        presence = { ...presence, activity: 'Reviewing a note…' };
-        schedulePresence();
-      }
-      pendingClaims.get(data.requestId)?.finish(data.granted === true);
-    } else if (from === hostPeer && data?.type === 'withdraw') {
-      pendingClaims.get(data.requestId)?.finish(false);
-      const index = requests.findIndex(request => request.id === data.requestId);
-      if (index >= 0) requests.splice(index, 1);
-      releaseAIRequest(data.requestId, data.cancelled === true, data.reason);
-      wakeRequestWaiter();
-    } else if (from === hostPeer && agentRegistered && data?.type === 'delivery' && data.note) {
-      // A new delivery can arrive after a missed withdrawal, for example after a request times out.
-      releaseAIRequest(data.lastFinishedRequest?.id, data.lastFinishedRequest?.cancelled === true, data.lastFinishedRequest?.reason);
-      if (activeRequestId === data.requestId || requests.some(request => request.id === data.requestId)) return;
-      requests.push({ id: data.requestId, sequence: ++requestSequence, note: data.note, requester: data.requester,
-        ...(Array.isArray(data.thread) && { thread: data.thread }),
-        ...(typeof data.lastAppliedEdit === 'string' && { lastAppliedEdit: data.lastAppliedEdit }) });
-      wakeRequestWaiter();
-      send('ask', { type: 'received', requestId: data.requestId }).catch(() => {});
     }
   });
   room.onMessage('end', (_, from) => {
@@ -966,40 +565,27 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     closed = true;
     clearTimeout(flushTimer);
     clearTimeout(presenceTimer);
-    clearTimeout(offerRetryTimer);
-    for (const review of reviews.values()) review.abort();
     let departure;
     if (host && guests.size && notify) {
       try { departure = room.send('end', null, [...guests.keys()]); } catch {}
     }
     Promise.resolve(departure).catch(() => {}).finally(() => room.leave());
     finish(failure('live_disconnected', 'The live session ended.'));
-    finishAgentRegistration(false);
+    for (const resolve of pendingAsks.values()) resolve(failure('live_disconnected', 'The live connection ended.'));
     available();
     onPresence([]);
     onGuestCounts(null);
     onNoteColors({});
-    clearAIRequests();
+    onAIRequests({});
+    if (!host) threads.clear();
     if (ended) onEnd();
   }
 
   onStatus(host ? 'Waiting for guests…' : 'Waiting for the host…');
-  if (host) { onAIApprovalChange(requireAIApproval); onGuestCounts(guestCounts()); publishPresence(); }
+  if (host) { onGuestCounts(guestCounts()); publishPresence(); }
   available();
   return {
     host,
-    setAIIdleMinutes(minutes) {
-      if (!host || closed || !aiIdleLimits.includes(minutes) || minutes === aiIdleMinutes) return;
-      aiIdleMinutes = minutes;
-      checkpoint();
-    },
-    setRequireAIApproval(required) {
-      if (!host || closed || typeof required !== 'boolean' || required === requireAIApproval) return;
-      requireAIApproval = required;
-      checkpoint();
-      onAIApprovalChange(required);
-      publishPresence();
-    },
     canManageReply: message => canManageReply(message, host, selfOwner),
     canSendNoteMessage,
     ready: () => !closed && (host || Boolean(hostPeer && state && !pending && !localDirty && canAccept())),
@@ -1014,64 +600,25 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     },
     updatePresence(next) {
       if (closed) return;
-      presence = readPresence({ ...next, activity: presence.activity }, agentRegistered);
+      presence = readPresence(next);
       schedulePresence();
-    },
-    reportAIActivity(message, result, failed = false) {
-      if (host || closed || !hostPeer || !agentRegistered) return failure('ai_not_connected', 'Register as a live AI guest first.');
-      if (typeof message !== 'string' || message.length > 200) return failure('invalid_activity', 'Use a status of up to 200 characters.');
-      if (result !== undefined && (typeof result !== 'string' || result.length > maxAnswerLength || message.trim())) {
-        return failure('invalid_result', 'Send a result of up to 2000 characters with an empty progress message.');
-      }
-      if (requestEndReason) return requestEnded();
-      if (failed && (!activeRequestId || !result?.trim())) {
-        return failure('invalid_failure', 'Report a reason for the active AI request using an empty message.');
-      }
-      reportedActivity = Boolean(message.trim());
-      presence = { ...presence, activity: message.trim() || undefined };
-      schedulePresence();
-      if (!presence.activity) {
-        send('ask', { type: failed ? 'failed' : 'done', result, requestId: activeRequestId ?? null }).catch(() => {});
-        activeRequestId = undefined;
-        wakeRequestWaiter();
-      } else if (activeRequestId) {
-        send('ask', { type: 'progress', requestId: activeRequestId }).catch(() => {});
-      }
-      return { ok: true };
     },
     submit,
-    submitAIEdit(project, message) {
-      if (requestEndReason) return Promise.resolve(requestEnded());
-      const aiRequestId = activeRequestId;
-      if (!agentRegistered || reportedActivity) return submit(project, message, { keepClaim: reportedActivity, aiRequestId, aiEdit: true });
-      presence = { ...presence, activity: 'Applying board edits…' };
-      schedulePresence();
-      return submit(project, message, { aiRequestId, aiEdit: true }).then(result => {
-        if (!reportedActivity && (activeRequestId === aiRequestId || !activeRequestId) && !requestEndReason) {
-          if (result.ok) activeRequestId = undefined;
-          presence = { ...presence, activity: result.ok ? undefined : 'Edit needs a retry' };
-          schedulePresence();
-        }
-        return result;
-      });
-    },
     askAI: (noteId, prompt) => submitNoteMessage('request', noteId, prompt),
-    cancelAIRequest(noteId) {
-      if (!host || closed) return false;
-      for (const [requestId, offer] of offers) {
-        if (offer.noteId !== noteId) continue;
-        finishOffer(requestId, 'AI request cancelled', undefined, true);
-        return true;
-      }
-      return false;
+    setAIRequests(next) {
+      if (!host || closed) return;
+      aiRequests = Object.fromEntries(Object.entries(next).slice(0, 64));
+      publishPresence();
+    },
+    appendAIMessage(noteId, message) {
+      if (!host || closed || !readNote(getProject(), noteId)) return false;
+      appendThread(noteId, message);
+      return true;
     },
     comment: (noteId, text) => submitNoteMessage('comment', noteId, text),
     manageReply: (noteId, change) => submitNoteMessage('manage_reply', noteId, change),
     replaceThreads(next) {
       if (!host || closed) return;
-      for (const requestId of offers.keys()) finishOffer(requestId, undefined, undefined, true);
-      results.clear();
-      publishPresence();
       const changed = new Set([...threads.keys(), ...next.keys()]);
       threads.clear();
       deletedThreads.clear();
@@ -1083,8 +630,6 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
         publishThread(noteId);
       }
     },
-    waitForAIRequest,
-    registerAgent,
     suspend: () => { checkpoint(); stop(false, false); },
     checkpoint,
     stop
@@ -1092,7 +637,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
 }
 
 const presenceTools = new Set(['terminal', 'step', 'decision', 'note', 'connect', 'laser', 'bend']);
-function readPresence(data, ai = false) {
+function readPresence(data) {
   const point = Array.isArray(data?.point) && data.point.length === 2 && data.point.every(Number.isFinite) ? data.point : null;
   const focus = typeof data?.focus === 'string' && data.focus.length <= 128 ? data.focus : null;
   const laser = Array.isArray(data?.laser) ? data.laser.slice(-40).filter(sample =>
@@ -1105,11 +650,10 @@ function readPresence(data, ai = false) {
       ? Number.isSafeInteger(draft.index) && typeof draft.to === 'string' && draft.to.length <= 128
       : presenceTools.has(draft.type) && Array.isArray(draft.position) &&
         draft.position.length === 2 && draft.position.every(Number.isFinite));
-  const activity = ai && typeof data?.activity === 'string' ? data.activity.slice(0, 200) : undefined;
   return { point, focus, ...(laser.length ? { laser } : {}), ...(tool ? { tool } : {}),
     ...(validDraft ? { draft: { id: draft.id, type: draft.type, text: draft.text.slice(0, 4000),
       ...(draft.type === 'edge' ? { index: draft.index, to: draft.to } : { position: draft.position }) } } : {}),
-    ...(activity ? { activity } : {}) };
+  };
 }
 
 function failure(reason, message) {
@@ -1122,7 +666,7 @@ export async function connectLiveBoard(invite, host, handlers) {
   const role = host ? 'host' : 'editor';
   const signer = host && invite.hostKey ? await hostSigner(invite.hostKey, invite.room, selfId) : undefined;
   const hostKeys = new Map();
-  const room = joinRoom({ app: 'mini-flow-live', room: invite.room, password: invite.password, mode: 'online', protocol: 4, maxPeers: host ? maxGuests : 1,
+  const room = joinRoom({ app: 'mini-flow-live', room: invite.room, password: invite.password, mode: 'online', protocol: 5, maxPeers: host ? maxGuests : 1,
     server: { url: invite.relay ?? defaultRelayUrl, roomInUrl: true },
     ...(invite.relay && { transports: { relays: false, pair: false } }),
     maxMessageBytes: 360 * 1024, rateLimit: 60, kinds, profile: { role, ...signer?.profile }, debug: handlers.debug === true,

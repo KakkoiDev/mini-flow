@@ -34,7 +34,9 @@ export const editSchema = {
   additionalProperties: false
 };
 
-function applyEdits(project, edits, library) {
+// Applies a batch of edit operations and returns the new project. Throws with a readable reason on invalid edits.
+export function applyEdits(project, edits, library = globalThis.MiniFlow) {
+  if (!Array.isArray(edits) || !edits.length || edits.length > 100) throw new Error('Send 1 to 100 edits.');
   const graph = library.parse(project.source);
   const nodes = new Map(graph.nodes.map(node => [node.id, node]));
   const positions = { ...project.positions };
@@ -118,46 +120,6 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
     readDescription: 'Read the Mini Flow diagram in this tab. Returns its tab ID, revision, and project, including node positions and Mermaid metadata for notes and bends. Read before applying edits.' + untrusted,
     editDescription: 'Edit the Mini Flow diagram in this tab. Use the revision from get_board on this same tab. Applies the full batch as one Undo step and highlights changes. A revision conflict leaves the board untouched.'
   });
-  if (options.registerAgent) {
-    registry.registerTool({
-      name: 'register_live_agent',
-      description: 'Identify this connected browser guest as an AI agent. Open the live invite in a browser with WebMCP access, wait for Live · Connected, then call this tool before editing.',
-      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-      annotations: { idempotentHint: true },
-      execute: () => options.registerAgent()
-    });
-  }
-  if (options.waitForAIRequest) {
-    registry.registerTool({
-      name: 'wait_for_ai_request',
-      description: 'Wait for Ask AI and claim the request exclusively. Only the first AI acknowledged by the host gets the task. Pass the last handled sequence as after (start at 0). Use get_board to verify the current target. The request may include expiresAt (Unix milliseconds). On a follow-up, use the preceding messages in request.thread as context. Use a 10000 ms wait. On null or live_not_ready, wait again with the same cursor. Stop on session_ended. After reporting each result, immediately wait again with the handled sequence as after. Keep listening until the live session disconnects or the user asks you to stop.' + untrusted,
-      inputSchema: {
-        type: 'object', additionalProperties: false,
-        properties: {
-          after: { type: 'integer', minimum: 0, default: 0 },
-          timeoutMs: { type: 'integer', minimum: 0, maximum: 15000, default: 10000 }
-        }
-      },
-      execute: ({ after, timeoutMs } = {}) => options.waitForAIRequest(after, timeoutMs)
-    });
-  }
-  if (options.reportAIActivity) {
-    registry.registerTool({
-      name: 'report_ai_activity',
-      description: 'Send a short message to show progress and renew the host-configured idle timeout. Finish with an empty message and optional result. To mark a request failed and show Retry, send an empty message, failed: true, and the reason in result.',
-      inputSchema: { type: 'object', additionalProperties: false, required: ['message'],
-        properties: { message: { type: 'string', maxLength: 200 }, result: { type: 'string', maxLength: 2000 }, failed: { type: 'boolean' } } },
-      execute: ({ message, result, failed } = {}) => options.reportAIActivity(message, result, failed)
-    });
-  }
-  if (options.exposeTools) {
-    const methods = Object.fromEntries(definitions.map(({ name, execute }) => [name, execute]));
-    options.exposeTools(Object.freeze({
-      ...methods,
-      help: () => ({ tools: structuredClone(definitions.map(({ name, description, inputSchema }) =>
-        ({ name, description, inputSchema }))) })
-    }));
-  }
   if (typeof context?.registerTool !== 'function') return;
   for (const tool of definitions) await context.registerTool(tool);
 }

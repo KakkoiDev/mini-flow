@@ -176,34 +176,6 @@
   "webmcp": {
     "module": "./mini-flow-webmcp.js",
     "tools": {
-      "register_live_agent": {
-        "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
-        "availability": "A guest tab joined from a live session invite",
-        "effects": "Identify the current guest as AI after the host acknowledges the registration. Repeated calls count the same guest once."
-      },
-      "wait_for_ai_request": {
-        "availability": "A registered AI guest in a live session",
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "after": { "type": "integer", "minimum": 0, "default": 0 },
-            "timeoutMs": { "type": "integer", "minimum": 0, "maximum": 15000, "default": 12000 }
-          }
-        },
-        "returns": "{ ok, request } where only the winning guest receives the request with id, sequence, requester, note, and optional thread with preceding messages. A null request means no claim was acquired.",
-        "listening": "Repeat the call on a null request with the same after cursor. After each result, resume waiting with after set to the handled sequence. Stop when the live session disconnects or the user asks you to stop."
-      },
-      "report_ai_activity": {
-        "availability": "A registered AI guest in a live session",
-        "inputSchema": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["message"],
-          "properties": { "message": { "type": "string", "maxLength": 200 }, "result": { "type": "string", "maxLength": 2000 } }
-        },
-        "effects": "Show progress to live participants. An empty message completes the guest's claimed request and may include a full reply for the note conversation."
-      },
       "get_board": {
         "readOnly": true,
         "returns": {
@@ -371,7 +343,13 @@
         },
         "effects": "Apply one undoable batch to the current tab if its revision matches."
       }
-    },
-    "liveSession": "Open the private #live= invite in a browser with WebMCP access, wait for Live · Connected, then call register_live_agent."
+    }
+  },
+  "agentRoom": {
+    "module": "./mini-flow-agent-room.js",
+    "about": "Ask AI sends requests to agents in an agent-room chat room (github.com/KakkoiDev/agent-room). The board owner connects under Live session → AI agents.",
+    "request": "An @mention of the agent with the note, its recent conversation, and the board as Mermaid with block positions, up to 12 KB.",
+    "editBlock": "To change the board, reply with one fenced block named mini-flow-edit containing {\"message\": string, \"edits\": [...]}, using the add_node, add_arrow, rename_node, move_node and delete_node operations of apply_board_edit.",
+    "review": "The owner reviews edits before they apply unless review is turned off."
   }
 }
