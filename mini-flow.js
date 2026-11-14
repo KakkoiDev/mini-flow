@@ -32,6 +32,35 @@ SOFTWARE.
   const encode = value => value.replace(/["#&<>|\\\r\n\u2028\u2029]/g, char => char === '\n' ? '<br/>' : '#' + char.charCodeAt(0) + ';');
   const decode = value => value.replace(/<br\s*\/?>/gi, '\n').replace(/#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
 
+  // Design tokens v1. Light and dark values; pages may define the --mf-* properties themselves.
+  const lightColors = {
+    canvas: '#faf8f5', grid: '#d6cfc5', text: '#242b29', surface: '#ffffff',
+    stroke: '#5b6662', accent: '#087f71',
+    terminal: '#d7efe6', step: '#ffffff', decision: '#fbefd0', note: '#fff3b0',
+    border: '#ded9d2', hover: '#f0ece6', muted: '#5e6864', onAccent: '#ffffff',
+    accentInk: '#066b5f', accentSoft: '#e4f4ee', focus: '#066b5f',
+    good: '#1f7a3d', warn: '#9a5b00', danger: '#b42318',
+    highlight: '#e07b00', laser: '#e11d48', edgeLabel: '#efebe5',
+    guests: ['#e9defa', '#fadce4', '#d9ecfb', '#e6f0c4']
+  };
+  const darkColors = {
+    canvas: '#151a19', grid: '#2f3836', text: '#e6ebe8', surface: '#1d2422',
+    stroke: '#8d9a95', accent: '#4cc3b0',
+    terminal: '#1f3d34', step: '#232b29', decision: '#3d3220', note: '#403a1c',
+    border: '#2f3936', hover: '#26302d', muted: '#9aa6a1', onAccent: '#0b1513',
+    accentInk: '#6fd6c4', accentSoft: '#173a34', focus: '#7fe0cf',
+    good: '#5cc98a', warn: '#f0b75a', danger: '#ff8a7a',
+    highlight: '#f5a524', laser: '#ff5c7a', edgeLabel: '#2a3330',
+    guests: ['#352c48', '#452a33', '#1f3346', '#33391d']
+  };
+  const colorKeys = Object.keys(lightColors).filter(key => key !== 'guests');
+  const kebab = key => key.replace(/[A-Z]/g, char => '-' + char.toLowerCase());
+  const colorProperty = key => key === 'text' ? '--mf-ink' : '--mf-' + kebab(key);
+  // Each internal --c-* property prefers the page's --mf-* value and falls back to the theme table.
+  function themeDeclarations(table) {
+    return [...colorKeys.map(key => `--c-${kebab(key)}:var(${colorProperty(key)}, ${table[key]})`),
+      ...table.guests.map((color, index) => `--c-guest-${index + 1}:var(--mf-guest-${index + 1}, ${color})`)].join(';');
+  }
   const maxSourceLength = 1000000;
   const isPlainObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -100,11 +129,26 @@ SOFTWARE.
     ), ...metadata].join('\n');
   }
 
-  function mount(host, source = 'flowchart TD', positions = {}, { onChange, onPresence, onSelection, onAIReply, onCancelAIRequest, onRetryAIRequest, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic', settingsKey, snapToGrid = false, dagre } = {}) {
+  function mount(host, source = 'flowchart TD', positions = {}, { onChange, onPresence, onSelection, onAIReply, onCancelAIRequest, onRetryAIRequest, features = {}, colors = {}, extraShapes = {}, tools, header, onSend, layout = 'classic', settingsKey, snapToGrid = false, dagre, theme = 'system' } = {}) {
     const enabled = name => features[name] !== false;
     let historyEnabled = enabled('history');
-    const palette = { canvas: '#f7faff', grid: '#c5d4e4', text: '#203044', surface: '#fff',
-      stroke: '#536982', accent: '#3965be', terminal: '#dcf4e9', step: '#e4edff', decision: '#fff0c7', ...colors };
+    // Extra shape colors stay literal. Built-in keys become --mf-* overrides that apply in both themes.
+    const shapeColors = Object.fromEntries(Object.entries(colors).filter(([key, value]) =>
+      !colorKeys.includes(key) && key !== 'guests' && typeof value === 'string'));
+    const themed = () => ({ ...shapeColors, guests: [] });
+    let palette = { ...lightColors, ...colors, guests: [...(Array.isArray(colors.guests) ? colors.guests : lightColors.guests)] };
+    function exportPalette() {
+      const guests = lightColors.guests.map((color, index) => colors.guests?.[index] ?? color);
+      return { ...lightColors, ...colors, guests };
+    }
+    function readPalette() {
+      const style = root.isConnected ? getComputedStyle(root) : null;
+      const read = (name, fallback) => style?.getPropertyValue(name).trim() || fallback;
+      const next = themed();
+      for (const key of colorKeys) next[key] = read('--c-' + kebab(key), palette[key] ?? lightColors[key]);
+      lightColors.guests.forEach((color, index) => next.guests.push(read('--c-guest-' + (index + 1), color)));
+      return next;
+    }
     const definitions = { ...shapes };
     for (const [name, shape] of Object.entries(extraShapes)) {
       const syntax = shape.syntax;
@@ -142,60 +186,67 @@ SOFTWARE.
     let pan, editing, zoom = 1, cameraX = 0, cameraY = 0;
     const gridSize = 16;
     const root = document.createElement('div');
-    for (const key of ['canvas', 'grid', 'text', 'surface', 'stroke', 'accent']) {
-      root.style.setProperty('--mf-' + key, palette[key]);
+    for (const key of colorKeys) {
+      if (typeof colors[key] === 'string') root.style.setProperty(colorProperty(key), colors[key]);
     }
+    if (Array.isArray(colors.guests)) colors.guests.forEach((color, index) => {
+      if (typeof color === 'string') root.style.setProperty('--mf-guest-' + (index + 1), color);
+    });
+    if (theme === 'light' || theme === 'dark') root.dataset.theme = theme;
     const shadow = root.attachShadow({ mode: 'open' });
     shadow.innerHTML = `
       <style>
-        :host {display:block;color:var(--mf-text);font:15px system-ui}
+        :host {${themeDeclarations(lightColors)}}
+        @media (prefers-color-scheme: dark) {:host(:not([data-theme=light])) {${themeDeclarations(darkColors)}}}
+        :host([data-theme=dark]) {${themeDeclarations(darkColors)}}
+        :host {display:block;color:var(--c-text);font:15px system-ui}
         * {box-sizing:border-box}
         :host(.is-dragging), :host(.is-dragging) * {cursor:grabbing!important}
         [hidden] {display:none!important}
         .frame {position:relative;height:var(--mini-flow-height, 72vh);min-height:360px;isolation:isolate}
         @media (max-width: 550px) { .toolbar button {font-size:13px;padding:5px} .toolbar kbd {font-size:10px} .status {font-size:12px} }
-        .toolbar {position:absolute;inset:12px 12px auto;z-index:2;width:fit-content;max-width:calc(100% - 24px);margin:auto;border:1px solid #d9e2ec;border-radius:14px;box-shadow:0 4px 20px #20304418;
-display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:var(--mf-surface);border-bottom:1px solid #d9e2ec}
+        .toolbar {position:absolute;inset:12px 12px auto;z-index:2;width:fit-content;max-width:calc(100% - 24px);margin:auto;border:1px solid var(--c-border);border-radius:14px;box-shadow:0 4px 20px #0000001a;
+display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:var(--c-surface);border-bottom:1px solid var(--c-border)}
         button,input,textarea {font:inherit;color:inherit}
-        button,input {background:var(--mf-surface);border:1px solid #bdcbd9;border-radius:8px;padding:8px}
-        button {cursor:pointer} button[aria-pressed=true]{background:#e0eaff;border-color:#3965be}
-        kbd {margin-inline-start:5px;padding:1px 4px;border:1px solid #bdcbd9;border-radius:4px;font:12px ui-monospace,monospace}
+        button,input {background:var(--c-surface);border:1px solid var(--c-border);border-radius:8px;padding:8px}
+        button {cursor:pointer} button[aria-pressed=true]{background:var(--c-accent-soft);border-color:var(--c-accent);color:var(--c-accent-ink)}
+        kbd {margin-inline-start:5px;padding:1px 4px;border:1px solid var(--c-border);border-radius:4px;font:12px ui-monospace,monospace}
         .toolbar [data-delete] kbd {display:inline-grid;place-items:center;box-sizing:border-box;width:20px;height:20px;padding:0}
         .toolbar button[data-delete] kbd svg {width:14px;height:14px;stroke-width:2}
         button:disabled {opacity:.45;cursor:default}
-        .frame {border:1px solid #bdcbd9;border-radius:12px;overflow:hidden}
-        .scroll {position:absolute;inset:0;overflow:hidden;background:var(--mf-canvas) radial-gradient(var(--mf-grid) 1px,transparent 1px) 0 0/16px 16px}
+        .frame {border:1px solid var(--c-border);border-radius:12px;overflow:hidden}
+        .scroll {position:absolute;inset:0;overflow:hidden;background:var(--c-canvas) radial-gradient(var(--c-grid) 1px,transparent 1px) 0 0/16px 16px}
         .scroll > svg {display:block;width:100%;height:100%;cursor:grab;touch-action:none;user-select:none}
         .scroll > .laser-layer {position:absolute;inset:0;pointer-events:none}
         .scroll > svg.is-laser, svg.is-laser g[role=button] {cursor:crosshair}
         .laser-mark {opacity:0;animation:laser-fade 1.2s ease-in forwards}
         @keyframes laser-fade {0%,20% {opacity:1} 100% {opacity:0}}
         g[role=button] {cursor:pointer}
-        g:focus-visible {outline:2px solid var(--mf-accent)}
-        text {fill:var(--mf-text);pointer-events:none}
-        .panel {position:absolute;inset:auto 12px 50px auto;width:min(350px,calc(100% - 24px));max-height:65%;overflow:auto;background:var(--mf-surface);border:1px solid #d9e2ec;border-radius:14px;box-shadow:0 4px 24px #20304424;z-index:1}
-        .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);min-width:48px;min-height:1.2em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.2;color:var(--mf-text);outline:none;background:transparent}
+        g:focus-visible {outline:2px solid var(--c-focus)}
+        text {fill:var(--c-text);pointer-events:none}
+        .panel {position:absolute;inset:auto 12px 50px auto;width:min(350px,calc(100% - 24px));max-height:65%;overflow:auto;background:var(--c-surface);border:1px solid var(--c-border);border-radius:14px;box-shadow:0 4px 24px #00000024;z-index:1}
+        .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);min-width:48px;min-height:1.2em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.2;color:var(--c-text);outline:none;background:transparent}
         .status:empty {display:none}
         .peer-cursor, .peer-focus {position:absolute;pointer-events:none;z-index:2}
         .peer-cursor svg {width:14px;height:14px;vertical-align:middle;margin-right:4px}
         .peer-activity {position:absolute;z-index:1;bottom:calc(var(--dock-height, 55px) + var(--dock-bottom, 12px) + 10px);
-          left:12px;max-width:min(360px,calc(100% - 24px));color:var(--mf-text);font-size:12px;pointer-events:none}
+          left:12px;max-width:min(360px,calc(100% - 24px));color:var(--c-text);font-size:12px;pointer-events:none}
         .peer-activity:not([hidden]) {display:grid;gap:5px;justify-items:start}
         .peer-activity-queue {display:grid;gap:5px;justify-items:start;max-width:100%;max-height:min(24dvh,160px);
           overflow:auto;overscroll-behavior:contain;pointer-events:auto}
         .peer-activity-row {display:flex;align-items:center;gap:7px;max-width:100%;box-sizing:border-box;
-          padding:4px 8px;border-radius:8px;background:var(--mf-surface);border:1px solid #ded9d2;overflow-wrap:anywhere}
+          padding:4px 8px;border-radius:8px;background:var(--c-surface);border:1px solid var(--c-border);overflow-wrap:anywhere}
         .peer-activity-row > :first-child {min-width:0;text-align:left}
         .peer-activity button {pointer-events:auto;padding:2px 4px;margin:-2px -4px;min-height:24px;
           border:0;background:none;color:inherit;font:inherit;text-decoration:underline;text-underline-offset:2px}
-        .peer-activity button.peer-activity-retry {flex:none;margin:0;padding:2px 7px;border:1px solid #ded9d2;border-radius:6px;text-decoration:none}
+        .peer-activity button.peer-activity-retry {flex:none;margin:0;padding:2px 7px;border:1px solid var(--c-border);border-radius:6px;text-decoration:none}
         .peer-activity button.peer-activity-cancel {flex:none;margin:0;padding:0;width:28px;height:28px;
           font-size:18px;line-height:1;text-align:center;text-decoration:none}
         .note-actions {position:absolute;z-index:2;display:flex;gap:4px}
         .note-actions[hidden] {display:none}
         .note-action {display:flex;align-items:center;gap:5px;
           min-height:34px;padding:4px 8px;white-space:nowrap;font-size:12px;font-weight:650;
-          background:var(--mf-surface);border-color:var(--mf-accent);box-shadow:0 2px 8px #332c2220}
+          background:var(--c-surface);border-color:var(--c-accent);box-shadow:0 2px 8px #00000020}
         .note-actions[data-below] .note-action {
           min-height:0;height:calc(26px * var(--note-action-zoom, 1));
           padding:0 calc(10px * var(--note-action-zoom, 1));
@@ -207,81 +258,92 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         .note-action svg {width:16px;height:16px}
         .note-ai-mark {pointer-events:none}
         .note-ai-result {pointer-events:auto}
-        .note-ai-spinner {fill:none;stroke:var(--mf-accent);stroke-width:2.2;stroke-dasharray:18 12;
+        .note-ai-spinner {fill:none;stroke:var(--c-accent);stroke-width:2.2;stroke-dasharray:18 12;
           transform-box:fill-box;transform-origin:center;animation:note-ai-spin .85s linear infinite}
         @keyframes note-ai-spin {to {transform:rotate(360deg)}}
         @media (prefers-reduced-motion:reduce) {.note-ai-spinner {animation:none}}
         .peer-cursor {padding:3px 7px;margin:12px 0 0 12px;border-radius:6px;background:var(--peer-color,#185d78);color:var(--peer-ink,#fff);font-size:12px;white-space:nowrap}
         .peer-cursor::before {content:'';position:absolute;left:-10px;top:-10px;width:14px;height:18px;background:inherit;clip-path:polygon(0 0,100% 60%,53% 64%,35% 100%)}
         .peer-focus {border:2px dashed var(--peer-outline,#185d78);border-radius:8px;box-sizing:border-box}
-        .status {position:absolute;inset:auto 12px 8px;pointer-events:none;border-radius:10px;margin:0;padding:8px 12px;background:var(--mf-surface);border-top:1px solid #d9e2ec;min-height:38px}
-        .panel > .repo-link {display:block;margin:0 14px;padding:12px 0;color:var(--mf-stroke);
-          font-size:12px;text-decoration:none;border-top:1px solid #e7e2dc;width:fit-content}
-        .panel > .repo-link:hover {color:var(--mf-accent);text-decoration:underline}
-        .panel > .repo-link:focus-visible {outline:2px solid var(--mf-accent);outline-offset:2px}
-        .panel details {padding:14px;background:var(--mf-surface)}
-        .panel details + details {border-top:1px solid #d9e2ec}
+        .status {position:absolute;inset:auto 12px 8px;pointer-events:none;border-radius:10px;margin:0;padding:8px 12px;background:var(--c-surface);border-top:1px solid var(--c-border);min-height:38px}
+        .panel > .repo-link {display:block;margin:0 14px;padding:12px 0;color:var(--c-stroke);
+          font-size:12px;text-decoration:none;border-top:1px solid var(--c-border);width:fit-content}
+        .panel > .repo-link:hover {color:var(--c-accent);text-decoration:underline}
+        .panel > .repo-link:focus-visible {outline:2px solid var(--c-focus);outline-offset:2px}
+        .panel details {padding:14px;background:var(--c-surface)}
+        .panel details + details {border-top:1px solid var(--c-border)}
         .header-actions {position:absolute;z-index:2;inset:auto 12px 54px;display:flex;gap:6px;flex-wrap:wrap;pointer-events:none}
         .header-actions button {pointer-events:auto}
         .view-actions {display:inline-flex;gap:6px}
         .view-actions:not(:has(button:not([hidden]))) {display:none}
         .export-group {margin-top:14px}
-        .export-group + .export-group {border-top:1px solid #d9e2ec;padding-top:12px}
+        .export-group + .export-group {border-top:1px solid var(--c-border);padding-top:12px}
         .connection-actions {position:absolute;z-index:1;white-space:nowrap}
-        .connection-actions button {min-height:44px;box-shadow:0 2px 8px #20304420}
+        .connection-actions button {min-height:44px;box-shadow:0 2px 8px #00000020}
         .endpoint-handle {position:absolute;z-index:2;width:44px;height:44px;padding:0;transform:translate(-50%,-50%);
           background:transparent;border:0;cursor:grab;touch-action:none}
         .endpoint-handle::after {content:'';display:block;width:13px;height:13px;margin:auto;
-          border:2px solid var(--mf-accent);border-radius:50%;background:var(--mf-surface)}
+          border:2px solid var(--c-accent);border-radius:50%;background:var(--c-surface)}
         .endpoint-handle:active {cursor:grabbing}
         .bend-handle {position:absolute;z-index:1;width:44px;height:44px;padding:0;transform:translate(-50%,-50%);background:transparent;border:0;cursor:grab;touch-action:none}
-        .bend-handle::after {content:'';display:block;width:14px;height:14px;margin:auto;border:2px solid var(--mf-accent);border-radius:50%;background:var(--mf-surface)}
-        .dock-layout {border:0;border-radius:0;background:var(--mf-canvas);--dock-height:64px;--dock-bottom:calc(12px + env(safe-area-inset-bottom, 0px))}
+        .bend-handle::after {content:'';display:block;width:14px;height:14px;margin:auto;border:2px solid var(--c-accent);border-radius:50%;background:var(--c-surface)}
+        .dock-layout {border:0;border-radius:0;background:var(--c-canvas);--dock-height:64px;--dock-bottom:calc(12px + env(safe-area-inset-bottom, 0px))}
         .dock-layout .toolbar {inset:auto 8px var(--dock-bottom);max-width:calc(100% - 16px);
-          justify-content:center;gap:6px;padding:8px;border:1px solid #ded9d2;border-radius:18px;
-          box-shadow:0 3px 14px #332c2212}
+          justify-content:center;gap:6px;padding:8px;border:1px solid var(--c-border);border-radius:18px;
+          box-shadow:0 3px 14px #00000014}
         .toolbar button, .connection-actions button, .header-actions button {display:inline-flex;align-items:center;gap:7px}
         .toolbar svg, .connection-actions svg, .header-actions svg {width:18px;height:18px;flex:none}
-        .dock-layout .toolbar {gap:8px;padding:10px;background:#fcfaf7;box-shadow:0 4px 12px #332c221c}
-        .dock-layout .toolbar button {min-height:44px;padding:8px 12px;border-color:#e7e2dc;border-radius:10px;font-weight:550}
+        .dock-layout .toolbar {gap:8px;padding:10px;background:var(--c-surface);box-shadow:0 4px 12px #0000001c}
+        .dock-layout .toolbar button {min-height:44px;padding:8px 12px;border-color:var(--c-border);border-radius:10px;font-weight:550}
         .dock-layout .toolbar button svg {width:22px;height:22px;stroke-width:1.65}
         .dock-layout .toolbar [data-delete]:disabled {display:none}
         .dock-layout .scroll > svg text {font-weight:650}
         .dock-layout .scroll > svg text[data-edge-label] {font-weight:550}
-        .dock-layout .toolbar button:hover:not(:disabled) {background:#f5f1eb}
-        .dock-layout .toolbar button[aria-pressed=true] {background:#dcf3ed;border-color:var(--mf-accent)}
-        .dock-layout button:focus-visible {outline:2px solid var(--mf-accent);outline-offset:2px}
-        .dock-layout kbd {background:#fff;color:#5e6562;border-color:#ded9d2}
+        .dock-layout .toolbar button:hover:not(:disabled) {background:var(--c-hover)}
+        .dock-layout .toolbar button[aria-pressed=true] {background:var(--c-accent-soft);border-color:var(--c-accent);color:var(--c-accent-ink)}
+        .dock-layout button:focus-visible {outline:2px solid var(--c-focus);outline-offset:2px}
+        .dock-layout kbd {background:var(--c-surface);color:var(--c-muted);border-color:var(--c-border)}
         .dock-layout .toolbar label {display:flex;align-items:center;gap:7px;padding:0 9px;min-height:44px;
-          border-inline-start:1px solid #e7e2dc;white-space:nowrap;font-size:13px}
+          border-inline-start:1px solid var(--c-border);white-space:nowrap;font-size:13px}
         .dock-layout .toolbar label input {order:1;appearance:none;position:relative;width:34px;height:20px;
-          border-radius:20px;padding:0;background:#d9d6d1;border:1px solid #aaa59e;cursor:pointer}
-        .dock-layout .toolbar label input:checked {background:var(--mf-accent);border-color:var(--mf-accent)}
+          border-radius:20px;padding:0;background:var(--c-border);border:1px solid var(--c-muted);cursor:pointer}
+        .dock-layout .toolbar label input:checked {background:var(--c-accent);border-color:var(--c-accent)}
         .dock-layout .toolbar label input::after {content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;
-          background:white;border-radius:50%}
+          background:var(--c-surface);border-radius:50%}
         .dock-layout .toolbar label input:checked::after {left:16px}
-        .dock-layout .toolbar label input:focus-visible {outline:2px solid var(--mf-accent);outline-offset:2px}
-        .dock-layout .toolbar input {accent-color:var(--mf-accent);width:17px;height:17px;margin:0}
+        .dock-layout .toolbar label input:focus-visible {outline:2px solid var(--c-focus);outline-offset:2px}
+        .dock-layout .toolbar input {accent-color:var(--c-accent);width:17px;height:17px;margin:0}
         .dock-layout .status {inset:8px auto auto 12px;min-height:0;max-width:calc(100% - 24px);
-          padding:6px 9px;border:0;background:var(--mf-canvas);color:var(--mf-stroke);font-size:12px}
+          padding:6px 9px;border:0;background:var(--c-canvas);color:var(--c-muted);font-size:12px}
         .dock-layout .panel {inset:12px 12px calc(var(--dock-height) + var(--dock-bottom) + 8px) auto;
-          max-height:none;border-radius:14px;border:1px solid #ded9d2;box-shadow:0 4px 16px #332c2220;
+          max-height:none;border-radius:14px;border:1px solid var(--c-border);box-shadow:0 4px 16px #00000020;
           width:min(350px,calc(100% - 24px))}
-        .dock-layout .connection-actions button {background:#e4f4ee;border-color:#a7cfc4}
+        .dock-layout .connection-actions button {background:var(--c-accent-soft);border-color:var(--c-accent);color:var(--c-accent-ink)}
         @media (min-width: 850px) {
           .dock-layout:has(.panel:not([hidden])) .status {max-width:calc(100% - 374px)}
         }
         @media (max-width: 550px) {
-          .dock-layout .toolbar {gap:4px;padding:5px}
-          .dock-layout .toolbar button {padding:6px 8px;gap:4px}
-          .dock-layout .toolbar button svg {width:16px;height:16px}
+          .dock-layout {--dock-bottom:calc(24px + env(safe-area-inset-bottom, 0px))}
+          .dock-layout .toolbar {inset:auto 0 var(--dock-bottom);margin:0 auto;width:max-content;max-width:calc(100% - 32px);
+            flex-wrap:nowrap;justify-content:flex-start;overflow-x:auto;gap:4px;padding:6px;border-radius:16px;scrollbar-width:none;
+            -webkit-touch-callout:none;user-select:none}
+          .dock-layout .toolbar button {flex:none;width:44px;height:44px;min-height:44px;padding:0;justify-content:center}
+          .dock-layout .toolbar button > span {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+          .dock-layout .toolbar button svg {width:22px;height:22px}
           .dock-layout .toolbar kbd {display:none}
           .dock-layout .status {font-size:11px}
         }
+        @media (pointer: coarse) {
+          .dock-layout .toolbar kbd {display:none}
+          .dock-layout .status {inset:8px 16px auto;margin:0 auto;width:fit-content;max-width:calc(100% - 32px);
+            padding:6px 12px;border:1px solid var(--c-border);border-radius:999px;background:var(--c-surface);text-align:center;font-size:12px}
+        }
+        .dock-tooltip {position:absolute;z-index:4;transform:translate(-50%,-100%);padding:6px 10px;border-radius:8px;
+          background:var(--c-text);color:var(--c-surface);font-size:13px;white-space:nowrap;pointer-events:none}
         .panel-actions {display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
         .panel textarea {margin:10px 0 0}
         summary {cursor:pointer}
-        textarea {background:var(--mf-surface);color:var(--mf-text);color-scheme:light;border:1px solid #bdcbd9;border-radius:8px;padding:10px;display:block;width:100%;min-height:155px;margin:10px 0;font:14px ui-monospace,monospace}
+        textarea {background:var(--c-surface);color:var(--c-text);border:1px solid var(--c-border);border-radius:8px;padding:10px;display:block;width:100%;min-height:155px;margin:10px 0;font:14px ui-monospace,monospace}
       </style>
       <section class="frame" aria-label="Flowchart editor">
         <div class="toolbar">
@@ -349,7 +411,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       const [ , x, y, start] = point;
       if (!previous || start) return;
       const mark = element('line', { x1: previous[1], y1: previous[2], x2: x, y2: y,
-        stroke: '#e62649', 'stroke-width': 4, 'stroke-linecap': 'butt', 'vector-effect': 'non-scaling-stroke' });
+        stroke: palette.laser, 'stroke-width': 4, 'stroke-linecap': 'butt', 'vector-effect': 'non-scaling-stroke' });
       mark.setAttribute('class', 'laser-mark');
       mark.addEventListener('animationend', () => mark.remove(), { once: true });
       laserLayer.append(mark);
@@ -431,8 +493,9 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       return `hsl(${hue} 65% 86%)`;
     }
     function noteFill(id) {
-      const hue = guestHue(noteOwners[id]);
-      return hue === undefined ? (palette.note ?? '#fff4ae') : guestFill(hue);
+      const color = noteOwners[id];
+      if (!Number.isSafeInteger(color) || color < 1) return palette.note;
+      return palette.guests[(color - 1) % palette.guests.length] ?? palette.note;
     }
     function setNoteColors(colors) {
       noteOwners = colors;
@@ -667,6 +730,39 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     get('[data-fit]').onclick = fit;
     const frame = get('.frame');
     const toolbar = get('.toolbar');
+    // Touch: long-press a tool to see its name. Releasing after the tooltip shows does not activate the tool.
+    const dockTooltip = document.createElement('div');
+    dockTooltip.className = 'dock-tooltip';
+    dockTooltip.setAttribute('role', 'tooltip');
+    dockTooltip.hidden = true;
+    frame.append(dockTooltip);
+    let pressTimer, longPressed = false;
+    function hideDockTooltip() {
+      clearTimeout(pressTimer);
+      dockTooltip.hidden = true;
+    }
+    toolbar.addEventListener('pointerdown', event => {
+      const button = event.target.closest('button');
+      longPressed = false;
+      if (event.pointerType !== 'touch' || !button) return;
+      hideDockTooltip();
+      pressTimer = setTimeout(() => {
+        longPressed = true;
+        const box = button.getBoundingClientRect(), base = frame.getBoundingClientRect();
+        dockTooltip.textContent = button.querySelector('span')?.textContent ?? button.title;
+        dockTooltip.style.left = (box.left + box.width / 2 - base.left) + 'px';
+        dockTooltip.style.top = (box.top - base.top - 8) + 'px';
+        dockTooltip.hidden = false;
+      }, 500);
+    });
+    for (const type of ['pointerup', 'pointercancel', 'pointerleave']) toolbar.addEventListener(type, hideDockTooltip);
+    toolbar.addEventListener('contextmenu', event => { if (longPressed) event.preventDefault(); });
+    toolbar.addEventListener('click', event => {
+      if (!longPressed) return;
+      longPressed = false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, true);
     const dockLayout = layout === 'dock';
     if (dockLayout) frame.classList.add('dock-layout');
     const observer = new ResizeObserver(() => {
@@ -1128,7 +1224,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       onSelection?.(item?.type ? { id: item.id, type: item.type } : null);
       publishPresence();
     }
-    function render(focus, includeDrafts = true) {
+    function render(focus, includeDrafts = true, colors = readPalette()) {
+      palette = colors;
       renderPeerActivities();
       svg.replaceChildren();
       const defs = element('defs', {});
@@ -1214,7 +1311,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
           const box = label.getBBox();
           group.insertBefore(element('rect', {
             x: box.x - 6, y: box.y - 3, width: box.width + 12, height: box.height + 6,
-            rx: 6, fill: '#eee9e3', visibility, 'data-edge-badge': ''
+            rx: 6, fill: palette.edgeLabel, visibility, 'data-edge-badge': ''
           }), label);
         }
         if (focus === edge) group.focus();
@@ -1265,7 +1362,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         };
         if (highlighted.has(node)) {
           group.append(element('rect', { x: -w - 6, y: -h - 6, width: w * 2 + 12, height: h * 2 + 12,
-            rx: 8, fill: 'none', stroke: palette.accent, 'stroke-width': 3, opacity: .7,
+            rx: 8, fill: 'none', stroke: palette.highlight, 'stroke-width': 3, opacity: .7,
             'pointer-events': 'none', 'data-update-highlight': '' }));
         }
         const custom = Object.hasOwn(extraShapes, node.type) ? extraShapes[node.type] : undefined;
@@ -1340,7 +1437,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         const node = { type: draft.type, label: draft.text };
         const w = radius(node), h = height(node);
         const ghost = element('g', { transform: `translate(${x} ${y})`, opacity: .7, 'pointer-events': 'none' });
-        const paint = { fill: node.type === 'note' ? '#fff4ae' : palette[node.type] ?? palette.step,
+        const paint = { fill: node.type === 'note' ? palette.note : palette[node.type] ?? palette.step,
           stroke: palette.accent, 'stroke-dasharray': '4 4' };
         ghost.append(node.type === 'decision'
           ? element('polygon', { points: `0,${-h} ${w},0 0,${h} ${-w},0`, ...paint })
@@ -1801,14 +1898,14 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       status('Source edits discarded.');
     };
     function exportSvg() {
-      if (remoteDrafts.length) render(undefined, false);
+      // Exports always use the light palette, whatever theme the editor shows.
+      render(undefined, false, exportPalette());
       const copy = svg.cloneNode(true);
       for (const highlight of copy.querySelectorAll('[data-update-highlight]')) highlight.remove();
       for (const badge of copy.querySelectorAll('.note-ai-mark')) badge.remove();
       const box = svg.getBBox();
-      if (remoteDrafts.length) render();
       for (const shape of copy.querySelectorAll('[data-note-fill]')) {
-        shape.setAttribute('fill', palette.note ?? '#fff4ae');
+        shape.setAttribute('fill', palette.note);
       }
       const width = Math.ceil(box.width + 48), height = Math.ceil(box.height + 48);
       copy.setAttribute('width', width);
@@ -1829,6 +1926,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         if (shape.hasAttribute('marker-end')) shape.setAttribute('marker-end', 'url(#arrow)');
       }
       copy.prepend(element('rect', { x: box.x - 24, y: box.y - 24, width, height, fill: palette.canvas }));
+      render();
       return new Blob([new XMLSerializer().serializeToString(copy)], { type: 'image/svg+xml;charset=utf-8' });
     }
     function download(blob, extension) {
@@ -1916,12 +2014,17 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       current = snapshot();
     }
     host.append(root);
+    const colorScheme = globalThis.matchMedia?.('(prefers-color-scheme: dark)');
+    const rerenderTheme = () => render();
+    colorScheme?.addEventListener?.('change', rerenderTheme);
     if (dockLayout) frame.style.setProperty('--dock-height', toolbar.offsetHeight + 'px');
     syncSource();
-    status('Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
+    status(globalThis.matchMedia?.('(pointer: coarse)').matches
+      ? 'Pinch to zoom · Drag empty space to pan · Double-tap to edit a label'
+      : 'Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
     render();
     fit();
-    return { getMermaid: sourceText, setMermaid, getProject, setProject, setPeerPresence, setNoteColors, setNoteAction, setAIRequests, setHistoryEnabled, isInteracting: () => Boolean(drag || bendDrag || reconnect || editing), undo, redo, fit, autoLayout, exportSvg, exportPng, exportMarkdown, destroy: () => { clearTimeout(updateTimer); clearTimeout(laserTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
+    return { getMermaid: sourceText, setMermaid, getProject, setProject, setPeerPresence, setNoteColors, setNoteAction, setAIRequests, setHistoryEnabled, isInteracting: () => Boolean(drag || bendDrag || reconnect || editing), undo, redo, fit, autoLayout, exportSvg, exportPng, exportMarkdown, destroy: () => { colorScheme?.removeEventListener?.('change', rerenderTheme); clearTimeout(pressTimer); clearTimeout(updateTimer); clearTimeout(laserTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
   }
 
   globalThis.MiniFlow = { mount, parse, stringify };

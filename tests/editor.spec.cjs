@@ -385,3 +385,95 @@ test('Mermaid source restores the exact layout on a blank board', async ({ page 
   await page.getByRole('button', { name: 'Apply source' }).click();
   expect(await page.evaluate(() => miniFlowEditor.getProject())).toEqual(before);
 });
+
+const stepFill = page => page.evaluate(() => {
+  const root = document.querySelector('#editor > div').shadowRoot;
+  return [...root.querySelectorAll('svg rect')].find(rect => rect.getAttribute('rx') === '4')?.getAttribute('fill');
+});
+
+test('follows the system theme and always exports the light palette', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect.poll(() => stepFill(page)).toBe('#ffffff');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect.poll(() => stepFill(page)).toBe('#232b29');
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(21, 26, 25)');
+  const exported = await page.evaluate(() => miniFlowEditor.exportSvg().text());
+  expect(exported).toContain('fill="#ffffff"');
+  expect(exported).toContain('fill="#faf8f5"');
+  expect(exported).not.toContain('#232b29');
+  expect(await stepFill(page)).toBe('#232b29');
+});
+
+test('an embed can force a theme and still override colors', async ({ page }) => {
+  const fills = await page.evaluate(() => {
+    const read = theme => {
+      const host = document.createElement('div');
+      document.body.append(host);
+      const editor = MiniFlow.mount(host, 'flowchart TD\n    A["One"]', {}, { theme, colors: { accent: '#123456' } });
+      const root = host.firstElementChild;
+      const style = getComputedStyle(root);
+      const result = { step: style.getPropertyValue('--c-step').trim(), accent: style.getPropertyValue('--c-accent').trim() };
+      editor.destroy();
+      host.remove();
+      return result;
+    };
+    return { dark: read('dark'), light: read('light') };
+  });
+  expect(fills.light.accent).toBe('#123456');
+  expect(fills.dark.accent).toBe('#123456');
+});
+
+test('phone layout fits the header and dock on one row each', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const header = await page.locator('header').boundingBox();
+  expect(header.height).toBeLessThanOrEqual(60);
+  await expect(page.getByRole('button', { name: 'Start blank' })).toBeHidden();
+  const dock = await page.evaluate(() => {
+    const toolbar = document.querySelector('#editor > div').shadowRoot.querySelector('.toolbar');
+    const buttons = [...toolbar.querySelectorAll('button')].filter(button => button.offsetParent);
+    return { height: toolbar.getBoundingClientRect().height,
+      sizes: buttons.map(button => [button.offsetWidth, button.offsetHeight]) };
+  });
+  expect(dock.height).toBeLessThan(70);
+  for (const [width, height] of dock.sizes) {
+    expect(width).toBeGreaterThanOrEqual(44);
+    expect(height).toBeGreaterThanOrEqual(44);
+  }
+  await page.getByRole('button', { name: 'More actions' }).click();
+  const menu = page.getByRole('menu', { name: 'More actions' });
+  await expect(menu.getByRole('menuitemcheckbox', { name: 'Snap to grid' })).toBeVisible();
+  for (const name of ['Auto layout', 'Fit to screen', 'Copy link', 'Live session', 'Projects', 'Code & export', 'Start blank']) {
+    await expect(menu.getByRole('menuitem', { name })).toBeVisible();
+  }
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await menu.getByRole('menuitem', { name: 'Projects' }).click();
+  await expect(menu).toBeHidden();
+  const sheet = page.locator('#saved-projects');
+  await expect(sheet).toBeVisible();
+  const box = await sheet.boundingBox();
+  expect(box.width).toBe(375);
+  expect(box.y + box.height).toBeCloseTo(812, 0);
+  await page.locator('.sheet-scrim').click({ position: { x: 20, y: 20 } });
+  await expect(sheet).toBeHidden();
+});
+
+test('Start blank shows an undo toast that restores the board', async ({ page }) => {
+  const before = await page.evaluate(() => miniFlowEditor.getProject());
+  const blank = page.getByRole('button', { name: 'Start blank' });
+  await blank.click();
+  const toast = page.locator('#toast-region .toast');
+  await expect(toast).toContainText('Board cleared. 9 blocks removed.');
+  await expect(blank).toHaveAttribute('aria-disabled', 'true');
+  await expect(blank).toHaveAttribute('title', 'Board is already empty');
+  await toast.getByRole('button', { name: 'Undo' }).click();
+  await expect(toast).toBeHidden();
+  expect(await page.evaluate(() => miniFlowEditor.getProject())).toEqual(before);
+  await blank.click();
+  await expect(toast).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(toast).toBeHidden();
+  await page.getByRole('button', { name: 'Undo' }).first().click();
+  expect(await page.evaluate(() => miniFlowEditor.getProject())).toEqual(before);
+});

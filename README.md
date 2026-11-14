@@ -108,10 +108,24 @@ Feature switches default to enabled. Disable any of create, connect, delete,
 edit, move, pan, zoom, fit, snap, history, shortcuts, laser, source, exports, or project.
 These switches control the UI. The SDK still exposes explicit methods for
 host-driven imports and exports. The tools array lists the shape buttons to
-show. Theme keys include canvas, grid, text, surface, stroke, accent, and shape
-type names. Extra shapes supply unique Mermaid delimiters and an SVG drawing
+show. Extra shapes supply unique Mermaid delimiters and an SVG drawing
 callback centered at the origin. Register the same shapes when reopening
 projects that use them.
+
+### Colors and themes
+
+The editor follows the system light or dark setting. Pass `theme: 'light'` or
+`theme: 'dark'` to fix one. Color keys are canvas, grid, text, surface, stroke,
+accent, terminal, step, decision, note, border, hover, muted, onAccent,
+accentInk, accentSoft, focus, good, warn, danger, highlight, laser, edgeLabel,
+`guests` (an array of up to four guest note fills), and extra shape type names.
+A color you pass applies in both themes.
+
+The editor also reads the `--mf-*` custom properties from the page, such as
+`--mf-accent`, `--mf-ink` for text, and `--mf-guest-1`. Link [tokens.css](./tokens.css)
+to theme your page and the editor from one set of light and dark values, as the
+demo does. When the page defines these properties, its own theme rules decide
+light or dark. Exported PNG and SVG files always use the light colors.
 
 ## Agent integration
 

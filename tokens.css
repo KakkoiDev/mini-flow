@@ -1,0 +1,113 @@
+/* Mini Flow design tokens v1. One set for the demo shell and the SDK canvas.
+   Light values on :root; dark under prefers-color-scheme (guarded) and [data-theme="dark"].
+   The SDK reads the same --mf-* properties inside its Shadow DOM (they inherit through the shadow root). */
+:root {
+  --mf-canvas: #faf8f5;
+  --mf-surface: #ffffff;
+  --mf-grid: #d6cfc5;
+  --mf-border: #ded9d2;
+  --mf-hover: #f0ece6;
+  --mf-ink: #242b29;
+  --mf-muted: #5e6864;
+  --mf-on-accent: #ffffff;
+  --mf-accent: #087f71;
+  --mf-accent-ink: #066b5f;
+  --mf-accent-soft: #e4f4ee;
+  --mf-focus: #066b5f;
+  --mf-good: #1f7a3d;
+  --mf-warn: #9a5b00;
+  --mf-danger: #b42318;
+  --mf-highlight: #e07b00;
+  --mf-laser: #e11d48;
+  --mf-stroke: #5b6662;
+  --mf-edge-label: #efebe5;
+  --mf-terminal: #d7efe6;
+  --mf-step: #ffffff;
+  --mf-decision: #fbefd0;
+  --mf-note: #fff3b0;
+  --mf-guest-1: #e9defa;
+  --mf-guest-2: #fadce4;
+  --mf-guest-3: #d9ecfb;
+  --mf-guest-4: #e6f0c4;
+  --mf-toast-bg: #242b29;
+  --mf-toast-ink: #faf8f5;
+  --mf-toast-action: #7fe0cf;
+
+  --mf-radius-control: 8px;
+  --mf-radius-panel: 12px;
+  --mf-radius-dock: 16px;
+  --mf-target: 38px;
+  --mf-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mf-font-size: 15px;
+}
+@media (max-width: 550px), (pointer: coarse) {
+  :root { --mf-target: 44px; }
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --mf-canvas: #151a19;
+    --mf-surface: #1d2422;
+    --mf-grid: #2f3836;
+    --mf-border: #2f3936;
+    --mf-hover: #26302d;
+    --mf-ink: #e6ebe8;
+    --mf-muted: #9aa6a1;
+    --mf-on-accent: #0b1513;
+    --mf-accent: #4cc3b0;
+    --mf-accent-ink: #6fd6c4;
+    --mf-accent-soft: #173a34;
+    --mf-focus: #7fe0cf;
+    --mf-good: #5cc98a;
+    --mf-warn: #f0b75a;
+    --mf-danger: #ff8a7a;
+    --mf-highlight: #f5a524;
+    --mf-laser: #ff5c7a;
+    --mf-stroke: #8d9a95;
+    --mf-edge-label: #2a3330;
+    --mf-terminal: #1f3d34;
+    --mf-step: #232b29;
+    --mf-decision: #3d3220;
+    --mf-note: #403a1c;
+    --mf-guest-1: #352c48;
+    --mf-guest-2: #452a33;
+    --mf-guest-3: #1f3346;
+    --mf-guest-4: #33391d;
+    --mf-toast-bg: #e6ebe8;
+    --mf-toast-ink: #151a19;
+    --mf-toast-action: #066b5f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --mf-canvas: #151a19;
+  --mf-surface: #1d2422;
+  --mf-grid: #2f3836;
+  --mf-border: #2f3936;
+  --mf-hover: #26302d;
+  --mf-ink: #e6ebe8;
+  --mf-muted: #9aa6a1;
+  --mf-on-accent: #0b1513;
+  --mf-accent: #4cc3b0;
+  --mf-accent-ink: #6fd6c4;
+  --mf-accent-soft: #173a34;
+  --mf-focus: #7fe0cf;
+  --mf-good: #5cc98a;
+  --mf-warn: #f0b75a;
+  --mf-danger: #ff8a7a;
+  --mf-highlight: #f5a524;
+  --mf-laser: #ff5c7a;
+  --mf-stroke: #8d9a95;
+  --mf-edge-label: #2a3330;
+  --mf-terminal: #1f3d34;
+  --mf-step: #232b29;
+  --mf-decision: #3d3220;
+  --mf-note: #403a1c;
+  --mf-guest-1: #352c48;
+  --mf-guest-2: #452a33;
+  --mf-guest-3: #1f3346;
+  --mf-guest-4: #33391d;
+  --mf-toast-bg: #e6ebe8;
+  --mf-toast-ink: #151a19;
+  --mf-toast-action: #066b5f;
+  color-scheme: dark;
+}
