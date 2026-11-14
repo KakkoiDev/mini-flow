@@ -139,7 +139,8 @@ test('select, edit, delete, and restore a shape', async ({ page }) => {
   await expect(node).toBeVisible();
   await node.dblclick();
   const label = page.getByRole('textbox', { name: /Edit diagram label/ });
-  await label.press('End');
+  // ArrowRight collapses the selection to the end on every platform; End does not move the caret in WebKit on macOS.
+  await label.press('ArrowRight');
   await label.press('Shift+Enter');
   await page.keyboard.insertText('Next line');
   await label.press('Enter');
@@ -222,7 +223,12 @@ test('reconnect an endpoint and undo it', async ({ page }) => {
     host.scrollIntoView();
   });
   const host = page.locator('#sdk-reconnect');
-  await host.getByRole('button', { name: 'Arrow from Source to First', exact: true }).click();
+  // WebKit measures SVG groups differently (a horizontal arrow has no height), so click the middle of the drawn line.
+  const arrowPoint = await host.getByRole('button', { name: 'Arrow from Source to First', exact: true }).evaluate(group => {
+    const line = group.querySelector('path').getBoundingClientRect();
+    return [line.x + line.width / 2, line.y + line.height / 2];
+  });
+  await page.mouse.click(...arrowPoint);
   const handle = host.getByRole('button', { name: 'Reconnect destination', exact: true });
   const box = await handle.boundingBox();
   const target = await host.getByRole('button', { name: 'step: Second', exact: true }).boundingBox();
