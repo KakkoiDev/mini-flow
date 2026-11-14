@@ -722,8 +722,9 @@ export async function connectAsAgent(invite, { WebSocketImpl = globalThis.WebSoc
   const Socket = origin ? class extends WebSocketImpl {
     constructor(url, protocols) { super(url, { protocols, headers: { Origin: origin } }); }
   } : WebSocketImpl;
+  // A fresh peer ID per connection: a reconnect must not be mistaken for the previous connection leaving.
   const raw = joinRoom({ app: 'mini-flow-live', room: invite.room, password: invite.password, mode: 'online', protocol: liveProtocol,
-    maxPeers: 1, server: { url: invite.relay ?? defaultRelayUrl, roomInUrl: true, WebSocketImpl: Socket },
+    selfId: 'agent-' + id(), maxPeers: 1, server: { url: invite.relay ?? defaultRelayUrl, roomInUrl: true, WebSocketImpl: Socket },
     transports: { relays: false, pair: false, tabs: false },
     maxMessageBytes, rateLimit: 60, kinds, profile: { role: 'agent' },
     acceptPeer: async peer => {
