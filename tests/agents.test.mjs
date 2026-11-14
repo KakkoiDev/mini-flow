@@ -133,7 +133,7 @@ test('the live host routes agent peers to the hub and keeps them out of the gues
   const agentRoom = join('agent');
   try {
     await network.settle();
-    assert.deepEqual(counts, { human: 0 });
+    assert.deepEqual(counts, { human: 0, agents: [] });
     const results = new Map();
     agentRoom.onMessage('ask', data => { if (data?.type === 'agent_result') results.set(data.id, data.result); });
     const host = agentRoom.peers()[0].id;
@@ -151,7 +151,7 @@ test('the live host routes agent peers to the hub and keeps them out of the gues
     agentRoom.leave();
     await network.settle();
     assert.equal(left.length, 1);
-    assert.deepEqual(counts, { human: 0 });
+    assert.deepEqual(counts, { human: 0, agents: [] });
   } finally {
     session.stop();
     agentRoom.leave();
@@ -160,4 +160,21 @@ test('the live host routes agent peers to the hub and keeps them out of the gues
 
 test('the helper manifest matches the files it lists', () => {
   execFileSync(process.execPath, [fileURLToPath(new URL('../tools/agent-manifest.mjs', import.meta.url)), '--check']);
+});
+
+test('Ask AI prefers the chosen agent, then a listening one', async () => {
+  const { pickAgent } = await import('../mini-flow-agents.js');
+  const agents = [{ name: 'Alpha', listening: false }, { name: 'Beta', listening: true }];
+  assert.equal(pickAgent(agents), 'Beta');
+  assert.equal(pickAgent(agents, 'Alpha'), 'Alpha');
+  assert.equal(pickAgent(agents, 'Gone'), 'Beta');
+  assert.equal(pickAgent([{ name: 'Alpha', listening: false }]), 'Alpha');
+  assert.equal(pickAgent([]), undefined);
+});
+
+test('cleans a command’s output before it is sent as an answer', async () => {
+  const { cleanWorkerOutput } = await import('../mini-flow-agents.js');
+  assert.equal(cleanWorkerOutput('\u001b[?25lThinking...\nhmm\n...done thinking.\n\nHello \u001b[1mthere\u001b[0m\r\n'), 'Hello there');
+  assert.equal(cleanWorkerOutput('<think>plan</think>\nAnswer'), 'Answer');
+  assert.equal(cleanWorkerOutput('  plain  '), 'plain');
 });

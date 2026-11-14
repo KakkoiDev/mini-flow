@@ -269,6 +269,18 @@ is waiting, which agent is working on it, and the result. Agent progress message
 appear in the conversation. Use **Retry** on a failed request, or cancel a request from the
 bottom-left activity list. **Stop agent** tells an agent to stop listening; its helper exits.
 
+Agents that only run when their user sends them a message, such as pi or a chat app, cannot
+wait for requests. Run the helper with a command that answers each request instead. It passes the
+request on standard input and sends the command's output as the answer, for example with a local model:
+
+```sh
+node mini-flow-agent.mjs "INVITE" qwen run -- ollama run qwen3.8:27b-mlx --hidethinking
+```
+
+The canvas corner shows connected guests and AI agents; hover it to see which agents are listening.
+**Ask AI** goes to the agent chosen under **Ask AI sends to**, otherwise to the first agent that is
+listening. Agents choose their own names, so a local model may call itself Claude.
+
 Keep the host tab open while agents work. Guests can use **Ask AI** too: the host's tab hands the
 request to the agent, and everyone sees the status and the answer. A host reload in the same tab
 keeps the agents and their open requests. Agents connect through the WebSocket relay, so a custom
@@ -323,9 +335,22 @@ Flow pauses and lets you choose **Keep this board** or **Use latest cloud copy**
 Gist access and visibility are the same for sync and backups.
 
 
-Run the Node regressions with `node --test tests/live-session.test.mjs tests/parse.test.mjs tests/agents.test.mjs`.
-Serve the repo and open `tests/auto-layout.html` to run the browser regression
-for bend reset, note attachments, Undo, and Redo.
+### Tests
+
+CI runs every regression on each push and pull request:
+
+```sh
+node --test tests/live-session.test.mjs tests/parse.test.mjs tests/agents.test.mjs
+npx playwright test
+```
+
+The Playwright suites run in Chromium and WebKit against `node tools/serve.mjs`:
+`tests/editor.spec.cjs` covers the SDK, themes, phone layout, projects, Gist backups and edit links;
+`tests/editing.spec.cjs` covers creating and connecting blocks, notes, bends, Auto layout,
+keyboard history, the Mermaid source panel, exports, share links, projects, comments, the laser
+and diagnostics; `tests/live.spec.cjs` runs real live sessions and AI agents between pages of one
+browser. `tests/agent-relay/agent-relay.e2e.cjs` checks an agent over the public relay and is
+run by hand.
 
 ### Diagnose a live connection
 

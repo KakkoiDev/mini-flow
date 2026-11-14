@@ -349,7 +349,7 @@
     "helper": "./mini-flow-agent.mjs",
     "manifest": "./mini-flow-agent.json",
     "about": "AI agents join a live session from a shell with the Node.js 22+ helper, through the session’s encrypted relay. The board owner copies the agent invite under Live session → AI agents.",
-    "commands": "check, join, listen [--timeout S], reply ID, progress ID, failed ID, done ID, board",
+    "commands": "check, join, listen [--timeout S], reply ID, progress ID, failed ID, done ID, board, run [--worker-timeout S] -- COMMAND",
     "request": "Who asked, the note and its target, the latest 12 conversation messages, and the board as Mermaid with block positions.",
     "editBlock": "To change the board, answer with one fenced block named mini-flow-edit containing {\"message\": string, \"edits\": [...]}, using the add_node, add_arrow, rename_node, move_node and delete_node operations of apply_board_edit.",
     "review": "The owner reviews edits before they apply unless review is turned off."

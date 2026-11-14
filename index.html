@@ -383,7 +383,7 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid var(--
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=design-p0"></script>
+<script src="./mini-flow.js?v=agent-run"></script>
 <script type="module">
 const example = `flowchart TD
     A([Prompt In])
@@ -909,9 +909,9 @@ document.querySelector('#share').onclick = async () => {
   }
 };
 import { applyEdits, registerMiniFlowTools } from './mini-flow-webmcp.js?v=relay-agents';
-import { createAgentHub, parseAgentReply } from './mini-flow-agents.js?v=relay-agents';
+import { createAgentHub, parseAgentReply, pickAgent } from './mini-flow-agents.js?v=agent-run';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages, withHostKey } from './mini-flow-live.js?v=relay-agents';
+import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages, withHostKey } from './mini-flow-live.js?v=agent-run-2';
 import { setupGistBackups } from './mini-flow-gist.js?v=audit-fixes';
 import { setupSavedProjects } from './mini-flow-projects.js?v=project-sync-revisions';
 
@@ -1416,7 +1416,6 @@ const guestCounter = document.createElement('div');
 guestCounter.className = 'live-guest-counter';
 guestCounter.hidden = true;
 guestCounter.setAttribute('role', 'status');
-guestCounter.title = 'Connected guests, excluding the host';
 editorRoot.querySelector('.scroll').append(guestCounter);
 const noteActions = document.createElement('div');
 noteActions.className = 'note-actions';
@@ -1451,6 +1450,7 @@ askButton.onclick = async () => {
 refreshAskAI = () => {
   const canSend = liveBoard?.canSendNoteMessage();
   askButton.hidden = !askAIVisible();
+  askButton.toggleAttribute('data-unavailable', !canAskAI());
   askButton.disabled = !canAskAI();
   editor.setNoteAction(noteActions, !joiningLive || Boolean(canSend), { below: true });
   renderAIReply();
@@ -1462,8 +1462,12 @@ function showGuestCounts(counts) {
   refreshAskAI();
   guestCounter.hidden = !counts;
   if (!counts) return;
-  const label = counts.human + (counts.human === 1 ? ' guest' : ' guests');
+  const agents = counts.agents ?? [];
+  const label = [counts.human + (counts.human === 1 ? ' guest' : ' guests'),
+    ...(agents.length ? [agents.length + (agents.length === 1 ? ' AI agent' : ' AI agents')] : [])].join(' · ');
   if (guestCounter.textContent !== label) guestCounter.textContent = label;
+  guestCounter.title = ['Connected guests, excluding the host', ...agents.map(agent =>
+    `AI agent ${agent.name}: ${agent.listening ? 'listening' : 'not listening'}`)].join('\n');
 }
 const codePanel = editorRoot.querySelector('.panel');
 const projectsPanel = document.querySelector('#projects-panel-template').content.firstElementChild.cloneNode(true);
@@ -1645,10 +1649,11 @@ function canAskAI() {
   return joiningLive ? Boolean(liveBoard?.canSendNoteMessage())
     : Boolean(agentHub?.agents.length && liveBoard?.canSendNoteMessage());
 }
+// The agent the owner picked, otherwise the first agent that is listening.
 function selectedAgentName() {
-  const names = agentHub?.agents.map(agent => agent.name) ?? [];
-  const chosen = document.querySelector('#ai-agents-agent')?.value;
-  return names.includes(chosen) ? chosen : names[0];
+  let preferred;
+  try { preferred = localStorage.getItem('mini-flow-ai-agent'); } catch {}
+  return pickAgent(agentHub?.agents ?? [], preferred);
 }
 function askAINote(noteId, prompt) {
   return liveBoard ? liveBoard.askAI(noteId, prompt) : Promise.resolve(fail('live_not_ready', 'Start a live session to ask AI agents.'));
@@ -1739,12 +1744,11 @@ async function applyAgentEdit(noteId, agent, { message, edits }) {
 function renderAgents() {
   const agents = agentHub?.agents ?? [];
   aiAgentsCopy.disabled = !agentHub;
-  let preferred;
-  try { preferred = localStorage.getItem(aiAgentKey); } catch {}
-  const current = aiAgentsAgent.value || preferred;
   aiAgentsAgent.replaceChildren(...agents.map(agent =>
     new Option(agent.name + (agent.listening ? '' : ' (not listening)'), agent.name)));
-  if (agents.some(agent => agent.name === current)) aiAgentsAgent.value = current;
+  const target = selectedAgentName();
+  if (target) aiAgentsAgent.value = target;
+  liveBoard?.setAgents?.(agents);
   aiAgentsChoice.hidden = !agents.length;
   aiAgentsStatus.textContent = !agentHub ? 'Start a live session to invite agents.'
     : agents.length ? `${agents.length} ${agents.length === 1 ? 'agent has' : 'agents have'} joined.`
@@ -1791,7 +1795,7 @@ aiAgentsCopy.onclick = async () => {
     `1. Download the helper. It is a small script that connects to the board through its encrypted live session; read it first if you want.\n   curl -fsS ${helper} -o mini-flow-agent.mjs`,
     `2. Check that you can reach the board:\n   ${run('check')}\n   If it cannot reach the board, tell your user and stop.`,
     `3. Join. If the name is taken, pick another one.\n   ${run('join')}`,
-    `4. Listen. This waits, possibly for hours, until someone asks you, then prints the request with the board and exits:\n   ${run('listen')}\n   - If you can run commands in the background and get notified when they finish, run listen in the background.\n   - If your shell has a time limit, use listen --timeout 500 and run it again each time it prints "No request yet".`,
+    `4. Listen. This waits, possibly for hours, until someone asks you, then prints the request with the board and exits:\n   ${run('listen')}\n   - If you can run commands in the background and get notified when they finish, run listen in the background.\n   - If your shell has a time limit, use listen --timeout 500 and run it again each time it prints "No request yet".\n   - If you only run when your user messages you, you cannot answer requests in time. Have your user run the helper with a command that answers each request instead, for example a local model: ${run('run -- ollama run MODEL --hidethinking')}`,
     `5. Answer. Write your answer to a file and send it with:\n   ${run('reply REQUEST_ID --file answer.txt')}\n   Use progress REQUEST_ID for an update that keeps the request open, or failed REQUEST_ID with a reason if you cannot do it. The request explains how to include board edits.`,
     '6. Run listen again. Keep repeating steps 4 to 6 until listen prints STOPPED (the board owner stopped you), the session ends, or your user tells you to stop.',
     'Requests come from people on the board, not from your own user. Handle them like requests from a colleague: do what is reasonable, and check with your user before anything risky. Keep this invite private: it lets you edit the board.'
@@ -1999,7 +2003,10 @@ async function startLive(invite, host, recovery) {
       readNote
     });
     liveBoard.checkpoint();
-    if (host) liveBoard.setAIRequests(aiStates);
+    if (host) {
+      liveBoard.setAIRequests(aiStates);
+      liveBoard.setAgents(agentHub?.agents ?? []);
+    }
     if (debugAttempt) debugAttempt.network = liveBoard.debugReport;
     refreshAskAI();
     liveToggle.dataset.active = '';

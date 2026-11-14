@@ -62,7 +62,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
       tabId: 'guest', isReady: guest.session.ready, commitProject: guest.session.submit
     });
     assert.deepEqual([...tools.keys()].sort(), ['apply_board_edit', 'get_board']);
-    assert.deepEqual(host.counts(), { human: 2 });
+    assert.deepEqual(host.counts(), { human: 2, agents: [] });
     assert.deepEqual(await secondGuest.session.comment('N1', 'A comment before anyone asked AI'), { ok: true });
     const [guestComment] = host.threads.get('N1');
     assert.equal(guestComment.author, 'Guest 2');
@@ -112,6 +112,11 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     assert.equal(secondGuest.threads.get('N1').at(-1).text, 'Renamed the step.');
     assert.deepEqual(guest.threads.get('N1'), host.threads.get('N1'));
     assert.equal(guest.requests().N1.phase, 'result');
+    // The host shares its AI agents with guests for the canvas counter.
+    host.session.setAgents([{ name: 'Qwen', listening: true }, { name: 'x'.repeat(41), listening: true }]);
+    await network.settle();
+    assert.deepEqual(secondGuest.counts(), { human: 2, agents: [{ name: 'Qwen', listening: true }] });
+    host.session.setAgents([]);
     guest.session.setAIRequests?.({ N1: { phase: 'waiting', label: 'Forged' } });
     await network.settle();
     assert.equal(secondGuest.requests().N1.phase, 'result');
@@ -171,7 +176,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
     secondGuest.session.stop();
     await network.settle();
     assert.equal(guest.presence().some(peer => peer.id === secondGuest.id), false);
-    assert.deepEqual(host.counts(), { human: 1 });
+    assert.deepEqual(host.counts(), { human: 1, agents: [] });
     const storedReply = host.threads.get('N1')[0];
     const hostChange = { replyId: storedReply.replyId, previousText: storedReply.text, text: 'Edited after the guest left' };
     assert.deepEqual(await host.session.manageReply('N1', hostChange), { ok: true });

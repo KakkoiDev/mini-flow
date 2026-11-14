@@ -1,7 +1,7 @@
 module.exports = {
   testDir: './tests',
   webServer: {
-    command: 'python3 -m http.server 8765 --bind 127.0.0.1',
+    command: 'node tools/serve.mjs 8765',
     url: 'http://127.0.0.1:8765/'
   },
   projects: [{ name: 'chromium', use: { browserName: 'chromium' } },
