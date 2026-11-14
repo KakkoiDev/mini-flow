@@ -322,7 +322,7 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid #087f7
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=live-retry-relay"></script>
+<script src="./mini-flow.js?v=audit-fixes"></script>
 <script type="module">
 const example = `flowchart TD
     A([Prompt In])
@@ -736,8 +736,8 @@ reviewProposal(initialProposal);
 document.querySelector('#blank').onclick = () => {
   closeAIReply();
   replyDrafts.clear();
-  noteThreads.clear();
-  liveBoard?.replaceThreads(noteThreads);
+  // Keep threads in memory so Undo restores the notes with their comments.
+  // Saves and live publishes already include only threads for notes on the board.
   setActiveSavedProject(null);
   editor.setMermaid('flowchart TD');
   save('flowchart TD', {});
@@ -762,10 +762,10 @@ document.querySelector('#share').onclick = async () => {
     message.textContent = joiningLive ? 'Could not copy the board link.' : 'Copy the link from your address bar.';
   }
 };
-import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=ai-idle-setting';
+import { registerMiniFlowTools } from './mini-flow-webmcp.js?v=audit-fixes';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages } from './mini-flow-live.js?v=ai-idle-setting';
-import { setupGistBackups } from './mini-flow-gist.js?v=project-sync-revisions';
+import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages, withHostKey } from './mini-flow-live.js?v=audit-fixes';
+import { setupGistBackups } from './mini-flow-gist.js?v=audit-fixes';
 import { setupSavedProjects } from './mini-flow-projects.js?v=project-sync-revisions';
 
 const projectsButton = document.createElement('button');
@@ -1526,12 +1526,19 @@ liveToggle.onclick = () => {
   liveDialog.showModal();
 };
 startSession.onclick = () => {
-  try { void startLive(newLiveInvite(relayInput.value.trim()), true); }
+  let invite;
+  try { invite = newLiveInvite(relayInput.value.trim()); }
   catch {
     showStatus('Enter a secure relay URL such as wss://relay.example.org.');
     relaySetting.open = true;
     relayInput.focus();
+    return;
   }
+  startSession.disabled = true;
+  withHostKey(invite).then(signed => startLive(signed, true), () => {
+    startSession.disabled = false;
+    showStatus('Could not create a secure live session in this browser.');
+  });
 };
 endSession.onclick = () => liveBoard?.stop();
 aiIdleInput.onchange = () => {

@@ -1,13 +1,16 @@
-import { deriveRoomKey, secureRoom } from './mini-flow-secure-room.js';
+import { createHostKey, deriveRoomKey, hostSigner, secureRoom, verifyHostProfile } from './mini-flow-secure-room.js?v=audit-fixes';
 
 const kinds = ['read', 'state', 'edit', 'end', 'presence', 'agent', 'ask'];
 const maxGuests = 8;
 const threadPageSize = 12;
 const agentContextMessages = 12;
+export const maxThreadMessages = 200;
+const commentRateWindowMs = 60_000;
+const commentRateLimit = 20;
 export const maxReplyLength = 1000;
 export const maxAnswerLength = 2000;
 const defaultRelayUrl = 'wss://p2p-core-cloudflare.kakkoidev.workers.dev';
-const invitePattern = /^#live=([a-f0-9]{32})\.([a-f0-9]{32})(?:&relay=([^&]+))?$/;
+const invitePattern = /^#live=([a-f0-9]{32})\.([a-f0-9]{32})(?:&relay=([^&]+))?(?:&host=([A-Za-z0-9_-]{43}))?$/;
 const aiIdleLimits = [5, 15, 30];
 const aiTimedOut = 'ai_request_timed_out';
 const aiCancelled = 'ai_request_cancelled';
@@ -26,12 +29,18 @@ export function readLiveInvite(hash) {
   const match = hash.match(invitePattern);
   if (!match) return null;
   try {
-    return { room: match[1], password: match[2], ...(match[3] && { relay: normalizeLiveRelay(decodeURIComponent(match[3])) }) };
+    return { room: match[1], password: match[2], ...(match[3] && { relay: normalizeLiveRelay(decodeURIComponent(match[3])) }),
+      ...(match[4] && { host: match[4] }) };
   } catch { return null; }
 }
 
-export function liveInviteHash({ room, password, relay }) {
-  return `#live=${room}.${password}${relay ? '&relay=' + encodeURIComponent(relay) : ''}`;
+export function liveInviteHash({ room, password, relay, host }) {
+  return `#live=${room}.${password}${relay ? '&relay=' + encodeURIComponent(relay) : ''}${host ? '&host=' + host : ''}`;
+}
+
+// Adds the host signing key to a new invite. Keep hostKey private: liveInviteHash shares only its fingerprint.
+export async function withHostKey(invite) {
+  return { ...invite, ...await createHostKey() };
 }
 
 export function readThreadMessages(messages, assignIds = false) {
@@ -49,6 +58,13 @@ export function readThreadMessages(messages, assignIds = false) {
       ...(['author', 'host'].includes(edited) && { edited })
     };
   });
+}
+
+// Reply ownership is a hash of a secret only the author's tab holds, so a peer that
+// reuses another participant's transport ID cannot manage that participant's replies.
+export async function ownerTag(secret) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('mini-flow-owner:' + secret));
+  return [...new Uint8Array(digest).slice(0, 16)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
 export function canManageReply(message, host, selfId) {
@@ -97,6 +113,9 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   let requestEndReason;
   let aiIdleMinutes = aiIdleLimits.includes(initialAIIdleMinutes) ? initialAIIdleMinutes : 5;
   const requests = [];
+  const ownerSecret = host ? undefined : id();
+  let selfOwner = host ? room.selfId : undefined;
+  if (!host) ownerTag(ownerSecret).then(tag => { selfOwner = tag; }).catch(() => {});
   const requestWaiters = new Set();
   const pendingAsks = new Map();
   const offers = new Map();
@@ -186,16 +205,32 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
 
   function appendThread(noteId, message) {
     const entry = { ...message, replyId: id() };
+    const capped = messages => messages.length > maxThreadMessages ? messages.slice(-maxThreadMessages) : messages;
     if (deletedThreads.has(noteId)) {
-      deletedThreads.set(noteId, [...deletedThreads.get(noteId), entry]);
+      deletedThreads.set(noteId, capped([...deletedThreads.get(noteId), entry]));
     } else {
-      updateThread(noteId, [...(threads.get(noteId) ?? []), entry]);
+      updateThread(noteId, capped([...(threads.get(noteId) ?? []), entry]));
     }
   }
 
-  function manageReply(noteId, from, change) {
+  function commentRejection(noteId, from) {
+    if ((threads.get(noteId)?.length ?? 0) >= maxThreadMessages) {
+      return failure('thread_full', 'This conversation has reached ' + maxThreadMessages + ' messages. Start a new note to continue.');
+    }
+    const guest = guests.get(from);
+    if (!guest) return null;
+    const now = Date.now();
+    guest.commentTimes = (guest.commentTimes ?? []).filter(time => now - time < commentRateWindowMs);
+    if (guest.commentTimes.length >= commentRateLimit) {
+      return failure('too_many_comments', 'You are commenting too quickly. Wait a minute and try again.');
+    }
+    guest.commentTimes.push(now);
+    return null;
+  }
+
+  function manageReply(noteId, from, change, owner) {
     const messages = threads.get(noteId) ?? [];
-    const result = changeThreadReply(messages, change, from === room.selfId, from);
+    const result = changeThreadReply(messages, change, from === room.selfId, owner);
     if (!result.ok) return result;
     const latest = messages.findLast(message => message.role === 'assistant');
     const preview = results.get(noteId);
@@ -271,6 +306,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (!Number.isSafeInteger(after) || after < 0 || !Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 15000) {
       return Promise.resolve(failure('invalid_wait', 'Use a nonnegative cursor and a timeout of up to 15000 ms.'));
     }
+    if (pendingClaims.size) return Promise.resolve(failure('already_waiting', 'Another request check is already claiming a request.'));
     const request = !activeRequestId && requests.find(item => item.sequence > after);
     if (request) return claimRequest(request);
     if (!timeoutMs) return Promise.resolve({ ok: true, request: null });
@@ -335,7 +371,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     reportedActivity = false;
   }
 
-  function forwardAIRequest(noteId, from, prompt) {
+  function forwardAIRequest(noteId, from, prompt, owner) {
     const note = readNote(getProject(), noteId);
     if (!note) return failure('note_missing', 'The note is no longer on the board.');
     const existing = [...offers].find(([, offer]) => offer.noteId === noteId);
@@ -346,8 +382,12 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (prompt !== undefined && (typeof prompt !== 'string' || !prompt.trim() || prompt.length > maxReplyLength)) {
       return failure('invalid_reply', 'Enter a comment of up to 1000 characters.');
     }
-    const requester = guests.get(from)?.label ?? 'Host';
     const thread = threads.get(noteId);
+    if (!thread || prompt !== undefined) {
+      const rejected = commentRejection(noteId, from);
+      if (rejected) return rejected;
+    }
+    const requester = guests.get(from)?.label ?? 'Host';
     const text = prompt?.trim() ?? existing?.[1].note.text ?? thread?.findLast(message => message.role === 'user')?.text ?? note.text;
     const requestId = id();
     results.delete(noteId);
@@ -355,7 +395,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     const offer = { noteId, agents: new Set(), note: { ...note, text }, requester, lastEdit: existing?.[1].lastEdit };
     offers.set(requestId, offer);
     if (!thread || prompt !== undefined) {
-      appendThread(noteId, { role: 'user', author: requester, owner: from, text, ...(!thread && prompt === undefined && { original: true }) });
+      appendThread(noteId, { role: 'user', author: requester, owner, text, ...(!thread && prompt === undefined && { original: true }) });
     }
     checkpoint();
     publishPresence();
@@ -388,19 +428,21 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     }, 1500);
   }
 
-  function appendComment(noteId, from, text) {
+  function appendComment(noteId, from, text, owner) {
     if (!readNote(getProject(), noteId)) return failure('note_missing', 'The note is no longer on the board.');
     if (typeof text !== 'string' || !text.trim() || text.length > maxReplyLength) {
       return failure('invalid_reply', 'Enter a comment of up to 1000 characters.');
     }
-    appendThread(noteId, { role: 'user', author: guests.get(from)?.label ?? 'Host', owner: from, text: text.trim() });
+    const rejected = commentRejection(noteId, from);
+    if (rejected) return rejected;
+    appendThread(noteId, { role: 'user', author: guests.get(from)?.label ?? 'Host', owner, text: text.trim() });
     return { ok: true };
   }
 
-  function handleNoteMessage(type, noteId, from, value) {
-    if (type === 'comment') return appendComment(noteId, from, value);
-    if (type === 'manage_reply') return manageReply(noteId, from, value ?? {});
-    return forwardAIRequest(noteId, from, value);
+  function handleNoteMessage(type, noteId, from, value, owner) {
+    if (type === 'comment') return appendComment(noteId, from, value, owner);
+    if (type === 'manage_reply') return manageReply(noteId, from, value ?? {}, owner);
+    return forwardAIRequest(noteId, from, value, owner);
   }
 
   function canSendNoteMessage() {
@@ -411,7 +453,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (!canSendNoteMessage()) {
       return Promise.resolve(failure('live_not_ready', 'The live board is disconnected.'));
     }
-    if (host) return Promise.resolve(handleNoteMessage(type, noteId, room.selfId, prompt));
+    if (host) return Promise.resolve(handleNoteMessage(type, noteId, room.selfId, prompt, room.selfId));
     if (pendingAsks.size >= 8) return Promise.resolve(failure('too_many_requests', 'Wait for a pending request to finish.'));
     return new Promise(resolve => {
       const requestId = id();
@@ -422,7 +464,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       };
       const timer = setTimeout(() => finish(failure('ask_timeout', 'The host did not confirm the request.')), 5000);
       pendingAsks.set(requestId, finish);
-      send('ask', { type, requestId, noteId, prompt }).catch(() =>
+      send('ask', { type, requestId, noteId, prompt, owner: ownerSecret }).catch(() =>
         finish(failure('ask_failed', 'Could not send the request to the host.')));
     });
   }
@@ -856,10 +898,28 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
         dispatchOffers();
         return;
       }
+      if (data?.type === 'release') {
+        // The agent gave up waiting for the grant, so return the request to the queue.
+        const offer = offers.get(data.requestId);
+        if (!offer || offer.winner !== from) return;
+        clearTimeout(offer.timer);
+        reviews.get(from)?.abort();
+        offer.winner = undefined;
+        offer.expiresAt = undefined;
+        offer.agents.delete(from);
+        const guest = guests.get(from);
+        if (guest) guest.presence = { ...guest.presence, activity: undefined };
+        checkpoint();
+        publishPresence();
+        dispatchOffers();
+        return;
+      }
       if (!guests.has(from) || !['request', 'comment', 'manage_reply'].includes(data?.type) ||
           typeof data.noteId !== 'string' || data.noteId.length > 128 ||
           typeof data.requestId !== 'string' || data.requestId.length !== 32) return;
-      const result = await handleNoteMessage(data.type, data.noteId, from, data.prompt);
+      const owner = typeof data.owner === 'string' && /^[a-f0-9]{32}$/.test(data.owner) ? await ownerTag(data.owner) : undefined;
+      const result = owner ? await handleNoteMessage(data.type, data.noteId, from, data.prompt, owner)
+        : failure('invalid_request', 'Reload the page to rejoin the live session.');
       await send('ask', { type: 'result', requestId: data.requestId, result }, from).catch(() => {});
     } else if (from === hostPeer && data?.type === 'result') {
       pendingAsks.get(data.requestId)?.(data.result);
@@ -867,6 +927,10 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       typeof data.noteId === 'string' && data.noteId.length <= 128) {
       receiveThread(data);
     } else if (from === hostPeer && data?.type === 'claim_result') {
+      if (data.granted === true && !pendingClaims.has(data.requestId) && activeRequestId !== data.requestId) {
+        send('ask', { type: 'release', requestId: data.requestId }).catch(() => {});
+        return;
+      }
       if (data.granted === true && pendingClaims.has(data.requestId)) {
         const request = requests.find(item => item.id === data.requestId);
         if (request && Number.isFinite(data.expiresAt)) request.expiresAt = data.expiresAt;
@@ -936,7 +1000,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       onAIApprovalChange(required);
       publishPresence();
     },
-    canManageReply: message => canManageReply(message, host, room.selfId),
+    canManageReply: message => canManageReply(message, host, selfOwner),
     canSendNoteMessage,
     ready: () => !closed && (host || Boolean(hostPeer && state && !pending && !localDirty && canAccept())),
     changed() {
@@ -1053,20 +1117,30 @@ function failure(reason, message) {
 }
 
 export async function connectLiveBoard(invite, host, handlers) {
-  const { joinRoom } = await import('./vendor/p2p-core/p2p-core.js');
+  const { joinRoom, selfId } = await import('./vendor/p2p-core/p2p-core.js');
   const key = await deriveRoomKey(invite);
   const role = host ? 'host' : 'editor';
+  const signer = host && invite.hostKey ? await hostSigner(invite.hostKey, invite.room, selfId) : undefined;
+  const hostKeys = new Map();
   const room = joinRoom({ app: 'mini-flow-live', room: invite.room, password: invite.password, mode: 'online', protocol: 4, maxPeers: host ? maxGuests : 1,
     server: { url: invite.relay ?? defaultRelayUrl, roomInUrl: true },
     ...(invite.relay && { transports: { relays: false, pair: false } }),
-    maxMessageBytes: 360 * 1024, rateLimit: 60, kinds, profile: { role }, debug: handlers.debug === true,
-    acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host') });
+    maxMessageBytes: 360 * 1024, rateLimit: 60, kinds, profile: { role, ...signer?.profile }, debug: handlers.debug === true,
+    acceptPeer: async peer => {
+      if (peer.profile?.role !== (host ? 'editor' : 'host')) return false;
+      if (host || !invite.host) return true;
+      const verified = await verifyHostProfile(peer.profile, invite.host, invite.room, peer.id);
+      if (verified) hostKeys.set(peer.id, verified);
+      return Boolean(verified);
+    } });
+  if (signer && room.selfId !== selfId) throw new Error('Could not prove the live session host.');
   if (handlers.onNetworkStatus) {
     room.onStatus(handlers.onNetworkStatus);
     handlers.onNetworkStatus(room.status());
   }
-  const session = createLiveSession({ ...handlers, room: secureRoom(room, key), host });
-  return { ...session, debugReport: room.debugReport };
+  const verifyKey = host || !invite.host ? undefined : from => hostKeys.get(from) ?? false;
+  const session = createLiveSession({ ...handlers, room: secureRoom(room, key, { signKey: signer?.key, verifyKey }), host });
+  return { ...session, hostVerified: !host && Boolean(invite.host), debugReport: room.debugReport };
 }
 
 export function newLiveInvite(relay) {

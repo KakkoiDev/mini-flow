@@ -3,6 +3,9 @@ const syncInterval = 20_000;
 const interval = 5 * 60 * 1000;
 const idPattern = /^[0-9a-f]{5,64}$/i;
 const snapshotPattern = /^mini-flow-(\d{8}T\d{9}Z)-([0-9a-f]{64})\.json$/;
+// GitHub lists at most 300 files per Gist. Keep backups well below that so sync files stay visible.
+// Removed snapshots remain in the Gist's revision history.
+export const maxSnapshots = 100;
 
 export function gistId(value) {
   const text = value.trim();
@@ -47,7 +50,9 @@ async function saveGistSnapshot(id, token, backup) {
   const time = new Date().toISOString();
   const timestamp = time.replace(/[-:.]/g, '');
   const filename = 'mini-flow-' + timestamp + '-' + hash + '.json';
-  await gistRequest(id, token, { files: { [filename]: { content } } });
+  const files = { [filename]: { content } };
+  for (const old of snapshots(gist).slice(maxSnapshots - 1)) files[old] = null;
+  await gistRequest(id, token, { files });
   return { changed: true, time };
 }
 
@@ -84,6 +89,9 @@ const covers = (clock, other) => Object.entries(other).every(([device, revision]
 
 async function syncHeads(id, token) {
   const gist = await gistRequest(id, token);
+  if (gist.truncated) {
+    throw new Error('This Gist has too many files for GitHub to list. Back up this project once to remove old snapshots, then sync again.');
+  }
   const records = await Promise.all(Object.entries(gist.files ?? {}).filter(([name]) => syncFile.test(name))
     .map(async ([name, file]) => {
       const device = syncFile.exec(name)[1];

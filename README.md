@@ -210,7 +210,9 @@ Guests can also copy both invite formats from the **Live session** dialog.
 The regular **Copy link** shares a snapshot. **AI guests → Copy AI invite**
 includes instructions for joining from a browser with WebMCP access.
 
-To use your own relay, enter its HTTPS or WSS URL in **Live session → Custom WebSocket relay** before starting. Use a relay that implements the [p2p-core WebSocket protocol](https://github.com/KakkoiDev/p2p-core), such as the [Cloudflare Worker example](https://github.com/KakkoiDev/p2p-core-cloudflare). The invite carries the relay address. Custom sessions use that relay for remote traffic and disable public WebRTC signaling. Board messages are encrypted with the invite's room key. Leave the field blank for the default connection.
+To use your own relay, enter its HTTPS or WSS URL in **Live session → Custom WebSocket relay** before starting. Use a relay that implements the [p2p-core WebSocket protocol](https://github.com/KakkoiDev/p2p-core), such as the [Cloudflare Worker example](https://github.com/KakkoiDev/p2p-core-cloudflare). The invite carries the relay address. Custom sessions use that relay for remote traffic and disable public WebRTC signaling. Board messages are encrypted with the invite's room key.
+New invites also carry the host's key fingerprint, and guests only accept a board signed by that host.
+Invites from older versions still work without this check. Leave the field blank for the default connection.
 
 Guests can edit directly on the canvas and see the other participants' cursors
 and selected blocks. The canvas corner shows the number of connected human and
@@ -233,6 +235,7 @@ Conversations survive reload in the same tab and are included in saved projects
 and Gist snapshots. The board link shares the diagram alone. Mini Flow keeps the
 full comment history, and undoing a note deletion restores its comments.
 AI requests include the latest 12 prior messages as context.
+A conversation keeps up to 200 messages, and each guest can post up to 20 comments a minute.
 Only the first AI guest to claim the request gets it from
 `wait_for_ai_request`. The AI invite asks the agent to repeat the call
 on timeouts and after each result until the session disconnects or you ask it
@@ -258,7 +261,8 @@ Open a saved project and expand **GitHub Gist backup** in Projects.
 
 Use a dedicated Gist for each project. A connected project shows **Back up to
 Gist**, **Open Gist**, and the last backup time in the project list. Each backup
-saves a snapshot of that project. New connections start with manual backups.
+saves a snapshot of that project and keeps the latest 100 in the Gist. Older
+snapshots stay available in the Gist's revision history. New connections start with manual backups.
 You can enable automatic checks every five minutes while the project is open.
 Existing connections retain their previous automatic backup setting.
 
