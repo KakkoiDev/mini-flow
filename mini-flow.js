@@ -225,7 +225,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         g[role=button] {cursor:pointer}
         g:focus-visible {outline:2px solid var(--c-focus)}
         text {fill:var(--c-text);pointer-events:none}
-        .panel {position:absolute;inset:auto 12px 50px auto;width:min(350px,calc(100% - 24px));max-height:65%;overflow:auto;background:var(--c-surface);border:1px solid var(--c-border);border-radius:14px;box-shadow:0 4px 24px #00000024;z-index:1}
+        .panel {position:absolute;inset:auto 12px 50px auto;width:min(350px,calc(100% - 24px));max-height:65%;overflow:auto;background:var(--c-surface);border:1px solid var(--c-border);border-radius:14px;box-shadow:0 4px 24px #00000024;z-index:3}
         .inline {position:absolute;z-index:1;transform:translate(-50%,-50%);min-width:48px;min-height:1.2em;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.2;color:var(--c-text);outline:none;background:transparent}
         .status:empty {display:none}
         .peer-cursor, .peer-focus {position:absolute;pointer-events:none;z-index:2}

@@ -82,6 +82,17 @@ test('a guest joins, edits sync both ways, comments reach the host, and the gues
 
   await guest.getByRole('button', { name: 'note: Add a retry when invalid' }).click();
   await guest.getByRole('button', { name: 'Comment', exact: true }).click();
+  const hitPanel = await guest.locator('.note-actions').evaluate(actions => {
+    const root = actions.getRootNode();
+    const panel = root.querySelector('#ai-reply');
+    const panelBounds = panel.getBoundingClientRect();
+    const canvasBounds = actions.parentElement.getBoundingClientRect();
+    actions.style.left = (panelBounds.left - canvasBounds.left + 16) + 'px';
+    actions.style.top = (panelBounds.top - canvasBounds.top + 100) + 'px';
+    const bounds = actions.getBoundingClientRect();
+    return panel.contains(root.elementFromPoint(bounds.left + 4, bounds.top + 4));
+  });
+  expect(hitPanel).toBe(true);
   await guest.getByRole('textbox', { name: 'Comment' }).fill('Should B loop back to A?');
   await guest.getByRole('button', { name: 'Post comment' }).click();
   const comments = await openConversation(page);
