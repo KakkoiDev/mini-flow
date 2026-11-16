@@ -230,6 +230,45 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
   }
 });
 
+test('browser AI guests are counted separately and identified in presence', async () => {
+  const network = createTestNetwork();
+  const board = { version: 1, source: 'flowchart TD', positions: {} };
+  function connect(profile) {
+    const host = profile.role === 'host';
+    const room = joinRoom({ app: 'mini-flow-live-test', room: 'participants', password: 'private', network,
+      protocol: 3, maxPeers: host ? 8 : 1, profile,
+      acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host'),
+      kinds: ['read', 'state', 'edit', 'end', 'presence', 'ask'] });
+    let counts, presence;
+    const session = createLiveSession({ room, host, getProject: () => board, setProject() {},
+      normalize: project => project, canAccept: () => true, onStatus() {}, onEnd() {},
+      onGuestCounts(value) { counts = value; }, onPresence(value) { presence = value; } });
+    return { session, counts: () => counts, presence: () => presence };
+  }
+  const host = connect({ role: 'host' });
+  const human = connect({ role: 'editor' });
+  const agent = connect({ role: 'editor', participant: 'ai' });
+  try {
+    await network.settle();
+    await new Promise(resolve => setTimeout(resolve, 60));
+    await network.settle();
+    const expected = { human: 1, browserAI: 1, agents: [] };
+    assert.deepEqual(host.counts(), expected);
+    assert.deepEqual(human.counts(), expected);
+    assert.ok(human.presence().some(peer => /^AI guest \d+$/.test(peer.label)));
+
+    agent.session.stop();
+    await network.settle();
+    assert.deepEqual(host.counts(), { human: 1, agents: [] });
+    assert.deepEqual(human.counts(), { human: 1, agents: [] });
+  } finally {
+    agent.session.stop();
+    human.session.stop();
+    host.session.stop();
+    await network.settle();
+  }
+});
+
 test('reopens the room with its conversations after a host reload', { timeout: 10000 }, async () => {
   const { deriveRoomKey, secureRoom } = await import('../mini-flow-secure-room.js');
   const network = createTestNetwork();

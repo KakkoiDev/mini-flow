@@ -146,7 +146,11 @@ holder cannot pose as the host.
 
 In a browser with WebMCP, you can also edit an open board tab directly.
 
-Use a live invite to join the user's existing board from a separate browser.
+Use a **Copy browser agent invite** link from **Live session → AI agents** to
+join the user's existing board from a separate browser. It adds
+`?participant=ai` before the live invite fragment so the board shows the browser
+as an AI guest. Browser guests can edit the board through WebMCP. To receive
+`Ask AI` requests, join with the terminal helper.
 For direct tab control, attach the exact tab through the browser picker.
 A regular board link opens a snapshot.
 

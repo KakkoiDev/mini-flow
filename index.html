@@ -7,6 +7,12 @@
 <meta name="mini-flow-api" content="./mini-flow-api.json">
 <link rel="describedby" type="application/json" href="./mini-flow-api.json" title="Mini Flow agent API">
 <link rel="help" type="text/markdown" href="./agent-guide.md" title="Agent integration guide">
+<script>
+try {
+  const theme = localStorage.getItem('mini-flow-theme');
+  if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+} catch {}
+</script>
 <link rel="stylesheet" href="./tokens.css?v=1">
 <style>
 body{margin:0;background:var(--mf-canvas);color:var(--mf-ink);font:15px system-ui,sans-serif}
@@ -104,7 +110,7 @@ header{flex-wrap:nowrap;gap:0;min-height:56px;box-sizing:border-box;padding:6px 
 h1{font-size:17px;letter-spacing:-.02em;margin:0 auto 0 0}
 h1 svg{width:24px;height:24px}
 header .header-actions{display:flex;align-items:center;gap:0}
-header :is(#blank,#share,.view-actions,#live-toggle,#open-saved-projects,[data-panel]){display:none}
+header :is(#blank,#share,.view-actions,#live-toggle,#open-saved-projects,[data-panel],#theme-toggle){display:none}
 header :is([data-undo],[data-redo],#more-button){width:44px;height:44px;min-height:44px;padding:0;justify-content:center}
 #more-button{display:inline-flex;position:relative}
 #more-menu:not([hidden]){display:block}
@@ -159,6 +165,7 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid var(--
 <dialog id="live-session" aria-labelledby="live-title">
   <h2 id="live-title">Live session</h2>
   <p id="live-status" role="status">Invite people or agents to edit this board with you.</p>
+  <p id="live-participants" hidden></p>
   <p id="live-network-status" hidden></p>
   <details id="live-relay-setting" hidden>
     <summary>Custom WebSocket relay</summary>
@@ -181,6 +188,7 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid var(--
     <p>Agents such as Claude Code or Codex join from a terminal with Node.js 22 or newer. They answer <strong>Ask AI</strong> on notes and can propose board edits. Keep this tab open while they work.</p>
     <div class="ai-agents-actions">
       <button id="ai-agents-copy" type="button" disabled>Copy agent invite</button>
+      <button id="browser-agent-copy" type="button" disabled title="Copy an invite that identifies a browser guest as AI">Copy browser agent invite</button>
     </div>
     <div id="ai-agents-choice" class="ai-agents-actions" hidden>
       <label for="ai-agents-agent">Ask AI sends to</label>
@@ -383,7 +391,7 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid var(--
   </form>
 </dialog>
 <script src="./vendor/dagre.min.js"></script>
-<script src="./mini-flow.js?v=agent-run"></script>
+<script src="./mini-flow.js?v=theme-toggle"></script>
 <script type="module">
 const example = `flowchart TD
     A([Prompt In])
@@ -652,7 +660,34 @@ liveToggle.id = 'live-toggle';
 liveToggle.innerHTML = '<svg aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.364 19.364a9 9 0 1 0 -12.728 0" /><path d="M15.536 16.536a5 5 0 1 0 -7.072 0" /><path d="M11 13a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /></svg><span>Live session</span><span class="live-state" aria-hidden="true"></span>';
 liveToggle.setAttribute('aria-label', 'Live session');
 liveToggle.setAttribute('aria-haspopup', 'dialog');
-headerActions.append(liveToggle, panelButton);
+const themeToggle = document.createElement('button');
+themeToggle.id = 'theme-toggle';
+themeToggle.type = 'button';
+themeToggle.className = 'compact-action';
+themeToggle.setAttribute('aria-label', 'Dark mode');
+const systemTheme = matchMedia('(prefers-color-scheme: dark)');
+const themeRoot = document.documentElement;
+const isDarkTheme = () => (themeRoot.dataset.theme ?? (systemTheme.matches ? 'dark' : 'light')) === 'dark';
+function updateThemeButton() {
+  const dark = isDarkTheme();
+  themeToggle.setAttribute('aria-pressed', String(dark));
+  themeToggle.title = dark ? 'Switch to light mode' : 'Switch to dark mode';
+  const icon = dark
+    ? '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/>'
+    : '<path d="M20.9 13.35A9 9 0 0 1 10.65 3.1 9 9 0 1 0 20.9 13.35Z"/>';
+  themeToggle.innerHTML = `<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icon}</svg>`;
+}
+updateThemeButton();
+systemTheme.addEventListener('change', updateThemeButton);
+themeToggle.onclick = () => {
+  const theme = isDarkTheme() ? 'light' : 'dark';
+  themeRoot.dataset.theme = theme;
+  try { localStorage.setItem('mini-flow-theme', theme); } catch {}
+  editor.refreshTheme();
+  proposalPreview?.refreshTheme();
+  updateThemeButton();
+};
+headerActions.append(liveToggle, panelButton, themeToggle);
 liveNotice.id = 'live-notice';
 liveNotice.setAttribute('role', 'status');
 liveToggle.closest('header').append(liveNotice);
@@ -911,7 +946,7 @@ document.querySelector('#share').onclick = async () => {
 import { applyEdits, registerMiniFlowTools } from './mini-flow-webmcp.js?v=relay-agents';
 import { createAgentHub, parseAgentReply, pickAgent } from './mini-flow-agents.js?v=agent-run';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages, withHostKey } from './mini-flow-live.js?v=agent-run-2';
+import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages, withHostKey } from './mini-flow-live.js?v=participant-types';
 import { setupGistBackups } from './mini-flow-gist.js?v=audit-fixes';
 import { setupSavedProjects } from './mini-flow-projects.js?v=project-sync-revisions';
 
@@ -982,7 +1017,7 @@ function menuItem(label, source, options = {}) {
       item.setAttribute('aria-checked', String(source.checked));
       return;
     }
-    closeMore(false);
+    closeMore(source === themeToggle);
     source.click();
   };
   return item;
@@ -999,7 +1034,8 @@ function buildMoreMenu() {
       !isUnavailable(document.querySelector('#share')) && menuItem('Copy link', document.querySelector('#share')),
       menuItem('Live session', liveToggle, { trail: liveToggle.hasAttribute('data-active') && liveHere ? liveHere + ' here' : '' }),
       menuItem('Projects', projectsButton),
-      !isUnavailable(panelButton) && menuItem('Code & export', panelButton)
+      !isUnavailable(panelButton) && menuItem('Code & export', panelButton),
+      menuItem(themeToggle.title, themeToggle)
     ] },
     { items: [!isUnavailable(blank) && menuItem('Start blank', blank)] }
   ].map(group => ({ ...group, items: group.items.filter(Boolean) })).filter(group => group.items.length);
@@ -1412,6 +1448,7 @@ function postLocalReply(noteId, text) {
   return { ok: true };
 }
 
+const liveParticipants = document.querySelector('#live-participants');
 const guestCounter = document.createElement('div');
 guestCounter.className = 'live-guest-counter';
 guestCounter.hidden = true;
@@ -1458,15 +1495,20 @@ refreshAskAI = () => {
 refreshAskAI();
 updateNoteRequestBadges();
 function showGuestCounts(counts) {
-  liveHere = counts ? counts.human + 1 : 0;
+  liveHere = counts ? counts.human + (counts.browserAI ?? 0) + 1 : 0;
   refreshAskAI();
-  guestCounter.hidden = !counts;
+  liveParticipants.hidden = guestCounter.hidden = !counts;
   if (!counts) return;
   const agents = counts.agents ?? [];
-  const label = [counts.human + (counts.human === 1 ? ' guest' : ' guests'),
-    ...(agents.length ? [agents.length + (agents.length === 1 ? ' AI agent' : ' AI agents')] : [])].join(' · ');
+  const browserAI = counts.browserAI ?? 0;
+  const label = [
+    counts.human + (counts.human === 1 ? ' human guest' : ' human guests'),
+    ...(browserAI ? [browserAI + (browserAI === 1 ? ' AI guest' : ' AI guests')] : []),
+    ...(agents.length ? [agents.length + (agents.length === 1 ? ' AI agent' : ' AI agents')] : [])
+  ].join(' · ');
   if (guestCounter.textContent !== label) guestCounter.textContent = label;
-  guestCounter.title = ['Connected guests, excluding the host', ...agents.map(agent =>
+  if (liveParticipants.textContent !== label) liveParticipants.textContent = label;
+  guestCounter.title = ['Guests, excluding the host, and registered terminal agents', ...agents.map(agent =>
     `AI agent ${agent.name}: ${agent.listening ? 'listening' : 'not listening'}`)].join('\n');
 }
 const codePanel = editorRoot.querySelector('.panel');
@@ -1619,6 +1661,7 @@ const relayInput = document.querySelector('#live-relay');
 // Agents join the live session with the mini-flow-agent.mjs helper. This tab keeps their requests.
 const aiAgents = document.querySelector('#ai-agents');
 const aiAgentsCopy = document.querySelector('#ai-agents-copy');
+const browserAgentCopy = document.querySelector('#browser-agent-copy');
 const aiAgentsChoice = document.querySelector('#ai-agents-choice');
 const aiAgentsAgent = document.querySelector('#ai-agents-agent');
 const aiAgentsStop = document.querySelector('#ai-agents-stop');
@@ -1628,6 +1671,7 @@ const aiAgentKey = 'mini-flow-ai-agent';
 const aiReviewKey = 'mini-flow-ai-agent-review';
 const aiHubKey = 'mini-flow-ai-agents-v1';
 let agentCopyTimer;
+let browserAgentCopyTimer;
 aiAgents.hidden = joiningLive;
 try { aiAgentsReview.checked = localStorage.getItem(aiReviewKey) !== 'false'; } catch {}
 const fail = (reason, message) => ({ ok: false, reason, message });
@@ -1743,7 +1787,7 @@ async function applyAgentEdit(noteId, agent, { message, edits }) {
 }
 function renderAgents() {
   const agents = agentHub?.agents ?? [];
-  aiAgentsCopy.disabled = !agentHub;
+  aiAgentsCopy.disabled = browserAgentCopy.disabled = !agentHub;
   aiAgentsAgent.replaceChildren(...agents.map(agent =>
     new Option(agent.name + (agent.listening ? '' : ' (not listening)'), agent.name)));
   const target = selectedAgentName();
@@ -1809,7 +1853,21 @@ aiAgentsCopy.onclick = async () => {
     aiAgentsStatus.textContent = 'Could not copy the agent invite.';
   }
 };
-const debugEnabled = new URL(location.href).searchParams.get('debug') === '1';
+browserAgentCopy.onclick = async () => {
+  if (!agentHub || !inviteInput.value) return;
+  const link = new URL(inviteInput.value);
+  link.searchParams.set('participant', 'ai');
+  try {
+    await navigator.clipboard.writeText(link.href);
+    browserAgentCopy.textContent = 'Browser agent invite copied';
+    clearTimeout(browserAgentCopyTimer);
+    browserAgentCopyTimer = setTimeout(() => { browserAgentCopy.textContent = 'Copy browser agent invite'; }, 3000);
+  } catch {
+    aiAgentsStatus.textContent = 'Could not copy the browser agent invite.';
+  }
+};
+const pageParams = new URL(location.href).searchParams;
+const debugEnabled = pageParams.get('debug') === '1';
 const debugPanel = document.querySelector('#live-debug');
 const debugText = document.querySelector('#live-debug-text');
 const debugStatus = document.querySelector('#live-debug-status');
@@ -1980,6 +2038,7 @@ async function startLive(invite, host, recovery) {
       onAgentLeave: peer => agentHub?.peerLeft(peer),
       onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts,
       onNetworkStatus: showNetworkStatus, debug: debugEnabled,
+      participant: !host && pageParams.get('participant') === 'ai' ? 'ai' : undefined,
       onNoteColors: editor.setNoteColors,
       initialThreads: [...noteThreads],
       onCheckpoint(snapshot) {
