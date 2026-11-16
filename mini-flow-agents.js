@@ -107,12 +107,13 @@ export function createAgentHub({ getProject, saved, onAgents = () => {}, onReque
   let closed = false;
 
   function save() {
-    onSave({ agents: [...agents].map(([name, { tokenHash, stopped }]) => [name, { tokenHash, stopped }]),
+    onSave({ agents: [...agents].map(([name, { tokenHash, stopped, browser }]) => [name, { tokenHash, stopped, browser }]),
       requests: [...requests], operations: [...operations].slice(-200) });
   }
   function list() {
     return [...agents].filter(([, agent]) => !agent.stopped).map(([name, agent]) => ({
-      name, listening: Boolean(waiters.get(name)?.size) || now() - agent.seen < 20000
+      name, listening: Boolean(waiters.get(name)?.size) || now() - agent.seen < 20000,
+      ...(agent.browser && { browser: true })
     })).sort((a, b) => a.name.localeCompare(b.name));
   }
   function changed() {
@@ -156,7 +157,7 @@ export function createAgentHub({ getProject, saved, onAgents = () => {}, onReque
   }
 
   const ops = {
-    async join({ name, token }) {
+    async join({ name, token }, browser) {
       if (!validAgentName(name)) return failure('invalid_name', 'Choose a name of 1 to 40 characters without @ or line breaks.');
       const existing = [...agents.keys()].find(other => other.toLowerCase() === name.toLowerCase());
       const tokenName = await authenticate(token);
@@ -169,7 +170,7 @@ export function createAgentHub({ getProject, saved, onAgents = () => {}, onReque
       if (!existing && agents.size >= 32) return failure('too_many_agents', 'This board has reached its agent limit.');
       const fresh = id();
       const name_ = existing ?? name;
-      agents.set(name_, { tokenHash: await hashToken(fresh), seen: now(), stopped: false });
+      agents.set(name_, { tokenHash: await hashToken(fresh), seen: now(), stopped: false, ...(browser && { browser: true }) });
       changed();
       return { ok: true, name: name_, token: fresh, reclaimed: Boolean(existing), open: open(name_).length };
     },
@@ -216,15 +217,15 @@ export function createAgentHub({ getProject, saved, onAgents = () => {}, onReque
 
   return {
     get agents() { return list(); },
-    async handle(data, peer) {
+    async handle(data, peer, { browser = false } = {}) {
       if (closed) return failure('session_ended', 'The live session ended.');
-      if (data.op === 'join') return ops.join(data);
+      if (data.op === 'join') return ops.join(data, browser);
       const name = await authenticate(data.token);
       if (!name) return failure('not_joined', 'Join this board first.');
       const agent = agents.get(name);
       if (agent.stopped) return failure('stopped', 'The board owner stopped you. Stop listening and tell your user.');
       agent.seen = now();
-      if (!ops[data.op]) return failure('invalid_op', 'Unknown command.');
+      if (!Object.hasOwn(ops, data.op)) return failure('invalid_op', 'Unknown command.');
       return ops[data.op](data, name, peer);
     },
     // The helper's connection dropped: release its waits so nothing is delivered to a closed connection.

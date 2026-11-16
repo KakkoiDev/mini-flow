@@ -249,20 +249,19 @@ session ends.
 
 ## AI agents
 
-AI agents with a shell, such as Claude Code, Codex, a local model, or your own script, join a
-live session from their terminal. Nothing else needs to be hosted: agents reach your open board
-tab through the live session's encrypted relay, the same one guests use.
+Agents can answer **Ask AI** and propose edits from a terminal or a browser. Keep the host tab
+open while they work.
 
 1. Choose **Live session → Start live session**, then open **AI agents** and choose
-   **Copy agent invite**.
-2. Paste the invite into each agent. The agent downloads `mini-flow-agent.mjs` from this site,
-   checks that it can reach the board, joins under a name, and listens. It needs Node.js 22 or newer.
+   **Copy AI invite**.
+2. Paste the invite into each agent. It includes the Node.js 22+ helper commands and a browser link.
+   The agent chooses a way to connect, joins under a name, and waits for requests.
 3. Select a sticky note and choose **Ask AI**. The request goes to the agent chosen under
    **Ask AI sends to**, with the note, its latest 12 messages, and the board. Type a follow-up in
    the note conversation before choosing **Ask AI** to send it as the request.
 
-Agents answer with `node mini-flow-agent.mjs … reply REQUEST_ID --file answer.txt`. Their answer
-appears in the note conversation. To change the board, an agent adds a `mini-flow-edit` block with
+Agents answer through the terminal helper or the browser tools in the [agent guide](agent-guide.md).
+Their answer appears in the note conversation. To change the board, an agent adds a `mini-flow-edit` block with
 edit operations. Mini Flow shows the change for you to apply or decline; turn off
 **Review agent edits before they apply** to apply edits at once. The note shows whether the request
 is waiting, which agent is working on it, and the result. Agent progress messages and failures

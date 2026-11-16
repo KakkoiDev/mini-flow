@@ -233,6 +233,7 @@ test('a live board syncs multiple guests, rejects stale edits, and closes', asyn
 test('browser AI guests are counted separately and identified in presence', async () => {
   const network = createTestNetwork();
   const board = { version: 1, source: 'flowchart TD', positions: {} };
+  const disconnected = [];
   function connect(profile) {
     const host = profile.role === 'host';
     const room = joinRoom({ app: 'mini-flow-live-test', room: 'participants', password: 'private', network,
@@ -240,10 +241,12 @@ test('browser AI guests are counted separately and identified in presence', asyn
       acceptPeer: peer => peer.profile?.role === (host ? 'editor' : 'host'),
       kinds: ['read', 'state', 'edit', 'end', 'presence', 'ask'] });
     let counts, presence;
-    const session = createLiveSession({ room, host, getProject: () => board, setProject() {},
+    const session = createLiveSession({ room, host, participant: profile.participant, getProject: () => board, setProject() {},
       normalize: project => project, canAccept: () => true, onStatus() {}, onEnd() {},
+      onAgentMessage(data, peer, { browser }) { return { op: data.op, peer, browser }; },
+      onAgentLeave(peer) { disconnected.push(peer); },
       onGuestCounts(value) { counts = value; }, onPresence(value) { presence = value; } });
-    return { session, counts: () => counts, presence: () => presence };
+    return { peer: room.selfId, session, counts: () => counts, presence: () => presence };
   }
   const host = connect({ role: 'host' });
   const human = connect({ role: 'editor' });
@@ -257,8 +260,12 @@ test('browser AI guests are counted separately and identified in presence', asyn
     assert.deepEqual(human.counts(), expected);
     assert.ok(human.presence().some(peer => /^AI guest \d+$/.test(peer.label)));
 
+    assert.equal(human.session.callAgent, undefined);
+    assert.deepEqual(await agent.session.callAgent('board'), { op: 'board', peer: agent.peer, browser: true });
     agent.session.stop();
+    await new Promise(setImmediate);
     await network.settle();
+    assert.deepEqual(disconnected, [agent.peer]);
     assert.deepEqual(host.counts(), { human: 1, agents: [] });
     assert.deepEqual(human.counts(), { human: 1, agents: [] });
   } finally {

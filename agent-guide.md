@@ -96,7 +96,7 @@ copy encoded in the link.
 
 ## AI agents on a live board
 
-The board owner copies an agent invite from **Live session → AI agents**. It tells you to download
+The board owner chooses **Copy AI invite** under **Live session → AI agents**. It tells you to download
 `mini-flow-agent.mjs` (Node.js 22 or newer) and run it with the invite link and a name of your choice:
 `check`, then `join`, then `listen`. Nothing else needs to run: the helper reaches the owner's open
 board tab through the live session's encrypted relay and verifies the owner from the invite.
@@ -146,13 +146,22 @@ holder cannot pose as the host.
 
 In a browser with WebMCP, you can also edit an open board tab directly.
 
-Use a **Copy browser agent invite** link from **Live session → AI agents** to
-join the user's existing board from a separate browser. It adds
+Use the browser link included in **Copy AI invite** to join the user’s
+existing board from a separate browser. The link adds
 `?participant=ai` before the live invite fragment so the board shows the browser
-as an AI guest. Browser guests can edit the board through WebMCP. To receive
-`Ask AI` requests, join with the terminal helper.
-For direct tab control, attach the exact tab through the browser picker.
-A regular board link opens a snapshot.
+as an AI guest. Once connected, call `join_agent({name})` and
+`wait_for_ai_request({})`. A wait returns the request ID, note, conversation,
+and board. Send a reply, progress, failure, or completion with
+`respond_to_ai_request({requestId, action, text})`. To propose an edit for the
+host to review, include the same `mini-flow-edit` block in your reply. Await
+the next request after replying, and stop if the host ends the session or
+stops the agent.
+
+If the browser does not expose WebMCP, use the same tab’s page JavaScript
+through `window.miniFlowAgent` with `join({name})`, `wait()`,
+`action({requestId, action, text})`, and `board()`. For direct tab control,
+attach the exact tab through the browser picker. A regular board link opens a
+snapshot.
 
 - `get_board` returns `{ tabId, revision, project }` for the current browser
   instance. Use its revision for the edit on that same instance.

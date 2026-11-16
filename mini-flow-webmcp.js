@@ -121,6 +121,21 @@ export async function registerMiniFlowTools(editor, library = globalThis.MiniFlo
     editDescription: 'Edit the Mini Flow diagram in this tab. Use the revision from get_board on this same tab. Applies the full batch as one Undo step and highlights changes. A revision conflict leaves the board untouched.'
   });
   if (typeof context?.registerTool !== 'function') return;
+  if (options.browserAgent) {
+    const { join, wait, action } = options.browserAgent;
+    const schema = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
+    const string = { type: 'string' };
+    definitions.push(
+      { name: 'join_agent', description: 'Register with the host as an AI agent so you can answer Ask AI requests.',
+        inputSchema: schema({ name: { ...string, minLength: 1, maxLength: 40 } }, ['name']), execute: join },
+      { name: 'wait_for_ai_request', description: 'Wait for Ask AI requests. After a timeout or reply, call again.' + untrusted,
+        inputSchema: schema({ timeoutMs: { type: 'integer', minimum: 0, maximum: 50000 } }), execute: wait },
+      { name: 'respond_to_ai_request', description: 'Reply, report progress or failure, or mark a request done. A reply can include a mini-flow-edit block for the host.',
+        inputSchema: schema({ requestId: string, action: { enum: ['reply', 'progress', 'failed', 'done'] }, text: string,
+          operationId: { ...string, maxLength: 64 } }, ['requestId', 'action']),
+        annotations: { destructiveHint: true }, execute: action }
+    );
+  }
   for (const tool of definitions) await context.registerTool(tool);
 }
 
