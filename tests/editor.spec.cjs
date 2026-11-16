@@ -386,6 +386,7 @@ test('review and apply an edit link as one undo step', async ({ page }) => {
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.locator('#proposal-diff .diff-remove')).toContainText('Prompt In');
   await expect(page.locator('#proposal-diff .diff-add')).toContainText('Read prompt');
+  await expect(page.locator('#proposal-preview .toolbar')).toHaveCSS('display', 'none');
   expect(await page.evaluate(() => miniFlowEditor.getMermaid())).toContain('Prompt In');
   await page.getByRole('button', { name: 'Apply edit' }).click();
   await expect(page.getByRole('dialog')).toBeHidden();
