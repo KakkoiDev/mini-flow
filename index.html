@@ -178,17 +178,15 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid var(--
     <span id="live-debug-status" role="status"></span>
     <textarea id="live-debug-text" aria-label="Connection diagnostics JSON" readonly hidden rows="5"></textarea>
   </details>
-  <div id="live-invite-row" hidden>
-    <label for="live-invite">Private invite link</label>
-    <input id="live-invite" readonly>
-    <button id="live-copy" type="button">Copy invite</button>
-  </div>
   <details id="ai-agents">
     <summary>AI agents</summary>
-    <p>Agents such as Claude Code or Codex join from a terminal with Node.js 22 or newer. They answer <strong>Ask AI</strong> on notes and can propose board edits. Keep this tab open while they work.</p>
     <div class="ai-agents-actions">
-      <button id="ai-agents-copy" type="button" disabled>Copy agent invite</button>
-      <button id="browser-agent-copy" type="button" disabled title="Copy an invite that identifies a browser guest as AI">Copy browser agent invite</button>
+      <button id="ai-agents-copy" type="button" aria-describedby="terminal-agent-help" disabled>Copy terminal agent invite</button>
+      <small id="terminal-agent-help">Copies setup commands for an agent that can answer <strong>Ask AI</strong> and propose edits. Requires Node.js 22 or newer.</small>
+    </div>
+    <div class="ai-agents-actions">
+      <button id="browser-agent-copy" type="button" aria-describedby="browser-agent-help" disabled>Copy browser agent invite</button>
+      <small id="browser-agent-help">Copies a board link that identifies the visitor as an <strong>AI guest</strong>. The agent can edit through WebMCP. Use the terminal invite for <strong>Ask AI</strong>.</small>
     </div>
     <div id="ai-agents-choice" class="ai-agents-actions" hidden>
       <label for="ai-agents-agent">Ask AI sends to</label>
@@ -200,6 +198,11 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid var(--
       <input id="ai-agents-review" type="checkbox" role="switch" checked> Review agent edits before they apply
     </label>
   </details>
+  <div id="live-invite-row" hidden>
+    <label for="live-invite">Private invite link</label>
+    <input id="live-invite" readonly>
+    <button id="live-copy" type="button">Copy invite</button>
+  </div>
   <form method="dialog">
     <button id="live-start" type="button">Start live session</button>
     <button id="live-end" type="button" hidden>End session</button>
@@ -1805,7 +1808,7 @@ function renderAgents() {
   aiAgentsChoice.hidden = !agents.length;
   aiAgentsStatus.textContent = !agentHub ? 'Start a live session to invite agents.'
     : agents.length ? `${agents.length} ${agents.length === 1 ? 'agent has' : 'agents have'} joined.`
-      : 'No agents yet. Copy the agent invite and paste it into an agent such as Claude Code.';
+      : 'No terminal agents have joined yet.';
   refreshAskAI();
 }
 function startAgentHub(recovery) {
@@ -1855,9 +1858,9 @@ aiAgentsCopy.onclick = async () => {
   ].join('\n\n');
   try {
     await navigator.clipboard.writeText(invite);
-    aiAgentsCopy.textContent = 'Agent invite copied';
+    aiAgentsCopy.textContent = 'Terminal agent invite copied';
     clearTimeout(agentCopyTimer);
-    agentCopyTimer = setTimeout(() => { aiAgentsCopy.textContent = 'Copy agent invite'; }, 3000);
+    agentCopyTimer = setTimeout(() => { aiAgentsCopy.textContent = 'Copy terminal agent invite'; }, 3000);
   } catch {
     aiAgentsStatus.textContent = 'Could not copy the agent invite.';
   }

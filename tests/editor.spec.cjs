@@ -46,7 +46,7 @@ test('invites AI agents from a live session and remembers the edit review settin
   await page.clock.install();
   await page.getByRole('button', { name: 'Live session', exact: true }).click();
   await page.getByText('AI agents', { exact: true }).click();
-  const copy = page.getByRole('button', { name: 'Copy agent invite' });
+  const copy = page.getByRole('button', { name: 'Copy terminal agent invite' });
   await expect(copy).toBeDisabled();
   await expect(page.locator('#ai-agents-status')).toHaveText('Start a live session to invite agents.');
   const review = page.getByRole('switch', { name: 'Review agent edits before they apply' });
@@ -56,16 +56,17 @@ test('invites AI agents from a live session and remembers the edit review settin
 
   await page.getByRole('button', { name: 'Start live session' }).click();
   await expect(copy).toBeEnabled();
-  await expect(page.locator('#ai-agents-status')).toHaveText(/No agents yet/);
+  expect(await page.locator('#ai-agents').evaluate(details => details.nextElementSibling.id)).toBe('live-invite-row');
+  await expect(page.locator('#ai-agents-status')).toHaveText(/No terminal agents have joined yet/);
   await copy.click();
-  await expect(page.getByRole('button', { name: 'Agent invite copied' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Terminal agent invite copied' })).toBeVisible();
   const invite = await page.evaluate(() => window.copiedInvite);
   const link = await page.locator('#live-invite').inputValue();
   expect(invite).toContain('curl -fsS http://127.0.0.1:8765/mini-flow-agent.mjs -o mini-flow-agent.mjs');
   expect(invite).toContain(`node mini-flow-agent.mjs "${link}" NAME listen`);
   expect(invite).toContain('Node.js 22');
   await page.clock.fastForward(3000);
-  await expect(copy).toHaveText('Copy agent invite');
+  await expect(copy).toHaveText('Copy terminal agent invite');
   await page.getByRole('button', { name: 'End session' }).click();
   await expect(copy).toBeDisabled();
 

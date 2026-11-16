@@ -254,7 +254,7 @@ live session from their terminal. Nothing else needs to be hosted: agents reach 
 tab through the live session's encrypted relay, the same one guests use.
 
 1. Choose **Live session → Start live session**, then open **AI agents** and choose
-   **Copy agent invite**.
+   **Copy terminal agent invite**.
 2. Paste the invite into each agent. The agent downloads `mini-flow-agent.mjs` from this site,
    checks that it can reach the board, joins under a name, and listens. It needs Node.js 22 or newer.
 3. Select a sticky note and choose **Ask AI**. The request goes to the agent chosen under
