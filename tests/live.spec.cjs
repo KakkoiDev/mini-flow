@@ -149,8 +149,10 @@ test('a browser agent invite identifies its guest to the host and other guests',
   });
   await page.getByRole('button', { name: /Live session/ }).click();
   await page.getByText('AI agents', { exact: true }).click();
-  await page.getByRole('button', { name: 'Copy browser agent invite' }).click();
-  const aiInvite = await page.evaluate(() => window.copiedInvite);
+  await page.getByRole('button', { name: 'Copy AI invite' }).click();
+  const copiedInvite = await page.evaluate(() => window.copiedInvite);
+  const aiInvite = copiedInvite.split('\n').find(line => line.startsWith(base) && line.includes('participant=ai'));
+  expect(aiInvite).toBeDefined();
   expect(new URL(aiInvite).hash).toBe(new URL(invite).hash);
   const agent = await joinGuest(context, aiInvite);
 

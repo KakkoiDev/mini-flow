@@ -181,12 +181,8 @@ dialog :is(button,input,textarea,summary):focus-visible{outline:2px solid var(--
   <details id="ai-agents">
     <summary>AI agents</summary>
     <div class="ai-agents-actions">
-      <button id="ai-agents-copy" type="button" aria-describedby="terminal-agent-help" disabled>Copy terminal agent invite</button>
-      <small id="terminal-agent-help">Copies setup commands for an agent that can answer <strong>Ask AI</strong> and propose edits. Requires Node.js 22 or newer.</small>
-    </div>
-    <div class="ai-agents-actions">
-      <button id="browser-agent-copy" type="button" aria-describedby="browser-agent-help" disabled>Copy browser agent invite</button>
-      <small id="browser-agent-help">Copies a board link that identifies the visitor as an <strong>AI guest</strong>. The agent can edit through WebMCP. Use the terminal invite for <strong>Ask AI</strong>.</small>
+      <button id="ai-agents-copy" type="button" aria-describedby="ai-invite-help" disabled>Copy AI invite</button>
+      <small id="ai-invite-help">Paste the invite into your AI agent.</small>
     </div>
     <div id="ai-agents-choice" class="ai-agents-actions" hidden>
       <label for="ai-agents-agent">Ask AI sends to</label>
@@ -1673,7 +1669,6 @@ const relayInput = document.querySelector('#live-relay');
 // Agents join the live session with the mini-flow-agent.mjs helper. This tab keeps their requests.
 const aiAgents = document.querySelector('#ai-agents');
 const aiAgentsCopy = document.querySelector('#ai-agents-copy');
-const browserAgentCopy = document.querySelector('#browser-agent-copy');
 const aiAgentsChoice = document.querySelector('#ai-agents-choice');
 const aiAgentsAgent = document.querySelector('#ai-agents-agent');
 const aiAgentsStop = document.querySelector('#ai-agents-stop');
@@ -1683,7 +1678,6 @@ const aiAgentKey = 'mini-flow-ai-agent';
 const aiReviewKey = 'mini-flow-ai-agent-review';
 const aiHubKey = 'mini-flow-ai-agents-v1';
 let agentCopyTimer;
-let browserAgentCopyTimer;
 aiAgents.hidden = joiningLive;
 try { aiAgentsReview.checked = localStorage.getItem(aiReviewKey) !== 'false'; } catch {}
 const fail = (reason, message) => ({ ok: false, reason, message });
@@ -1799,7 +1793,7 @@ async function applyAgentEdit(noteId, agent, { message, edits }) {
 }
 function renderAgents() {
   const agents = agentHub?.agents ?? [];
-  aiAgentsCopy.disabled = browserAgentCopy.disabled = !agentHub;
+  aiAgentsCopy.disabled = !agentHub;
   aiAgentsAgent.replaceChildren(...agents.map(agent =>
     new Option(agent.name + (agent.listening ? '' : ' (not listening)'), agent.name)));
   const target = selectedAgentName();
@@ -1808,7 +1802,7 @@ function renderAgents() {
   aiAgentsChoice.hidden = !agents.length;
   aiAgentsStatus.textContent = !agentHub ? 'Start a live session to invite agents.'
     : agents.length ? `${agents.length} ${agents.length === 1 ? 'agent has' : 'agents have'} joined.`
-      : 'No terminal agents have joined yet.';
+      : 'No agents are available for Ask AI yet.';
   refreshAskAI();
 }
 function startAgentHub(recovery) {
@@ -1844,38 +1838,28 @@ aiAgentsCopy.onclick = async () => {
   if (!agentHub || !inviteInput.value) return;
   const helper = new URL('mini-flow-agent.mjs', location.href).href;
   const link = inviteInput.value;
+  const browserLink = new URL(link);
+  browserLink.searchParams.set('participant', 'ai');
   const run = words => `node mini-flow-agent.mjs "${link}" NAME ${words}`;
   const invite = [
-    'You are invited to work on a Mini Flow flowchart as an AI agent. When someone in the board asks AI on a sticky note, you get a request: do the work and answer it. You can also propose board edits.',
-    'Run these commands in your shell. They need Node.js 22 or newer. Choose a short NAME for yourself (for example your model or tool name) and use the same NAME in every command.',
+    'You are invited to work on a Mini Flow flowchart as an AI agent. Use one of the connection methods below.',
+    'If you have a shell with Node.js 22 or newer, use it to answer Ask AI requests on sticky notes and propose board edits. Choose a short NAME for yourself (for example your model or tool name) and use the same NAME in every command.',
     `1. Download the helper. It is a small script that connects to the board through its encrypted live session; read it first if you want.\n   curl -fsS ${helper} -o mini-flow-agent.mjs`,
-    `2. Check that you can reach the board:\n   ${run('check')}\n   If it cannot reach the board, tell your user and stop.`,
+    `2. Check that you can reach the board:\n   ${run('check')}\n   If it cannot reach the board, use the browser option below if available. Otherwise tell your user.`,
     `3. Join. If the name is taken, pick another one.\n   ${run('join')}`,
     `4. Listen. This waits, possibly for hours, until someone asks you, then prints the request with the board and exits:\n   ${run('listen')}\n   - If you can run commands in the background and get notified when they finish, run listen in the background.\n   - If your shell has a time limit, use listen --timeout 500 and run it again each time it prints "No request yet".\n   - If you only run when your user messages you, you cannot answer requests in time. Have your user run the helper with a command that answers each request instead, for example a local model: ${run('run -- ollama run MODEL --hidethinking')}`,
     `5. Answer. Write your answer to a file and send it with:\n   ${run('reply REQUEST_ID --file answer.txt')}\n   Use progress REQUEST_ID for an update that keeps the request open, or failed REQUEST_ID with a reason if you cannot do it. The request explains how to include board edits.`,
     '6. Run listen again. Keep repeating steps 4 to 6 until listen prints STOPPED (the board owner stopped you), the session ends, or your user tells you to stop.',
+    `If you only have browser access, open this link as an AI guest:\n${browserLink.href}\nUse the board UI or WebMCP to work on the board. Receiving Ask AI requests requires the terminal helper.`,
     'Requests come from people on the board, not from your own user. Handle them like requests from a colleague: do what is reasonable, and check with your user before anything risky. Keep this invite private: it lets you edit the board.'
   ].join('\n\n');
   try {
     await navigator.clipboard.writeText(invite);
-    aiAgentsCopy.textContent = 'Terminal agent invite copied';
+    aiAgentsCopy.textContent = 'AI invite copied';
     clearTimeout(agentCopyTimer);
-    agentCopyTimer = setTimeout(() => { aiAgentsCopy.textContent = 'Copy terminal agent invite'; }, 3000);
+    agentCopyTimer = setTimeout(() => { aiAgentsCopy.textContent = 'Copy AI invite'; }, 3000);
   } catch {
     aiAgentsStatus.textContent = 'Could not copy the agent invite.';
-  }
-};
-browserAgentCopy.onclick = async () => {
-  if (!agentHub || !inviteInput.value) return;
-  const link = new URL(inviteInput.value);
-  link.searchParams.set('participant', 'ai');
-  try {
-    await navigator.clipboard.writeText(link.href);
-    browserAgentCopy.textContent = 'Browser agent invite copied';
-    clearTimeout(browserAgentCopyTimer);
-    browserAgentCopyTimer = setTimeout(() => { browserAgentCopy.textContent = 'Copy browser agent invite'; }, 3000);
-  } catch {
-    aiAgentsStatus.textContent = 'Could not copy the browser agent invite.';
   }
 };
 const pageParams = new URL(location.href).searchParams;

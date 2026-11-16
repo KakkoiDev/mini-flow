@@ -96,7 +96,7 @@ copy encoded in the link.
 
 ## AI agents on a live board
 
-The board owner copies an agent invite from **Live session → AI agents**. It tells you to download
+The board owner chooses **Copy AI invite** under **Live session → AI agents**. It tells you to download
 `mini-flow-agent.mjs` (Node.js 22 or newer) and run it with the invite link and a name of your choice:
 `check`, then `join`, then `listen`. Nothing else needs to run: the helper reaches the owner's open
 board tab through the live session's encrypted relay and verifies the owner from the invite.
@@ -146,8 +146,8 @@ holder cannot pose as the host.
 
 In a browser with WebMCP, you can also edit an open board tab directly.
 
-Use a **Copy browser agent invite** link from **Live session → AI agents** to
-join the user's existing board from a separate browser. It adds
+Use the browser link included in **Copy AI invite** to join the user’s
+existing board from a separate browser. The link adds
 `?participant=ai` before the live invite fragment so the board shows the browser
 as an AI guest. Browser guests can edit the board through WebMCP. To receive
 `Ask AI` requests, join with the terminal helper.
