@@ -86,11 +86,11 @@ export function changeThreadReply(messages, { replyId, previousText, text }, hos
   return { ok: true, messages: messages.map(item => item === message ? { ...item, text: text.trim(), edited } : item) };
 }
 
-export function createLiveSession({ room, host, getProject, setProject, normalize, canAccept, onStatus, onEnd,
+export function createLiveSession({ room, host, participant, getProject, setProject, normalize, canAccept, onStatus, onEnd,
   onAvailability = () => {}, onPresence = () => {}, onGuestCounts = () => {}, readNote = () => null,
   noteIds = () => [], onNoteColors = () => {}, onAIRequests = () => {}, onAIThread = () => {}, initialThreads = [],
   onCheckpoint = () => {}, onAIRequest, onAgentMessage, onAgentLeave = () => {} }) {
-  // AI agents connect with the mini-flow-agent helper. They talk only to the host and never see guests' traffic.
+  // Terminal agents have a dedicated peer role. Browser agents use their AI guest connection.
   const agentPeers = new Set();
   let agentSummary = [];
   let departedHost; // [{ name, listening }] set by the host page, shown to everyone
@@ -265,6 +265,11 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       return Promise.resolve(failure('live_not_ready', 'The live board is disconnected.'));
     }
     if (host) return Promise.resolve(handleNoteMessage(type, noteId, room.selfId, prompt, room.selfId));
+    return sendAsk({ type, noteId, prompt, owner: ownerSecret }, type === 'request' ? 20000 : 5000);
+  }
+
+  function sendAsk(payload, timeoutMs) {
+    if (!hostPeer || closed) return Promise.resolve(failure('live_not_ready', 'The live board is disconnected.'));
     if (pendingAsks.size >= 8) return Promise.resolve(failure('too_many_requests', 'Wait for a pending request to finish.'));
     return new Promise(resolve => {
       const requestId = id();
@@ -273,11 +278,10 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
         pendingAsks.delete(requestId);
         resolve(result);
       };
-      const timer = setTimeout(() => finish(failure('ask_timeout', 'The host did not confirm the request.')),
-        type === 'request' ? 20000 : 5000);
+      const timer = setTimeout(() => finish(failure('ask_timeout', 'The host did not confirm the request.')), timeoutMs);
       pendingAsks.set(requestId, finish);
-      send('ask', { type, requestId, noteId, prompt, owner: ownerSecret }).catch(() =>
-        finish(failure('ask_failed', 'Could not send the request to the host.')));
+      const message = payload.type === 'agent' ? { ...payload, id: requestId } : { ...payload, requestId };
+      send('ask', message).catch(() => finish(failure('ask_failed', 'Could not send the request to the host.')));
     });
   }
 
@@ -443,7 +447,9 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       return;
     }
     if (host) {
+      const guest = guests.get(from);
       if (!guests.delete(from)) return;
+      if (guest.isAI) onAgentLeave(from);
       checkpoint();
       reportGuestCount();
       if (guests.size) publishPresence();
@@ -453,7 +459,9 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (from !== hostPeer) return;
     departedHost = from;
     hostPeer = undefined;
-    finish(failure('live_disconnected', 'The other tab disconnected.'));
+    const disconnected = failure('live_disconnected', 'The other tab disconnected.');
+    finish(disconnected);
+    for (const resolve of pendingAsks.values()) resolve(disconnected);
     state = undefined;
     presenceRevision = 0;
     deferredState = undefined;
@@ -560,17 +568,18 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
           typeof status.label === 'string' && status.label.length <= 200))));
     }
   });
+  const canCallAgent = peer => agentPeers.has(peer) || guests.get(peer)?.isAI;
   room.onMessage('ask', async (data, from) => {
     if (closed) return;
-    if (host && agentPeers.has(from)) {
-      if (data?.type !== 'agent' || typeof data.id !== 'string' || data.id.length > 64 || typeof data.op !== 'string') return;
+    if (host && data?.type === 'agent') {
+      if (!canCallAgent(from) || typeof data.id !== 'string' || data.id.length > 64 || typeof data.op !== 'string') return;
       let result;
       try {
-        result = onAgentMessage ? await onAgentMessage(data, from) : failure('agents_unavailable', 'This board does not accept AI agents.');
+        result = onAgentMessage ? await onAgentMessage(data, from, { browser: guests.has(from) }) : failure('agents_unavailable', 'This board does not accept AI agents.');
       } catch {
         result = failure('agent_error', 'The board could not handle the request.');
       }
-      if (!closed && agentPeers.has(from)) send('ask', { type: 'agent_result', id: data.id, result }, from).catch(() => {});
+      if (!closed && canCallAgent(from)) send('ask', { type: 'agent_result', id: data.id, result }, from).catch(() => {});
       return;
     }
     if (host) {
@@ -583,6 +592,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       await send('ask', { type: 'result', requestId: data.requestId, result }, from).catch(() => {});
     } else if (from === hostPeer && data?.type === 'result') {
       pendingAsks.get(data.requestId)?.(data.result);
+    } else if (from === hostPeer && data?.type === 'agent_result') {
+      pendingAsks.get(data.id)?.(data.result);
     } else if (from === hostPeer && data?.type === 'thread' &&
       typeof data.noteId === 'string' && data.noteId.length <= 128) {
       receiveThread(data);
@@ -638,6 +649,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     },
     submit,
     askAI: (noteId, prompt) => submitNoteMessage('request', noteId, prompt),
+    ...(!host && participant === 'ai' && { callAgent: (op, body = {}) =>
+      sendAsk({ ...body, type: 'agent', op }, op === 'wait' ? 55000 : 20000) }),
     setAgents(next) {
       if (!host || closed) return;
       agentSummary = readAgentSummary(next);
@@ -678,7 +691,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
 const presenceTools = new Set(['terminal', 'step', 'decision', 'note', 'connect', 'laser', 'bend']);
 function readAgentSummary(agents) {
   return Array.isArray(agents) ? agents.slice(0, 32).filter(agent => typeof agent?.name === 'string' && agent.name.length <= 40)
-    .map(agent => ({ name: agent.name, listening: agent.listening === true })) : [];
+    .map(agent => ({ name: agent.name, listening: agent.listening === true, ...(agent.browser === true && { browser: true }) })) : [];
 }
 
 function readPresence(data) {

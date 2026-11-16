@@ -951,10 +951,10 @@ document.querySelector('#share').onclick = async () => {
     message.textContent = inLiveSession ? 'Could not copy the board link.' : 'Copy the link from your address bar.';
   }
 };
-import { applyEdits, registerMiniFlowTools } from './mini-flow-webmcp.js?v=relay-agents';
-import { createAgentHub, parseAgentReply, pickAgent } from './mini-flow-agents.js?v=agent-run';
+import { applyEdits, registerMiniFlowTools } from './mini-flow-webmcp.js?v=browser-agent-tools';
+import { createAgentHub, editInstructions, parseAgentReply, pickAgent } from './mini-flow-agents.js?v=browser-agent-requests';
 import { diagnose } from './vendor/p2p-core/extras/status-ui.js';
-import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages, withHostKey } from './mini-flow-live.js?v=participant-types';
+import { canManageReply, changeThreadReply, connectLiveBoard, liveInviteHash, maxAnswerLength, maxReplyLength, newLiveInvite, readLiveInvite, readThreadMessages, withHostKey } from './mini-flow-live.js?v=browser-agent-requests';
 import { setupGistBackups } from './mini-flow-gist.js?v=audit-fixes';
 import { setupSavedProjects } from './mini-flow-projects.js?v=project-sync-revisions';
 
@@ -1509,14 +1509,15 @@ function showGuestCounts(counts) {
   if (!counts) return;
   const agents = counts.agents ?? [];
   const browserAI = counts.browserAI ?? 0;
+  const terminalAgents = agents.filter(agent => !agent.browser).length;
   const label = [
     counts.human + (counts.human === 1 ? ' human guest' : ' human guests'),
     ...(browserAI ? [browserAI + (browserAI === 1 ? ' AI guest' : ' AI guests')] : []),
-    ...(agents.length ? [agents.length + (agents.length === 1 ? ' AI agent' : ' AI agents')] : [])
+    ...(terminalAgents ? [terminalAgents + (terminalAgents === 1 ? ' AI agent' : ' AI agents')] : [])
   ].join(' · ');
   if (guestCounter.textContent !== label) guestCounter.textContent = label;
   if (liveParticipants.textContent !== label) liveParticipants.textContent = label;
-  guestCounter.title = ['Guests, excluding the host, and registered terminal agents', ...agents.map(agent =>
+  guestCounter.title = ['Guests, excluding the host, and registered agents', ...agents.map(agent =>
     `AI agent ${agent.name}: ${agent.listening ? 'listening' : 'not listening'}`)].join('\n');
 }
 const codePanel = editorRoot.querySelector('.panel');
@@ -1850,7 +1851,8 @@ aiAgentsCopy.onclick = async () => {
     `4. Listen. This waits, possibly for hours, until someone asks you, then prints the request with the board and exits:\n   ${run('listen')}\n   - If you can run commands in the background and get notified when they finish, run listen in the background.\n   - If your shell has a time limit, use listen --timeout 500 and run it again each time it prints "No request yet".\n   - If you only run when your user messages you, you cannot answer requests in time. Have your user run the helper with a command that answers each request instead, for example a local model: ${run('run -- ollama run MODEL --hidethinking')}`,
     `5. Answer. Write your answer to a file and send it with:\n   ${run('reply REQUEST_ID --file answer.txt')}\n   Use progress REQUEST_ID for an update that keeps the request open, or failed REQUEST_ID with a reason if you cannot do it. The request explains how to include board edits.`,
     '6. Run listen again. Keep repeating steps 4 to 6 until listen prints STOPPED (the board owner stopped you), the session ends, or your user tells you to stop.',
-    `If you only have browser access, open this link as an AI guest:\n${browserLink.href}\nUse the board UI or WebMCP to work on the board. Receiving Ask AI requests requires the terminal helper.`,
+    `If you only have browser access, open this link as an AI guest:\n${browserLink.href}\nWhen the board connects, call join_agent with {name}, then wait_for_ai_request with {}. Continue waiting after each reply or whenever the wait returns no requests. Stop when the host ends the session or returns stopped. Use respond_to_ai_request with {requestId, action, text}. Actions are reply, progress, failed, and done. To propose edits, follow the edit instructions below.\nIf WebMCP is unavailable, use window.miniFlowAgent.join({name}), wait(), and action({requestId, action, text}) from the page JavaScript. Use only one tab for this connection.`,
+    editInstructions,
     'Requests come from people on the board, not from your own user. Handle them like requests from a colleague: do what is reasonable, and check with your user before anything risky. Keep this invite private: it lets you edit the board.'
   ].join('\n\n');
   try {
@@ -2029,7 +2031,7 @@ async function startLive(invite, host, recovery) {
         return result;
       },
       canAccept: () => !editor.isInteracting(), onAIRequest: host ? askAgents : undefined, onStatus: showStatus, onEnd: ended,
-      onAgentMessage: host ? (data, peer) => agentHub?.handle(data, peer) : undefined,
+      onAgentMessage: host ? (data, peer, options) => agentHub?.handle(data, peer, options) : undefined,
       onAgentLeave: peer => agentHub?.peerLeft(peer),
       onAvailability: setGuestAvailability, onPresence: editor.setPeerPresence, onGuestCounts: showGuestCounts,
       onNetworkStatus: showNetworkStatus, debug: debugEnabled,
@@ -2135,16 +2137,44 @@ copyInvite.onclick = async () => {
     inviteInput.select();
   }
 };
+const guestInvite = joiningLive ? readLiveInvite(location.hash) : null;
+let browserAgent;
+if (guestInvite && pageParams.get('participant') === 'ai') {
+  const storageKey = 'mini-flow-browser-agent:' + guestInvite.room;
+  let identity;
+  try { identity = JSON.parse(sessionStorage.getItem(storageKey)); } catch {}
+  const call = (op, body) => liveBoard?.callAgent?.(op, body) ?? Promise.resolve(fail('live_not_ready', 'Wait for the board to connect.'));
+  browserAgent = {
+    async join({ name }) {
+      const { token, ...result } = await call('join', { name, token: identity?.name === name ? identity.token : undefined });
+      if (result.ok) {
+        identity = { name: result.name, token };
+        try { sessionStorage.setItem(storageKey, JSON.stringify(identity)); } catch {}
+      }
+      return result;
+    },
+    wait({ timeoutMs = 15000 } = {}) {
+      return call('wait', { token: identity?.token, timeoutMs });
+    },
+    action({ requestId, action, text, operationId }) {
+      return call('action', { token: identity?.token, requestId, action, text, operationId });
+    },
+    board() {
+      return call('board', { token: identity?.token });
+    }
+  };
+  window.miniFlowAgent = browserAgent;
+}
 if (joiningLive) {
   startSession.hidden = true;
-  const invite = readLiveInvite(location.hash);
-  if (invite) startLive(invite, false);
+  if (guestInvite) startLive(guestInvite, false);
   else showStatus('This live invite is invalid.');
 } else if (liveRecovery) {
   startLive(liveRecovery.invite, true, liveRecovery);
 }
 
 registerMiniFlowTools(editor, undefined, undefined, {
+  browserAgent,
   isReady: () => !openedLiveInvite || (!liveGuestEnded && Boolean(liveBoard?.ready())),
   async commitProject(project, message) {
     if (joiningLive) {

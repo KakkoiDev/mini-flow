@@ -139,7 +139,7 @@ test('the host reloads the same session from its address bar', async ({ page, co
   await expect.poll(() => mermaid(page)).toContain('"Before reload"');
 });
 
-test('a browser agent invite identifies its guest to the host and other guests', async ({ page, context }) => {
+test('a browser agent joins from the AI invite and answers Ask AI with an edit', async ({ page, context }) => {
   const invite = await startHost(page);
   const human = await joinGuest(context, invite);
   await page.evaluate(() => {
@@ -154,13 +154,39 @@ test('a browser agent invite identifies its guest to the host and other guests',
   const aiInvite = copiedInvite.split('\n').find(line => line.startsWith(base) && line.includes('participant=ai'));
   expect(aiInvite).toBeDefined();
   expect(new URL(aiInvite).hash).toBe(new URL(invite).hash);
+  await context.addInitScript(() => {
+    window.agentTools = new Map();
+    Object.defineProperty(document, 'modelContext', { value: {
+      registerTool(tool) { window.agentTools.set(tool.name, tool.execute); }
+    } });
+  });
   const agent = await joinGuest(context, aiInvite);
-
+  const call = (name, body) => agent.evaluate(({ name, body }) => window.agentTools.get(name)(body), { name, body });
+  await agent.waitForFunction(() => window.agentTools.has('respond_to_ai_request'));
+  expect(await call('join_agent', { name: 'Browser AI' })).toMatchObject({ ok: true, name: 'Browser AI' });
+  await expect(page.getByRole('combobox', { name: 'Ask AI sends to' })).toHaveValue('Browser AI');
   await expect(page.locator('#live-participants')).toHaveText('1 human guest · 1 AI guest');
   await expect(counter(human)).toHaveText('1 human guest · 1 AI guest');
+  await page.getByRole('button', { name: 'Close' }).click();
+
+  const waiting = call('wait_for_ai_request', {});
+  await askAI(page);
+  const { requests: [request] } = await waiting;
+  expect(request.prompt).toBe('Add a retry when invalid');
+  const text = 'Renamed the step.\n```mini-flow-edit\n' + JSON.stringify({
+    message: 'Rename start',
+    edits: [{ op: 'rename_node', id: 'A', label: 'Begin' }]
+  }) + '\n```';
+  expect(await call('respond_to_ai_request', { requestId: request.id, action: 'reply', text })).toMatchObject({ ok: true });
+  const review = page.getByRole('dialog', { name: 'Apply diagram edit?' });
+  await expect(review).toContainText('Browser AI: Rename start');
+  await review.getByRole('button', { name: 'Apply edit' }).click();
+  await expect.poll(() => mermaid(human)).toContain('A["Begin"]');
+  await expect(await openConversation(page)).toContainText('Renamed the step.');
+
   await agent.getByRole('button', { name: /Live session/ }).click();
   await agent.getByRole('button', { name: 'Leave session' }).click();
-  await expect(page.locator('#live-participants')).toHaveText('1 human guest');
+  await expect(counter(page)).toHaveText('1 human guest');
   await expect(counter(human)).toHaveText('1 human guest');
 });
 
