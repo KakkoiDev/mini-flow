@@ -422,6 +422,7 @@ const examplePositions = {
 const key = 'mini-flow-edit-v1';
 const draftThreadKey = 'mini-flow-draft-threads-v1';
 const prefix = '#flow=';
+const hostPrefix = '#host=';
 const proposalPrefix = '#apply=';
 const openedLiveInvite = location.hash.startsWith('#live=');
 const openedLiveHash = openedLiveInvite ? location.hash : null;
@@ -560,19 +561,21 @@ function saveLocal(source, positions) {
     try { localStorage.setItem(key, JSON.stringify(includeThreads({ source, positions, savedProject: activeSavedProject }))); } catch {}
   }
 }
+function boardHash(source, positions) {
+  return prefix + encodeURIComponent(JSON.stringify({ source, positions }));
+}
 let toast, clearingBoard = false;
 function save(source, positions) {
   updateBlankState(source);
   if (toast && !clearingBoard && source !== 'flowchart TD') dismissToast();
-  const raw = JSON.stringify({ source, positions });
   saveLocal(source, positions);
-  const hash = prefix + encodeURIComponent(raw);
+  const hash = boardHash(source, positions);
   const threads = [...threadsFor(source, [...noteThreads])];
   try {
     if (threads.length) sessionStorage.setItem(draftThreadKey, JSON.stringify({ hash, threads }));
     else sessionStorage.removeItem(draftThreadKey);
   } catch {}
-  if (location.hash !== hash) {
+  if (!liveBoard?.host && location.hash !== hash) {
     try { history.replaceState({ ...history.state, miniFlowLocal: !sharedSession }, '', hash); }
     catch { message.textContent = 'Could not update the share link.'; }
   }
@@ -581,13 +584,18 @@ const liveRecoveryKey = 'mini-flow-host-session-v1';
 function readLiveRecovery() {
   try {
     const data = JSON.parse(sessionStorage.getItem(liveRecoveryKey));
-    if (!data?.invite || data.invite.room !== history.state?.miniFlowHostRoom ||
-      !readLiveInvite(liveInviteHash(data.invite)) ||
-      !Array.isArray(data.queue)) return null;
+    const room = location.hash.startsWith(hostPrefix) ? location.hash.slice(hostPrefix.length) : history.state?.miniFlowHostRoom;
+    if (!data?.invite || data.invite.room !== room || !readLiveInvite(liveInviteHash(data.invite))) return null;
     return { ...data, project: normalizeProject(data.project) };
   } catch { return null; }
 }
 const liveRecovery = !joiningLive && readLiveRecovery();
+if (!liveRecovery && location.hash.startsWith(hostPrefix)) {
+  const address = new URL(location.href);
+  address.hash = '';
+  history.replaceState({ ...history.state, miniFlowHostRoom: null }, '', address);
+  message.textContent = 'This live session can only be restored from its original host tab.';
+}
 const initialProposal = liveRecovery ? null : readProposal();
 const saved = joiningLive ? { source: 'flowchart TD', positions: {} } : liveRecovery?.project ?? initialProposal?.base ?? restore();
 let noteThreads = threadsFor(saved?.source ?? example, liveRecovery?.threads ?? saved?.threads);
@@ -816,7 +824,7 @@ proposalDialog.addEventListener('close', () => {
   if (decision) { decision(proposalDialog.returnValue === 'apply'); return; }
   if (location.hash.startsWith(proposalPrefix)) {
     const { source, positions } = editor.getProject();
-    const hash = prefix + encodeURIComponent(JSON.stringify({ source, positions }));
+    const hash = boardHash(source, positions);
     history.replaceState({ ...history.state, miniFlowLocal: !sharedSession }, '', hash);
   }
 });
@@ -927,10 +935,11 @@ updateBlankState();
 let copyTimer;
 document.querySelector('#share').onclick = async () => {
   const { source, positions } = editor.getProject();
-  if (!joiningLive && !location.hash.startsWith(prefix)) save(source, positions);
+  const inLiveSession = joiningLive || liveBoard?.host;
+  if (!inLiveSession && !location.hash.startsWith(prefix)) save(source, positions);
   const address = new URL(location.href);
   address.searchParams.delete('tab');
-  if (joiningLive) address.hash = prefix + encodeURIComponent(JSON.stringify({ source, positions }));
+  if (inLiveSession) address.hash = boardHash(source, positions);
   try {
     await navigator.clipboard.writeText(address.href);
     clearTimeout(copyTimer);
@@ -940,7 +949,7 @@ document.querySelector('#share').onclick = async () => {
     }, 3000);
   } catch {
     clearTimeout(copyTimer);
-    message.textContent = joiningLive ? 'Could not copy the board link.' : 'Copy the link from your address bar.';
+    message.textContent = inLiveSession ? 'Could not copy the board link.' : 'Copy the link from your address bar.';
   }
 };
 import { applyEdits, registerMiniFlowTools } from './mini-flow-webmcp.js?v=relay-agents';
@@ -2002,15 +2011,14 @@ function ended() {
     liveNotice.textContent = liveStatus.textContent;
     if (liveDialog.open) liveDialog.close();
   } else {
+    const { source, positions } = editor.getProject();
+    save(source, positions);
     showStatus('Session ended.');
   }
 }
 async function startLive(invite, host, recovery) {
   startSession.disabled = true;
-  if (host) {
-    liveNotice.textContent = '';
-    history.replaceState({ ...history.state, miniFlowHostRoom: invite.room }, '');
-  }
+  if (host) liveNotice.textContent = '';
   if (debugEnabled) {
     debugAttempt = { started: performance.now(), role: host ? 'host' : 'guest', stages: [] };
     debugPanel.hidden = false;
@@ -2063,6 +2071,7 @@ async function startLive(invite, host, recovery) {
     });
     liveBoard.checkpoint();
     if (host) {
+      history.replaceState({ ...history.state, miniFlowHostRoom: invite.room }, '', hostPrefix + invite.room);
       liveBoard.setAIRequests(aiStates);
       liveBoard.setAgents(agentHub?.agents ?? []);
     }

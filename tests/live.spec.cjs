@@ -97,6 +97,48 @@ test('a guest joins, edits sync both ways, comments reach the host, and the gues
   expect(await mermaid(page)).toContain('A["Begin"]');
 });
 
+test('the host reloads the same session from its address bar', async ({ page, context }) => {
+  const invite = await startHost(page);
+  const hostHash = new URL(page.url()).hash;
+  expect(hostHash).toMatch(/^#host=[a-f0-9]{32}$/);
+  const guest = await joinGuest(context, invite);
+  await expect(counter(page)).toHaveText('1 human guest');
+
+  await page.evaluate(() => miniFlowEditor.setMermaid(miniFlowEditor.getMermaid().replace('"Start"', '"Before reload"')));
+  await expect.poll(() => mermaid(guest)).toContain('"Before reload"');
+  expect(new URL(page.url()).hash).toBe(hostHash);
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: {
+      async writeText(value) { window.copiedLink = value; }
+    } });
+  });
+  await page.getByRole('button', { name: 'Copy link' }).click();
+  expect(new URL(await page.evaluate(() => window.copiedLink)).hash).toMatch(/^#flow=/);
+  expect(new URL(page.url()).hash).toBe(hostHash);
+
+  await guest.getByRole('button', { name: 'note: Add a retry when invalid' }).click();
+  await guest.getByRole('button', { name: 'Comment', exact: true }).click();
+  await guest.getByRole('textbox', { name: 'Comment' }).fill('Keep this after reload.');
+  await guest.getByRole('button', { name: 'Post comment' }).click();
+  await expect(await openConversation(page)).toContainText('Keep this after reload.');
+
+  await page.evaluate(() => history.replaceState(null, ''));
+  await page.reload();
+  await expect(counter(page)).toHaveText('1 human guest', { timeout: 20000 });
+  expect(new URL(page.url()).hash).toBe(hostHash);
+  await expect.poll(() => mermaid(page)).toContain('"Before reload"');
+  await expect(await openConversation(page)).toContainText('Keep this after reload.');
+
+  await page.getByRole('button', { name: /Live session/ }).click();
+  await expect(page.locator('#live-invite')).toHaveValue(invite);
+  await page.getByRole('button', { name: 'End session' }).click();
+  expect(new URL(page.url()).hash).toMatch(/^#flow=/);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Live session', exact: true })).toBeVisible();
+  await expect.poll(() => mermaid(page)).toContain('"Before reload"');
+});
+
 test('a browser agent invite identifies its guest to the host and other guests', async ({ page, context }) => {
   const invite = await startHost(page);
   const human = await joinGuest(context, invite);

@@ -132,7 +132,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   let nextGuestNumber = 0;
   function reserveGuestNumbers(entries) {
     for (const messages of entries.values()) for (const { author } of messages) {
-      const number = Number(author.match(/^(?:Guest|AI) (\d+)$/)?.[1]);
+      const number = Number(author.match(/^(?:Guest|AI guest|AI) (\d+)$/)?.[1]);
       if (Number.isSafeInteger(number)) nextGuestNumber = Math.max(nextGuestNumber, number);
     }
   }

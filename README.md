@@ -323,9 +323,11 @@ editing their own copy. Mini Flow switches the guest's URL to a snapshot and
 enables local Undo and Redo. During a connection interruption, guests can use
 **Leave session** to keep editing a copy while the host is away.
 
-Live sessions use p2p-core. A host reload in the same tab restores the board,
-comments, invite, AI agents, and their open requests. Open guest tabs and agents reconnect.
-**End session** clears recovery and closes the room explicitly.
+Live sessions use p2p-core. The host's address bar shows a session marker.
+Reload the same tab to restore the board, comments, invite, AI agents, and their
+open requests. Open guest tabs and agents reconnect. Use **Copy invite** to
+invite someone, and **Copy link** to share a board snapshot. **End session**
+clears recovery and returns the host to a snapshot.
 
 To keep one saved project current across devices, connect it to the same Gist
 on each device and enable **Sync this open project across devices**. Mini Flow
