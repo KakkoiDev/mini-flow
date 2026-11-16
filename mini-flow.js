@@ -211,6 +211,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
         button,input {background:var(--c-surface);border:1px solid var(--c-border);border-radius:8px;padding:8px}
         button {cursor:pointer} button[aria-pressed=true]{background:var(--c-accent-soft);border-color:var(--c-accent);color:var(--c-accent-ink)}
         kbd {margin-inline-start:5px;padding:1px 4px;border:1px solid var(--c-border);border-radius:4px;font:12px ui-monospace,monospace}
+        .toolbar:not(:has(> :not([hidden]))) {display:none}
         .toolbar [data-delete] kbd {display:inline-grid;place-items:center;box-sizing:border-box;width:20px;height:20px;padding:0}
         .toolbar button[data-delete] kbd svg {width:14px;height:14px;stroke-width:2}
         button:disabled {opacity:.45;cursor:default}
