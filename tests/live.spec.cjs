@@ -71,7 +71,7 @@ test('a guest joins, edits sync both ways, comments reach the host, and the gues
   const invite = await startHost(page);
   expect(invite).toMatch(/#live=[a-f0-9]{32}\.[a-f0-9]{32}&host=/);
   const guest = await joinGuest(context, invite);
-  await expect(counter(page)).toHaveText('1 guest');
+  await expect(counter(page)).toHaveText('1 human guest');
 
   await guest.evaluate(() => miniFlowEditor.setMermaid(miniFlowEditor.getMermaid().replace('"Start"', '"Begin"')));
   await expect.poll(() => mermaid(page)).toContain('A["Begin"]');
@@ -97,6 +97,71 @@ test('a guest joins, edits sync both ways, comments reach the host, and the gues
   expect(await mermaid(page)).toContain('A["Begin"]');
 });
 
+test('the host reloads the same session from its address bar', async ({ page, context }) => {
+  const invite = await startHost(page);
+  const hostHash = new URL(page.url()).hash;
+  expect(hostHash).toMatch(/^#host=[a-f0-9]{32}$/);
+  const guest = await joinGuest(context, invite);
+  await expect(counter(page)).toHaveText('1 human guest');
+
+  await page.evaluate(() => miniFlowEditor.setMermaid(miniFlowEditor.getMermaid().replace('"Start"', '"Before reload"')));
+  await expect.poll(() => mermaid(guest)).toContain('"Before reload"');
+  expect(new URL(page.url()).hash).toBe(hostHash);
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: {
+      async writeText(value) { window.copiedLink = value; }
+    } });
+  });
+  await page.getByRole('button', { name: 'Copy link' }).click();
+  expect(new URL(await page.evaluate(() => window.copiedLink)).hash).toMatch(/^#flow=/);
+  expect(new URL(page.url()).hash).toBe(hostHash);
+
+  await guest.getByRole('button', { name: 'note: Add a retry when invalid' }).click();
+  await guest.getByRole('button', { name: 'Comment', exact: true }).click();
+  await guest.getByRole('textbox', { name: 'Comment' }).fill('Keep this after reload.');
+  await guest.getByRole('button', { name: 'Post comment' }).click();
+  await expect(await openConversation(page)).toContainText('Keep this after reload.');
+
+  await page.evaluate(() => history.replaceState(null, ''));
+  await page.reload();
+  await expect(counter(page)).toHaveText('1 human guest', { timeout: 20000 });
+  expect(new URL(page.url()).hash).toBe(hostHash);
+  await expect.poll(() => mermaid(page)).toContain('"Before reload"');
+  await expect(await openConversation(page)).toContainText('Keep this after reload.');
+
+  await page.getByRole('button', { name: /Live session/ }).click();
+  await expect(page.locator('#live-invite')).toHaveValue(invite);
+  await page.getByRole('button', { name: 'End session' }).click();
+  expect(new URL(page.url()).hash).toMatch(/^#flow=/);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Live session', exact: true })).toBeVisible();
+  await expect.poll(() => mermaid(page)).toContain('"Before reload"');
+});
+
+test('a browser agent invite identifies its guest to the host and other guests', async ({ page, context }) => {
+  const invite = await startHost(page);
+  const human = await joinGuest(context, invite);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: {
+      async writeText(value) { window.copiedInvite = value; }
+    } });
+  });
+  await page.getByRole('button', { name: /Live session/ }).click();
+  await page.getByText('AI agents', { exact: true }).click();
+  await page.getByRole('button', { name: 'Copy browser agent invite' }).click();
+  const aiInvite = await page.evaluate(() => window.copiedInvite);
+  expect(new URL(aiInvite).hash).toBe(new URL(invite).hash);
+  const agent = await joinGuest(context, aiInvite);
+
+  await expect(page.locator('#live-participants')).toHaveText('1 human guest · 1 AI guest');
+  await expect(counter(human)).toHaveText('1 human guest · 1 AI guest');
+  await agent.getByRole('button', { name: /Live session/ }).click();
+  await agent.getByRole('button', { name: 'Leave session' }).click();
+  await expect(page.locator('#live-participants')).toHaveText('1 human guest');
+  await expect(counter(human)).toHaveText('1 human guest');
+});
+
 test('Ask AI needs a connected agent and says so', async ({ page, context }) => {
   const invite = await startHost(page);
   await page.getByRole('button', { name: 'note: Add a retry when invalid' }).click();
@@ -110,8 +175,8 @@ test('an AI agent joins, answers Ask AI with an edit, and everyone sees it', asy
   const invite = await startHost(page);
   const guest = await joinGuest(context, invite);
   const agent = await connectAgent(context, invite, 'Qwen');
-  await expect(counter(page)).toHaveText('1 guest · 1 AI agent');
-  await expect(counter(guest)).toHaveText('1 guest · 1 AI agent');
+  await expect(counter(page)).toHaveText('1 human guest · 1 AI agent');
+  await expect(counter(guest)).toHaveText('1 human guest · 1 AI agent');
   await expect(counter(page)).toHaveAttribute('title', /AI agent Qwen: listening/);
   await page.getByRole('button', { name: /Live session/ }).first().click();
   await page.getByText('AI agents', { exact: true }).click();
@@ -153,7 +218,7 @@ test('a guest asks AI, the agent fails, the host retries, cancels, and stops the
   const invite = await startHost(page);
   const guest = await joinGuest(context, invite);
   const agent = await connectAgent(context, invite, 'Qwen');
-  await expect(counter(guest)).toHaveText('1 guest · 1 AI agent');
+  await expect(counter(guest)).toHaveText('1 human guest · 1 AI agent');
 
   let waiting = agent.wait();
   await guest.getByRole('button', { name: 'note: Add a retry when invalid' }).click();
@@ -190,5 +255,5 @@ test('a guest asks AI, the agent fails, the host retries, cancels, and stops the
   await page.getByText('AI agents', { exact: true }).click();
   await page.getByRole('button', { name: 'Stop agent' }).click();
   expect((await stopped).reason).toBe('stopped');
-  await expect(counter(guest)).toHaveText('1 guest');
+  await expect(counter(guest)).toHaveText('1 human guest');
 });

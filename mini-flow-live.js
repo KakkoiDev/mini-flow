@@ -132,7 +132,7 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   let nextGuestNumber = 0;
   function reserveGuestNumbers(entries) {
     for (const messages of entries.values()) for (const { author } of messages) {
-      const number = Number(author.match(/^(?:Guest|AI) (\d+)$/)?.[1]);
+      const number = Number(author.match(/^(?:Guest|AI guest|AI) (\d+)$/)?.[1]);
       if (Number.isSafeInteger(number)) nextGuestNumber = Math.max(nextGuestNumber, number);
     }
   }
@@ -385,7 +385,8 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
   }
 
   function guestCounts() {
-    return { human: guests.size, agents: agentSummary };
+    const browserAI = [...guests.values()].filter(guest => guest.isAI).length;
+    return { human: guests.size - browserAI, ...(browserAI && { browserAI }), agents: agentSummary };
   }
 
   function presenceSnapshot() {
@@ -421,7 +422,9 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
     if (host) {
       if (guests.has(from) || guests.size >= maxGuests) return;
       const number = ++nextGuestNumber;
-      guests.set(from, { number, color: ++nextColor, label: `Guest ${number}`, presence: { point: null, focus: null } });
+      const isAI = room.peer?.(from)?.profile?.participant === 'ai';
+      const label = isAI ? `AI guest ${number}` : `Guest ${number}`;
+      guests.set(from, { number, isAI, color: ++nextColor, label, presence: { point: null, focus: null } });
       publish({}, from);
       for (const noteId of threads.keys()) publishThread(noteId, from);
       reportGuestCount();
@@ -541,7 +544,9 @@ export function createLiveSession({ room, host, getProject, setProject, normaliz
       Number.isSafeInteger(data.revision) && data.revision > presenceRevision) {
       presenceRevision = data.revision;
       if (Number.isInteger(data.counts?.human) && data.counts.human >= 0 && data.counts.human <= maxGuests) {
-        onGuestCounts({ human: data.counts.human, agents: readAgentSummary(data.counts.agents) });
+        const { human, browserAI } = data.counts;
+        const hasBrowserAI = Number.isInteger(browserAI) && browserAI > 0 && browserAI <= maxGuests - human;
+        onGuestCounts({ human, ...(hasBrowserAI && { browserAI }), agents: readAgentSummary(data.counts.agents) });
       }
       onPresence(data.peers.slice(0, maxGuests + 1).filter(item => typeof item?.id === 'string' &&
         item.id !== room.selfId && typeof item.label === 'string').map(item => ({
@@ -709,7 +714,9 @@ export async function connectLiveBoard(invite, host, handlers) {
     maxPeers: host ? maxGuests + maxAgents : 1,
     server: { url: invite.relay ?? defaultRelayUrl, roomInUrl: true },
     ...(invite.relay && { transports: { relays: false, pair: false } }),
-    maxMessageBytes, rateLimit: 60, kinds, profile: { role, ...signer?.profile }, debug: handlers.debug === true,
+    maxMessageBytes, rateLimit: 60, kinds,
+    profile: { role, ...(!host && handlers.participant === 'ai' && { participant: 'ai' }), ...signer?.profile },
+    debug: handlers.debug === true,
     acceptPeer: async peer => {
       if (host ? !['editor', 'agent'].includes(peer.profile?.role) : peer.profile?.role !== 'host') return false;
       if (host || !invite.host) return true;

@@ -2018,8 +2018,8 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
     }
     host.append(root);
     const colorScheme = globalThis.matchMedia?.('(prefers-color-scheme: dark)');
-    const rerenderTheme = () => render();
-    colorScheme?.addEventListener?.('change', rerenderTheme);
+    const refreshTheme = () => render();
+    colorScheme?.addEventListener?.('change', refreshTheme);
     if (dockLayout) frame.style.setProperty('--dock-height', toolbar.offsetHeight + 'px');
     syncSource();
     status(globalThis.matchMedia?.('(pointer: coarse)').matches
@@ -2027,7 +2027,7 @@ display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:v
       : 'Scroll to zoom · Drag empty space to pan · Double-click a shape or arrow to edit its label');
     render();
     fit();
-    return { getMermaid: sourceText, setMermaid, getProject, setProject, setPeerPresence, setNoteColors, setNoteAction, setAIRequests, setHistoryEnabled, isInteracting: () => Boolean(drag || bendDrag || reconnect || editing), undo, redo, fit, autoLayout, exportSvg, exportPng, exportMarkdown, destroy: () => { colorScheme?.removeEventListener?.('change', rerenderTheme); clearTimeout(pressTimer); clearTimeout(updateTimer); clearTimeout(laserTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
+    return { getMermaid: sourceText, setMermaid, getProject, setProject, setPeerPresence, setNoteColors, setNoteAction, setAIRequests, setHistoryEnabled, isInteracting: () => Boolean(drag || bendDrag || reconnect || editing), undo, redo, fit, autoLayout, refreshTheme, exportSvg, exportPng, exportMarkdown, destroy: () => { colorScheme?.removeEventListener?.('change', refreshTheme); clearTimeout(pressTimer); clearTimeout(updateTimer); clearTimeout(laserTimer); observer.disconnect(); headerActions.remove(); root.remove(); } };
   }
 
   globalThis.MiniFlow = { mount, parse, stringify };

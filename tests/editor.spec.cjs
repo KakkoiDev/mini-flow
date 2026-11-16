@@ -4,6 +4,28 @@ test.beforeEach(async ({ page }) => {
   await page.goto('http://127.0.0.1:8765/');
 });
 
+test('theme follows the system until changed and persists across reloads', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const toggle = page.getByRole('button', { name: 'Dark mode' });
+  const code = page.getByRole('button', { name: 'Code & export' });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  expect(await code.evaluate(button => button.nextElementSibling.id)).toBe('theme-toggle');
+  const arrow = page.locator('marker[id="arrow"] path');
+  await expect(arrow).toHaveAttribute('fill', '#8d9a95');
+  await toggle.click();
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(250, 248, 245)');
+  await expect(arrow).toHaveAttribute('fill', '#5b6662');
+  await page.reload();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(arrow).toHaveAttribute('fill', '#5b6662');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: 'Switch to dark mode' }).click();
+  await expect(page.getByRole('button', { name: 'More actions' })).toBeFocused();
+  await expect(arrow).toHaveAttribute('fill', '#8d9a95');
+});
+
 test('opens a live invite in an existing Mini Flow tab', async ({ page }) => {
   const { hash, relay } = await page.evaluate(async () => {
     const { liveInviteHash, newLiveInvite } = await import('./mini-flow-live.js');
